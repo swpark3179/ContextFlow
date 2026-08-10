@@ -1,11 +1,16 @@
-/* Ported verbatim from design/ContextFlow.dc.html <helmet> block (lines 10-31). */
-@import "@fontsource/ibm-plex-sans-kr/400.css";
-@import "@fontsource/ibm-plex-sans-kr/500.css";
-@import "@fontsource/ibm-plex-sans-kr/600.css";
-@import "@fontsource/ibm-plex-sans-kr/700.css";
-@import "@fontsource/ibm-plex-mono/400.css";
-@import "@fontsource/ibm-plex-mono/500.css";
-@import "@fontsource/ibm-plex-mono/600.css";
+/*
+ * Ported from design/ContextFlow.dc.html <helmet> block (lines 10-31), with one
+ * deliberate divergence: the design's IBM Plex pair is replaced by Google's Noto
+ * Sans KR / Roboto Mono, and every font size is one pixel larger than the
+ * design's. See README "알려진 제약" for why.
+ */
+@import "@fontsource/noto-sans-kr/400.css";
+@import "@fontsource/noto-sans-kr/500.css";
+@import "@fontsource/noto-sans-kr/600.css";
+@import "@fontsource/noto-sans-kr/700.css";
+@import "@fontsource/roboto-mono/400.css";
+@import "@fontsource/roboto-mono/500.css";
+@import "@fontsource/roboto-mono/600.css";
 
 * {
   box-sizing: border-box;
@@ -18,7 +23,7 @@ body {
   background: #e7e4de;
 }
 body {
-  font-family: "IBM Plex Sans KR", system-ui, sans-serif;
+  font-family: "Noto Sans KR", system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   color: #23211e;
   overflow: hidden;

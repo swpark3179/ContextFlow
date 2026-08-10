@@ -76,11 +76,11 @@ export default function Explorer() {
           }}
           hover={{ background: "#efece6" }}
         >
-          <span style={{ fontSize: 8, color: "#8a857c" }}>◀</span>
+          <span style={{ fontSize: 9, color: "#8a857c" }}>◀</span>
           <span
             style={{
               writingMode: "vertical-rl",
-              fontSize: 10.5,
+              fontSize: 11.5,
               fontWeight: 600,
               letterSpacing: 1,
               color: "#6a665e",
@@ -91,8 +91,8 @@ export default function Explorer() {
           <span
             style={{
               writingMode: "vertical-rl",
-              fontFamily: "'IBM Plex Mono',monospace",
-              fontSize: 9.5,
+              fontFamily: "'Roboto Mono',monospace",
+              fontSize: 10.5,
               color: "#b5afa2",
             }}
           >
@@ -104,7 +104,7 @@ export default function Explorer() {
   }
 
   const smallBtn: React.CSSProperties = {
-    fontSize: 10,
+    fontSize: 11,
     color: "#4e4a43",
     cursor: "pointer",
     padding: "2px 5px",
@@ -139,7 +139,7 @@ export default function Explorer() {
       >
         <span
           style={{
-            fontSize: 10.5,
+            fontSize: 11.5,
             fontWeight: 600,
             letterSpacing: ".4px",
             color: "#6a665e",
@@ -167,7 +167,7 @@ export default function Explorer() {
         <Box
           onClick={collapseAll}
           style={{
-            fontSize: 10,
+            fontSize: 11,
             color: "#8a857c",
             cursor: "pointer",
             padding: "2px 4px",
@@ -191,7 +191,7 @@ export default function Explorer() {
             borderRadius: 3,
             cursor: "pointer",
             color: "#8a857c",
-            fontSize: 11,
+            fontSize: 12,
             lineHeight: 1,
           }}
           hover={{ background: "#e6e2da", color: "#3a3630" }}
@@ -223,8 +223,8 @@ export default function Explorer() {
         />
         <span
           style={{
-            fontFamily: "'IBM Plex Mono',monospace",
-            fontSize: 10,
+            fontFamily: "'Roboto Mono',monospace",
+            fontSize: 11,
             color: "#6a665e",
             flex: "1 1 auto",
             minWidth: 0,
@@ -238,8 +238,8 @@ export default function Explorer() {
         </span>
         <span
           style={{
-            fontFamily: "'IBM Plex Mono',monospace",
-            fontSize: 9.5,
+            fontFamily: "'Roboto Mono',monospace",
+            fontSize: 10.5,
             color: "#b5afa2",
             flex: "0 0 auto",
           }}
@@ -284,8 +284,8 @@ export default function Explorer() {
               <span
                 style={{
                   flex: "0 0 auto",
-                  fontFamily: "'IBM Plex Mono',monospace",
-                  fontSize: 7.5,
+                  fontFamily: "'Roboto Mono',monospace",
+                  fontSize: 8.5,
                   fontWeight: 600,
                   color: s.mk.kind === "folder" ? "#8f5d17" : "#2f5cbb",
                   background: s.mk.kind === "folder" ? "#fbf3e6" : "#eef3fd",
@@ -312,8 +312,8 @@ export default function Explorer() {
                   border: 0,
                   outline: "none",
                   background: "transparent",
-                  fontFamily: "'IBM Plex Mono',monospace",
-                  fontSize: 11,
+                  fontFamily: "'Roboto Mono',monospace",
+                  fontSize: 12,
                   color: "#23211e",
                 }}
               />
@@ -321,7 +321,7 @@ export default function Explorer() {
                 onClick={() => void s.commitMk()}
                 style={{
                   flex: "0 0 auto",
-                  fontSize: 10,
+                  fontSize: 11,
                   fontWeight: 600,
                   color: "#2f5cbb",
                   cursor: "pointer",
@@ -336,7 +336,7 @@ export default function Explorer() {
                 onClick={() => s.set({ mk: null })}
                 style={{
                   flex: "0 0 auto",
-                  fontSize: 10,
+                  fontSize: 11,
                   color: "#a09a8f",
                   cursor: "pointer",
                   padding: "2px 4px",
@@ -345,7 +345,7 @@ export default function Explorer() {
                 취소
               </div>
             </div>
-            <div style={{ fontSize: 9.5, color: "#a09a8f", margin: "-1px 0 6px 6px" }}>
+            <div style={{ fontSize: 10.5, color: "#a09a8f", margin: "-1px 0 6px 6px" }}>
               위치 · {task?.relFolder ?? ""}
               {s.mk.parent}
             </div>
@@ -393,7 +393,7 @@ export default function Explorer() {
                 }}
                 hover={{ background: "#efece6" }}
               >
-                <span style={{ flex: "0 0 9px", fontSize: 7, color: "#a09a8f", textAlign: "center" }}>
+                <span style={{ flex: "0 0 9px", fontSize: 8, color: "#a09a8f", textAlign: "center" }}>
                   {r.open ? "▼" : "▶"}
                 </span>
                 <div
@@ -408,7 +408,7 @@ export default function Explorer() {
                 />
                 <span
                   style={{
-                    fontSize: 11.5,
+                    fontSize: 12.5,
                     fontWeight: 500,
                     color: "#4e4a43",
                     flex: 1,
@@ -422,8 +422,8 @@ export default function Explorer() {
                 </span>
                 <span
                   style={{
-                    fontFamily: "'IBM Plex Mono',monospace",
-                    fontSize: 9,
+                    fontFamily: "'Roboto Mono',monospace",
+                    fontSize: 10,
                     color: "#b5afa2",
                     flex: "0 0 auto",
                   }}
@@ -480,8 +480,8 @@ export default function Explorer() {
               <span
                 style={{
                   flex: "0 0 auto",
-                  fontFamily: "'IBM Plex Mono',monospace",
-                  fontSize: 7.5,
+                  fontFamily: "'Roboto Mono',monospace",
+                  fontSize: 8.5,
                   fontWeight: 600,
                   letterSpacing: ".2px",
                   borderRadius: 2,
@@ -494,7 +494,7 @@ export default function Explorer() {
               </span>
               <span
                 style={{
-                  fontSize: 11.5,
+                  fontSize: 12.5,
                   color: on ? "#23211e" : "#4e4a43",
                   fontWeight: on ? 600 : 400,
                   flex: 1,
@@ -510,8 +510,8 @@ export default function Explorer() {
                 <span
                   style={{
                     flex: "0 0 auto",
-                    fontFamily: "'IBM Plex Mono',monospace",
-                    fontSize: 7.5,
+                    fontFamily: "'Roboto Mono',monospace",
+                    fontSize: 8.5,
                     color: "#5a44b4",
                     background: "#f2eefc",
                     borderRadius: 2,
@@ -525,8 +525,8 @@ export default function Explorer() {
                 <span
                   style={{
                     flex: "0 0 auto",
-                    fontFamily: "'IBM Plex Mono',monospace",
-                    fontSize: 7.5,
+                    fontFamily: "'Roboto Mono',monospace",
+                    fontSize: 8.5,
                     color: "#2f5cbb",
                     background: "#eef3fd",
                     borderRadius: 2,
@@ -540,8 +540,8 @@ export default function Explorer() {
                 <span
                   style={{
                     flex: "0 0 auto",
-                    fontFamily: "'IBM Plex Mono',monospace",
-                    fontSize: 8,
+                    fontFamily: "'Roboto Mono',monospace",
+                    fontSize: 9,
                     color: "#8a857c",
                     background: "#efece6",
                     borderRadius: 2,
@@ -555,8 +555,8 @@ export default function Explorer() {
                 <span
                   style={{
                     flex: "0 0 auto",
-                    fontFamily: "'IBM Plex Mono',monospace",
-                    fontSize: 7.5,
+                    fontFamily: "'Roboto Mono',monospace",
+                    fontSize: 8.5,
                     fontWeight: 600,
                     color: "#8f5d17",
                     background: "#fbf3e6",
@@ -583,13 +583,13 @@ export default function Explorer() {
           }}
         >
           <div
-            style={{ fontSize: 10.5, color: s.dragOver ? "#2f5cbb" : "#a09a8f", lineHeight: 1.6 }}
+            style={{ fontSize: 11.5, color: s.dragOver ? "#2f5cbb" : "#a09a8f", lineHeight: 1.6 }}
           >
             {s.dragOver
               ? "놓으면 이 업무 폴더로 가져옵니다"
               : "바탕화면에서 파일을 끌어다 놓기"}
           </div>
-          <div style={{ fontSize: 9.5, color: "#b5afa2", marginTop: 2 }}>
+          <div style={{ fontSize: 10.5, color: "#b5afa2", marginTop: 2 }}>
             복사 또는 심볼릭 링크를 선택할 수 있습니다
           </div>
         </div>
@@ -615,8 +615,8 @@ export default function Explorer() {
           >
             <span
               style={{
-                fontFamily: "'IBM Plex Mono',monospace",
-                fontSize: 7.5,
+                fontFamily: "'Roboto Mono',monospace",
+                fontSize: 8.5,
                 fontWeight: 600,
                 borderRadius: 2,
                 padding: "1px 3px",
@@ -629,7 +629,7 @@ export default function Explorer() {
             </span>
             <span
               style={{
-                fontSize: 11.5,
+                fontSize: 12.5,
                 fontWeight: 600,
                 flex: 1,
                 minWidth: 0,
@@ -642,8 +642,8 @@ export default function Explorer() {
             </span>
             <span
               style={{
-                fontFamily: "'IBM Plex Mono',monospace",
-                fontSize: 9.5,
+                fontFamily: "'Roboto Mono',monospace",
+                fontSize: 10.5,
                 color: "#a09a8f",
                 flex: "0 0 auto",
               }}
@@ -653,7 +653,7 @@ export default function Explorer() {
           </div>
           <div
             style={{
-              fontSize: 9.5,
+              fontSize: 10.5,
               fontWeight: 600,
               letterSpacing: ".4px",
               color: "#a09a8f",
@@ -680,8 +680,8 @@ export default function Explorer() {
             >
               <span
                 style={{
-                  fontFamily: "'IBM Plex Mono',monospace",
-                  fontSize: 8,
+                  fontFamily: "'Roboto Mono',monospace",
+                  fontSize: 9,
                   fontWeight: 600,
                   color: "#2f5cbb",
                   background: "#eef3fd",
@@ -691,9 +691,9 @@ export default function Explorer() {
               >
                 TXT
               </span>
-              <span style={{ fontSize: 11, color: "#3a3630", flex: 1 }}>텍스트 에디터로 열기</span>
+              <span style={{ fontSize: 12, color: "#3a3630", flex: 1 }}>텍스트 에디터로 열기</span>
               <span
-                style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 9, color: "#b5afa2" }}
+                style={{ fontFamily: "'Roboto Mono',monospace", fontSize: 10, color: "#b5afa2" }}
               >
                 편집 가능
               </span>
@@ -718,8 +718,8 @@ export default function Explorer() {
             >
               <span
                 style={{
-                  fontFamily: "'IBM Plex Mono',monospace",
-                  fontSize: 8,
+                  fontFamily: "'Roboto Mono',monospace",
+                  fontSize: 9,
                   fontWeight: 600,
                   color: "#5a44b4",
                   background: "#f2eefc",
@@ -729,9 +729,9 @@ export default function Explorer() {
               >
                 MD
               </span>
-              <span style={{ fontSize: 11, color: "#3a3630", flex: 1 }}>마크다운 뷰어로 열기</span>
+              <span style={{ fontSize: 12, color: "#3a3630", flex: 1 }}>마크다운 뷰어로 열기</span>
               <span
-                style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 9, color: "#b5afa2" }}
+                style={{ fontFamily: "'Roboto Mono',monospace", fontSize: 10, color: "#b5afa2" }}
               >
                 {selIsMd ? "읽기 전용" : ".md 전용"}
               </span>
@@ -753,8 +753,8 @@ export default function Explorer() {
             >
               <span
                 style={{
-                  fontFamily: "'IBM Plex Mono',monospace",
-                  fontSize: 8,
+                  fontFamily: "'Roboto Mono',monospace",
+                  fontSize: 9,
                   fontWeight: 600,
                   color: "#6a665e",
                   background: "#f0ede7",
@@ -764,15 +764,15 @@ export default function Explorer() {
               >
                 ↗
               </span>
-              <span style={{ fontSize: 11, color: "#3a3630", flex: 1 }}>연결 프로그램으로 열기</span>
+              <span style={{ fontSize: 12, color: "#3a3630", flex: 1 }}>연결 프로그램으로 열기</span>
               <span
-                style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 9, color: "#b5afa2" }}
+                style={{ fontFamily: "'Roboto Mono',monospace", fontSize: 10, color: "#b5afa2" }}
               >
                 {appsFor(selExt)[0]?.n ?? ""}
               </span>
             </Box>
           </div>
-          <div style={{ fontSize: 9.5, color: "#b5afa2", marginTop: 7, lineHeight: 1.6 }}>
+          <div style={{ fontSize: 10.5, color: "#b5afa2", marginTop: 7, lineHeight: 1.6 }}>
             더블클릭 = 기본 열기 · 우클릭 = 열기 방식 메뉴
           </div>
         </div>

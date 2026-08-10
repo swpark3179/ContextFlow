@@ -87,8 +87,8 @@ export default function EditorPane() {
                   alignItems: "center",
                   gap: 6,
                   padding: "0 8px 0 9px",
-                  fontFamily: "'IBM Plex Mono',monospace",
-                  fontSize: 10.5,
+                  fontFamily: "'Roboto Mono',monospace",
+                  fontSize: 11.5,
                   cursor: "pointer",
                   borderRight: "1px solid #e6e2da",
                   whiteSpace: "nowrap",
@@ -105,7 +105,7 @@ export default function EditorPane() {
                 <span
                   style={{
                     flex: "0 0 auto",
-                    fontSize: 8,
+                    fontSize: 9,
                     fontWeight: 600,
                     letterSpacing: ".3px",
                     borderRadius: 2,
@@ -151,7 +151,7 @@ export default function EditorPane() {
                     alignItems: "center",
                     justifyContent: "center",
                     borderRadius: 3,
-                    fontSize: 9,
+                    fontSize: 10,
                     color: "#a09a8f",
                   }}
                   hover={{ background: "#e0dcd4", color: "#4e4a43" }}
@@ -177,9 +177,9 @@ export default function EditorPane() {
             background: "#fdfcfa",
           }}
         >
-          <div style={{ fontSize: 12, color: "#8a857c" }}>열려 있는 파일이 없습니다</div>
+          <div style={{ fontSize: 13, color: "#8a857c" }}>열려 있는 파일이 없습니다</div>
           <div
-            style={{ fontSize: 10.5, color: "#a09a8f", textAlign: "center", lineHeight: 1.7 }}
+            style={{ fontSize: 11.5, color: "#a09a8f", textAlign: "center", lineHeight: 1.7 }}
           >
             오른쪽 탐색기에서 파일을 더블클릭하거나,
             <br />
@@ -212,16 +212,16 @@ export default function EditorPane() {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              fontFamily: "'IBM Plex Mono',monospace",
-              fontSize: 10,
+              fontFamily: "'Roboto Mono',monospace",
+              fontSize: 11,
               color: "#8a857c",
             }}
           >
             {ext.toUpperCase()}
           </div>
-          <div style={{ fontSize: 12, fontWeight: 500 }}>{basename(tab.path)}</div>
+          <div style={{ fontSize: 13, fontWeight: 500 }}>{basename(tab.path)}</div>
           <div
-            style={{ fontSize: 10.5, color: "#a09a8f", textAlign: "center", lineHeight: 1.7 }}
+            style={{ fontSize: 11.5, color: "#a09a8f", textAlign: "center", lineHeight: 1.7 }}
           >
             텍스트로 표시할 수 없는 형식입니다 · {meta?.size ?? ""}
             <br />
@@ -238,7 +238,7 @@ export default function EditorPane() {
               border: "1px solid #cddcf8",
               background: "#eef3fd",
               color: "#2f5cbb",
-              fontSize: 11.5,
+              fontSize: 12.5,
               fontWeight: 600,
               cursor: "pointer",
             }}
@@ -262,14 +262,14 @@ export default function EditorPane() {
               borderBottom: "1px dashed #e4e0d8",
             }}
           >
-            <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: ".4px", color: "#6a665e" }}>
+            <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: ".4px", color: "#6a665e" }}>
               마크다운 뷰어
             </span>
-            <span style={{ fontSize: 10, color: "#a09a8f" }}>읽기 전용 · 위키링크 활성</span>
+            <span style={{ fontSize: 11, color: "#a09a8f" }}>읽기 전용 · 위키링크 활성</span>
             <div style={{ flex: 1 }} />
             <Box
               onClick={() => void s.openFile(tab.path, "text", true)}
-              style={{ fontSize: 10, color: "#3a6fd8", cursor: "pointer" }}
+              style={{ fontSize: 11, color: "#3a6fd8", cursor: "pointer" }}
               hover={{ textDecoration: "underline" }}
             >
               텍스트로 편집
@@ -282,7 +282,7 @@ export default function EditorPane() {
                   <div
                     key={b.key}
                     style={{
-                      fontSize: 15,
+                      fontSize: 16,
                       fontWeight: 600,
                       letterSpacing: "-.2px",
                       color: "#23211e",
@@ -298,7 +298,7 @@ export default function EditorPane() {
                 return (
                   <div
                     key={b.key}
-                    style={{ fontSize: 12.5, fontWeight: 600, color: "#3a3630", margin: "12px 0 4px 0" }}
+                    style={{ fontSize: 13.5, fontWeight: 600, color: "#3a3630", margin: "12px 0 4px 0" }}
                   >
                     {b.text}
                   </div>
@@ -312,7 +312,7 @@ export default function EditorPane() {
                 >
                   {b.hasMark && (
                     <span
-                      style={{ flex: "0 0 auto", fontSize: 11.5, lineHeight: 1.8, color: b.markFg }}
+                      style={{ flex: "0 0 auto", fontSize: 12.5, lineHeight: 1.8, color: b.markFg }}
                     >
                       {b.mark}
                     </span>
@@ -321,7 +321,7 @@ export default function EditorPane() {
                     style={{
                       flex: 1,
                       minWidth: 0,
-                      fontSize: 12.5,
+                      fontSize: 13.5,
                       lineHeight: 1.8,
                       color: b.fg,
                     }}
@@ -338,8 +338,8 @@ export default function EditorPane() {
                           <span
                             key={g.key}
                             style={{
-                              fontFamily: "'IBM Plex Mono',monospace",
-                              fontSize: 11,
+                              fontFamily: "'Roboto Mono',monospace",
+                              fontSize: 12,
                               background: "#f4f2ed",
                               border: "1px solid #e6e2da",
                               borderRadius: 3,
@@ -384,8 +384,8 @@ export default function EditorPane() {
                 padding: "8px 12px",
                 background: "#faf9f6",
                 borderBottom: "1px dashed #e4e0d8",
-                fontFamily: "'IBM Plex Mono',monospace",
-                fontSize: 10.5,
+                fontFamily: "'Roboto Mono',monospace",
+                fontSize: 11.5,
                 lineHeight: 1.65,
                 color: "#6a665e",
               }}
@@ -422,8 +422,8 @@ export default function EditorPane() {
               border: 0,
               outline: "none",
               padding: "10px 12px",
-              fontFamily: "'IBM Plex Mono',monospace",
-              fontSize: 12,
+              fontFamily: "'Roboto Mono',monospace",
+              fontSize: 13,
               lineHeight: 1.72,
               color: "#2c2a26",
               background: "#fff",
@@ -438,8 +438,8 @@ export default function EditorPane() {
               padding: "0 12px",
               background: "#f7f5f1",
               borderTop: "1px solid #e6e2da",
-              fontFamily: "'IBM Plex Mono',monospace",
-              fontSize: 9.5,
+              fontFamily: "'Roboto Mono',monospace",
+              fontSize: 10.5,
               color: "#8a857c",
             }}
           >

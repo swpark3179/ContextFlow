@@ -88,7 +88,7 @@ export default function MenuBar() {
         <div key={m} style={{ position: "relative" }}>
           <Box
             style={{
-              fontSize: 11.5,
+              fontSize: 12.5,
               color: "#4e4a43",
               padding: "3px 7px",
               borderRadius: 4,
@@ -124,7 +124,7 @@ export default function MenuBar() {
                     display: "flex",
                     alignItems: "center",
                     gap: 8,
-                    fontSize: 11.5,
+                    fontSize: 12.5,
                     color: "#3a3630",
                     padding: "5px 8px",
                     borderRadius: 4,
@@ -141,8 +141,8 @@ export default function MenuBar() {
                   {item.hint && (
                     <span
                       style={{
-                        fontFamily: "'IBM Plex Mono',monospace",
-                        fontSize: 9.5,
+                        fontFamily: "'Roboto Mono',monospace",
+                        fontSize: 10.5,
                         color: "#b5afa2",
                       }}
                     >
@@ -166,7 +166,7 @@ export default function MenuBar() {
           }}
         />
         <span
-          style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 10.5, color: "#8a857c" }}
+          style={{ fontFamily: "'Roboto Mono',monospace", fontSize: 11.5, color: "#8a857c" }}
         >
           {s.settings.vault}
         </span>

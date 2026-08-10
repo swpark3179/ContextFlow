@@ -29,7 +29,7 @@ export default function NewTaskModal() {
       ? `${ntRecs.length}건 검색됨`
       : "대기 중";
 
-  const label = { fontSize: 11, fontWeight: 600, color: "#6a665e", marginBottom: 5 } as const;
+  const label = { fontSize: 12, fontWeight: 600, color: "#6a665e", marginBottom: 5 } as const;
 
   return (
     <div
@@ -72,8 +72,8 @@ export default function NewTaskModal() {
             background: "#faf9f6",
           }}
         >
-          <span style={{ fontSize: 13, fontWeight: 600 }}>새 업무 추가</span>
-          <span style={{ fontSize: 10.5, color: "#8a857c" }}>
+          <span style={{ fontSize: 14, fontWeight: 600 }}>새 업무 추가</span>
+          <span style={{ fontSize: 11.5, color: "#8a857c" }}>
             제목을 입력하면 과거 Vault 노드와의 유사도를 계산합니다
           </span>
           <div style={{ flex: 1 }} />
@@ -88,7 +88,7 @@ export default function NewTaskModal() {
               borderRadius: 4,
               cursor: "pointer",
               color: "#8a857c",
-              fontSize: 12,
+              fontSize: 13,
             }}
             hover={{ background: "#ece8e0" }}
           >
@@ -125,7 +125,7 @@ export default function NewTaskModal() {
                   border: "1px solid #ddd8cf",
                   borderRadius: 5,
                   padding: "0 9px",
-                  fontSize: 12.5,
+                  fontSize: 13.5,
                   outline: "none",
                 }}
                 focusStyle={inputFocus}
@@ -143,7 +143,7 @@ export default function NewTaskModal() {
                   border: "1px solid #ddd8cf",
                   borderRadius: 5,
                   padding: "8px 9px",
-                  fontSize: 11.5,
+                  fontSize: 12.5,
                   lineHeight: 1.65,
                   outline: "none",
                 }}
@@ -163,8 +163,8 @@ export default function NewTaskModal() {
                     border: "1px solid #ddd8cf",
                     borderRadius: 5,
                     padding: "0 9px",
-                    fontFamily: "'IBM Plex Mono',monospace",
-                    fontSize: 11,
+                    fontFamily: "'Roboto Mono',monospace",
+                    fontSize: 12,
                     outline: "none",
                   }}
                   focusStyle={inputFocus}
@@ -181,7 +181,7 @@ export default function NewTaskModal() {
                     border: "1px solid #ddd8cf",
                     borderRadius: 5,
                     padding: "0 6px",
-                    fontSize: 11.5,
+                    fontSize: 12.5,
                     background: "#fff",
                     outline: "none",
                   }}
@@ -202,13 +202,13 @@ export default function NewTaskModal() {
                 background: "#faf9f6",
               }}
             >
-              <div style={{ fontSize: 10.5, fontWeight: 600, color: "#6a665e", marginBottom: 5 }}>
+              <div style={{ fontSize: 11.5, fontWeight: 600, color: "#6a665e", marginBottom: 5 }}>
                 생성될 폴더 구조
               </div>
               <div
                 style={{
-                  fontFamily: "'IBM Plex Mono',monospace",
-                  fontSize: 10,
+                  fontFamily: "'Roboto Mono',monospace",
+                  fontSize: 11,
                   lineHeight: 1.75,
                   color: "#8a857c",
                   wordBreak: "break-all",
@@ -246,7 +246,7 @@ export default function NewTaskModal() {
             >
               <div style={{ width: 7, height: 7, borderRadius: "50%", background: VIOLET }} />
               <span
-                style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: ".4px", color: "#4e4a43" }}
+                style={{ fontSize: 11.5, fontWeight: 600, letterSpacing: ".4px", color: "#4e4a43" }}
               >
                 시작 전 유사 업무 추천
               </span>
@@ -263,7 +263,7 @@ export default function NewTaskModal() {
                   }}
                 />
               )}
-              <span style={{ fontSize: 10, color: "#a09a8f" }}>{status}</span>
+              <span style={{ fontSize: 11, color: "#a09a8f" }}>{status}</span>
             </div>
 
             <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: 9 }}>
@@ -272,7 +272,7 @@ export default function NewTaskModal() {
                   style={{
                     padding: "40px 18px",
                     textAlign: "center",
-                    fontSize: 11.5,
+                    fontSize: 12.5,
                     color: "#a09a8f",
                     lineHeight: 1.8,
                   }}
@@ -303,8 +303,8 @@ export default function NewTaskModal() {
                     <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
                       <span
                         style={{
-                          fontFamily: "'IBM Plex Mono',monospace",
-                          fontSize: 12.5,
+                          fontFamily: "'Roboto Mono',monospace",
+                          fontSize: 13.5,
                           fontWeight: 600,
                           color: simColor,
                         }}
@@ -313,7 +313,7 @@ export default function NewTaskModal() {
                       </span>
                       <span
                         style={{
-                          fontSize: 11.5,
+                          fontSize: 12.5,
                           fontWeight: 600,
                           overflow: "hidden",
                           textOverflow: "ellipsis",
@@ -327,7 +327,7 @@ export default function NewTaskModal() {
                       {tag && (
                         <span
                           style={{
-                            fontSize: 9.5,
+                            fontSize: 10.5,
                             fontWeight: 600,
                             color: tag.fg,
                             background: tag.bg,
@@ -342,8 +342,8 @@ export default function NewTaskModal() {
                     </div>
                     <div
                       style={{
-                        fontFamily: "'IBM Plex Mono',monospace",
-                        fontSize: 9.5,
+                        fontFamily: "'Roboto Mono',monospace",
+                        fontSize: 10.5,
                         color: "#a09a8f",
                         marginTop: 3,
                         overflow: "hidden",
@@ -364,7 +364,7 @@ export default function NewTaskModal() {
                           alignItems: "center",
                           gap: 5,
                           marginTop: 5,
-                          fontSize: 10,
+                          fontSize: 11,
                           color: VIOLET,
                           background: "#f2eefc",
                           border: "1px solid #e4dcf8",
@@ -373,7 +373,7 @@ export default function NewTaskModal() {
                           cursor: "pointer",
                         }}
                       >
-                        <span style={{ fontSize: 8 }}>{s.expanded[r.id] ? "▼" : "▶"}</span>
+                        <span style={{ fontSize: 9 }}>{s.expanded[r.id] ? "▼" : "▶"}</span>
                         <span>동일 패턴 {r.cluster!.length}건 접힘</span>
                       </div>
                     )}
@@ -396,14 +396,14 @@ export default function NewTaskModal() {
                           >
                             <span
                               style={{
-                                fontFamily: "'IBM Plex Mono',monospace",
-                                fontSize: 9.5,
+                                fontFamily: "'Roboto Mono',monospace",
+                                fontSize: 10.5,
                                 color: "#a09a8f",
                               }}
                             >
                               {c.date}
                             </span>
-                            <span style={{ fontSize: 10.5, color: "#5d594f" }}>{c.title}</span>
+                            <span style={{ fontSize: 11.5, color: "#5d594f" }}>{c.title}</span>
                           </div>
                         ))}
                       </div>
@@ -416,7 +416,7 @@ export default function NewTaskModal() {
                           s.toast("참조로 연결 (읽기 전용)", r.path, "#a8a29a");
                         }}
                         style={{
-                          fontSize: 10.5,
+                          fontSize: 11.5,
                           padding: "3px 8px",
                           borderRadius: 4,
                           border: "1px solid #ddd8cf",
@@ -451,7 +451,7 @@ export default function NewTaskModal() {
                           })();
                         }}
                         style={{
-                          fontSize: 10.5,
+                          fontSize: 11.5,
                           fontWeight: 600,
                           padding: "3px 8px",
                           borderRadius: 4,
@@ -476,7 +476,7 @@ export default function NewTaskModal() {
                             })
                           }
                           style={{
-                            fontSize: 10.5,
+                            fontSize: 11.5,
                             fontWeight: 600,
                             padding: "3px 8px",
                             borderRadius: 4,
@@ -511,7 +511,7 @@ export default function NewTaskModal() {
         >
           <span
             style={{
-              fontSize: 10.5,
+              fontSize: 11.5,
               color: "#8a857c",
               flex: 1,
               minWidth: 0,
@@ -534,7 +534,7 @@ export default function NewTaskModal() {
               border: "1px solid #ddd8cf",
               borderRadius: 5,
               background: "#fff",
-              fontSize: 11.5,
+              fontSize: 12.5,
               cursor: "pointer",
             }}
             hover={{ background: "#f2efe9" }}
@@ -549,7 +549,7 @@ export default function NewTaskModal() {
               display: "flex",
               alignItems: "center",
               borderRadius: 5,
-              fontSize: 11.5,
+              fontSize: 12.5,
               fontWeight: 600,
               cursor: title ? "pointer" : "not-allowed",
               background: title ? BLUE : "#e6e2da",

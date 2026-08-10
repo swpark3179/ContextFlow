@@ -57,8 +57,8 @@ export default function Workspace() {
           background: "#fdfcfa",
         }}
       >
-        <div style={{ fontSize: 13, color: "#8a857c" }}>업무가 없습니다</div>
-        <div style={{ fontSize: 11, color: "#a09a8f", textAlign: "center", lineHeight: 1.8 }}>
+        <div style={{ fontSize: 14, color: "#8a857c" }}>업무가 없습니다</div>
+        <div style={{ fontSize: 12, color: "#a09a8f", textAlign: "center", lineHeight: 1.8 }}>
           왼쪽 아래 [+ 새 업무 추가]로 첫 업무를 만들어 보세요.
           <br />
           업무마다 전용 폴더가 Vault 안에 생성됩니다.
@@ -88,7 +88,7 @@ export default function Workspace() {
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span
               style={{
-                fontSize: 14.5,
+                fontSize: 15.5,
                 fontWeight: 600,
                 letterSpacing: "-.2px",
                 overflow: "hidden",
@@ -102,8 +102,8 @@ export default function Workspace() {
               <span
                 key={tag}
                 style={{
-                  fontFamily: "'IBM Plex Mono',monospace",
-                  fontSize: 9.5,
+                  fontFamily: "'Roboto Mono',monospace",
+                  fontSize: 10.5,
                   color: "#6a665e",
                   background: "#f0ede7",
                   border: "1px solid #e4e0d8",
@@ -118,8 +118,8 @@ export default function Workspace() {
           <div style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 3 }}>
             <span
               style={{
-                fontFamily: "'IBM Plex Mono',monospace",
-                fontSize: 10,
+                fontFamily: "'Roboto Mono',monospace",
+                fontSize: 11,
                 color: "#a09a8f",
                 overflow: "hidden",
                 textOverflow: "ellipsis",
@@ -132,7 +132,7 @@ export default function Workspace() {
           </div>
         </div>
         <div style={{ flex: 1 }} />
-        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10.5, color: "#8a857c" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: "#8a857c" }}>
           <div style={{ width: 5, height: 5, borderRadius: "50%", background: GREEN }} />
           <span>스냅샷 {s.snapAt}</span>
         </div>
@@ -149,13 +149,13 @@ export default function Workspace() {
             border: `1px solid ${st.bd}`,
             background: st.bg,
             color: st.fg,
-            fontSize: 11.5,
+            fontSize: 12.5,
             fontWeight: 600,
           }}
         >
           <div style={{ width: 6, height: 6, borderRadius: "50%", background: st.dot }} />
           {st.label}
-          <span style={{ fontSize: 8, opacity: 0.7 }}>▼</span>
+          <span style={{ fontSize: 9, opacity: 0.7 }}>▼</span>
         </Box>
         {s.statusMenuOpen && (
           <>
@@ -189,7 +189,7 @@ export default function Workspace() {
                     padding: "6px 8px",
                     borderRadius: 4,
                     cursor: "pointer",
-                    fontSize: 11.5,
+                    fontSize: 12.5,
                     color: "#3a3630",
                     background: task.status === k ? "#f4f2ee" : "transparent",
                   }}
@@ -204,7 +204,7 @@ export default function Workspace() {
                     }}
                   />
                   <span style={{ flex: 1 }}>{label}</span>
-                  <span style={{ fontSize: 10, color: "#a09a8f" }}>{hint}</span>
+                  <span style={{ fontSize: 11, color: "#a09a8f" }}>{hint}</span>
                 </Box>
               ))}
               <Box
@@ -216,14 +216,14 @@ export default function Workspace() {
                   padding: "6px 8px",
                   borderRadius: 4,
                   cursor: "pointer",
-                  fontSize: 11.5,
+                  fontSize: 12.5,
                   color: "#3a3630",
                 }}
                 hover={{ background: "#f2efe9" }}
               >
                 <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#b5afa2" }} />
                 <span style={{ flex: 1 }}>지금 보관함으로</span>
-                <span style={{ fontSize: 10, color: "#a09a8f" }}>목록에서 숨김</span>
+                <span style={{ fontSize: 11, color: "#a09a8f" }}>목록에서 숨김</span>
               </Box>
               <Box
                 onClick={() => {
@@ -237,14 +237,14 @@ export default function Workspace() {
                   padding: "6px 8px",
                   borderRadius: 4,
                   cursor: "pointer",
-                  fontSize: 11.5,
+                  fontSize: 12.5,
                   color: "#3a3630",
                 }}
                 hover={{ background: "#f2efe9" }}
               >
                 <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#6a54c6" }} />
                 <span style={{ flex: 1 }}>Obsidian에서 열기</span>
-                <span style={{ fontSize: 10, color: "#a09a8f" }}>
+                <span style={{ fontSize: 11, color: "#a09a8f" }}>
                   {s.obsidianOk ? "index.md" : "탐색기 폴백"}
                 </span>
               </Box>
@@ -268,7 +268,7 @@ export default function Workspace() {
           <div
             style={{ width: 6, height: 6, borderRadius: "50%", background: "#b5afa2", flex: "0 0 6px" }}
           />
-          <span style={{ fontSize: 11, color: "#6a665e", flex: 1, minWidth: 0 }}>
+          <span style={{ fontSize: 12, color: "#6a665e", flex: 1, minWidth: 0 }}>
             보관된 업무입니다 · 읽기 참조용으로 열려 있으며 목록에는 표시되지 않습니다
           </span>
           <Box
@@ -283,7 +283,7 @@ export default function Workspace() {
               border: "1px solid #e0d6f8",
               background: "#f4f0fd",
               color: "#5a44b4",
-              fontSize: 11,
+              fontSize: 12,
               fontWeight: 600,
               cursor: "pointer",
             }}

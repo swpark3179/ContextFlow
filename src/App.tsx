@@ -147,7 +147,7 @@ export default function App() {
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  fontSize: 12,
+                  fontSize: 13,
                   color: "#8a857c",
                 }}
               >
@@ -167,13 +167,13 @@ export default function App() {
                   textAlign: "center",
                 }}
               >
-                <div style={{ fontSize: 13, fontWeight: 600, color: "#a83c3c" }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: "#a83c3c" }}>
                   Vault를 열지 못했습니다
                 </div>
                 <div
                   style={{
-                    fontFamily: "'IBM Plex Mono',monospace",
-                    fontSize: 11,
+                    fontFamily: "'Roboto Mono',monospace",
+                    fontSize: 12,
                     color: "#6a665e",
                     maxWidth: 560,
                     lineHeight: 1.7,
@@ -182,7 +182,7 @@ export default function App() {
                 >
                   {s.bootError}
                 </div>
-                <div style={{ fontSize: 11, color: "#8a857c" }}>
+                <div style={{ fontSize: 12, color: "#8a857c" }}>
                   설정 화면에서 Vault Root 경로를 다시 지정해 보세요.
                 </div>
                 <Box
@@ -195,7 +195,7 @@ export default function App() {
                     borderRadius: 5,
                     background: "#3a6fd8",
                     color: "#fff",
-                    fontSize: 11.5,
+                    fontSize: 12.5,
                     fontWeight: 600,
                     cursor: "pointer",
                   }}

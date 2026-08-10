@@ -25,7 +25,7 @@ export default function TemplateModal() {
       .map((x) => `## ${x.trim()}`),
   ];
 
-  const label = { fontSize: 11, fontWeight: 600, color: "#6a665e", marginBottom: 5 } as const;
+  const label = { fontSize: 12, fontWeight: 600, color: "#6a665e", marginBottom: 5 } as const;
 
   return (
     <Modal
@@ -45,8 +45,8 @@ export default function TemplateModal() {
           background: "#faf9f6",
         }}
       >
-        <span style={{ fontSize: 13, fontWeight: 600 }}>표준 패턴 추가</span>
-        <span style={{ fontSize: 10.5, color: "#8a857c" }}>
+        <span style={{ fontSize: 14, fontWeight: 600 }}>표준 패턴 추가</span>
+        <span style={{ fontSize: 11.5, color: "#8a857c" }}>
           반복되는 업무의 골격을 템플릿으로 등록해 회차 로그로 누적합니다
         </span>
         <div style={{ flex: 1 }} />
@@ -61,7 +61,7 @@ export default function TemplateModal() {
             borderRadius: 4,
             cursor: "pointer",
             color: "#8a857c",
-            fontSize: 12,
+            fontSize: 13,
           }}
           hover={{ background: "#ece8e0" }}
         >
@@ -105,8 +105,8 @@ export default function TemplateModal() {
           </div>
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5 }}>
-              <span style={{ fontSize: 11, fontWeight: 600, color: "#6a665e" }}>섹션 구성</span>
-              <span style={{ fontSize: 10, color: "#a09a8f" }}>한 줄에 하나씩</span>
+              <span style={{ fontSize: 12, fontWeight: 600, color: "#6a665e" }}>섹션 구성</span>
+              <span style={{ fontSize: 11, color: "#a09a8f" }}>한 줄에 하나씩</span>
             </div>
             <TextArea
               value={tp.sections}
@@ -118,8 +118,8 @@ export default function TemplateModal() {
                 border: "1px solid #ddd8cf",
                 borderRadius: 5,
                 padding: "8px 9px",
-                fontFamily: "'IBM Plex Mono',monospace",
-                fontSize: 11.5,
+                fontFamily: "'Roboto Mono',monospace",
+                fontSize: 12.5,
                 lineHeight: 1.7,
                 outline: "none",
               }}
@@ -153,7 +153,7 @@ export default function TemplateModal() {
                 border: `1px solid ${tp.fromTask ? "#3a6fd8" : "#cfcabf"}`,
                 background: tp.fromTask ? "#3a6fd8" : "#fff",
                 color: "#fff",
-                fontSize: 10,
+                fontSize: 11,
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
@@ -161,7 +161,7 @@ export default function TemplateModal() {
             >
               {tp.fromTask ? "✓" : ""}
             </div>
-            <span style={{ fontSize: 11, color: "#4e4a43" }}>
+            <span style={{ fontSize: 12, color: "#4e4a43" }}>
               현재 업무의 index.md 구조에서 섹션 가져오기
             </span>
           </Box>
@@ -177,15 +177,15 @@ export default function TemplateModal() {
               borderBottom: "1px solid #e6e2da",
             }}
           >
-            <span style={{ fontSize: 10.5, fontWeight: 600, color: "#4e4a43" }}>생성될 템플릿</span>
+            <span style={{ fontSize: 11.5, fontWeight: 600, color: "#4e4a43" }}>생성될 템플릿</span>
           </div>
           <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "10px 12px" }}>
             {preview.map((l, i) => (
               <div
                 key={i}
                 style={{
-                  fontFamily: "'IBM Plex Mono',monospace",
-                  fontSize: 10.5,
+                  fontFamily: "'Roboto Mono',monospace",
+                  fontSize: 11.5,
                   lineHeight: 1.75,
                   color: l === "---" ? "#b5afa2" : l.startsWith("## ") ? "#2f5cbb" : "#3a3630",
                   minHeight: 18,
@@ -203,8 +203,8 @@ export default function TemplateModal() {
       <ModalFooter>
         <span
           style={{
-            fontFamily: "'IBM Plex Mono',monospace",
-            fontSize: 9.5,
+            fontFamily: "'Roboto Mono',monospace",
+            fontSize: 10.5,
             color: "#a09a8f",
             flex: 1,
             minWidth: 0,

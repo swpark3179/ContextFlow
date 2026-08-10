@@ -21,12 +21,12 @@ export default function OpenWithModal() {
   return (
     <Modal width={430} zIndex={79} onClose={() => s.set({ ow: null })}>
       <div style={{ padding: "14px 16px 12px 16px", borderBottom: "1px solid #f0ede7" }}>
-        <div style={{ fontSize: 13, fontWeight: 600 }}>이 파일을 열 방법 선택</div>
+        <div style={{ fontSize: 14, fontWeight: 600 }}>이 파일을 열 방법 선택</div>
         <div style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 7 }}>
           <span
             style={{
-              fontFamily: "'IBM Plex Mono',monospace",
-              fontSize: 7.5,
+              fontFamily: "'Roboto Mono',monospace",
+              fontSize: 8.5,
               fontWeight: 600,
               borderRadius: 2,
               padding: "1px 3px",
@@ -39,8 +39,8 @@ export default function OpenWithModal() {
           </span>
           <span
             style={{
-              fontFamily: "'IBM Plex Mono',monospace",
-              fontSize: 10.5,
+              fontFamily: "'Roboto Mono',monospace",
+              fontSize: 11.5,
               color: "#6a665e",
               minWidth: 0,
               overflow: "hidden",
@@ -93,17 +93,17 @@ export default function OpenWithModal() {
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  fontSize: 12,
+                  fontSize: 13,
                   fontWeight: 600,
                 }}
               >
                 {p.n.slice(0, 1)}
               </div>
               <div style={{ minWidth: 0, flex: 1 }}>
-                <div style={{ fontSize: 11.5, fontWeight: on ? 600 : 500, color: "#23211e" }}>
+                <div style={{ fontSize: 12.5, fontWeight: on ? 600 : 500, color: "#23211e" }}>
                   {p.n}
                 </div>
-                <div style={{ fontSize: 10, color: "#8a857c", marginTop: 1 }}>{p.d}</div>
+                <div style={{ fontSize: 11, color: "#8a857c", marginTop: 1 }}>{p.d}</div>
               </div>
               <div
                 style={{
@@ -150,7 +150,7 @@ export default function OpenWithModal() {
             border: `1px solid ${ow.always ? "#3a6fd8" : "#cfcabf"}`,
             background: ow.always ? "#3a6fd8" : "#fff",
             color: "#fff",
-            fontSize: 10,
+            fontSize: 11,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -158,13 +158,13 @@ export default function OpenWithModal() {
         >
           {ow.always ? "✓" : ""}
         </div>
-        <span style={{ fontSize: 11, color: "#4e4a43" }}>
+        <span style={{ fontSize: 12, color: "#4e4a43" }}>
           항상 이 앱으로 .{ow.ext} 파일 열기
         </span>
       </Box>
 
       <ModalFooter>
-        <span style={{ fontSize: 9.5, color: "#a09a8f", flex: 1 }}>
+        <span style={{ fontSize: 10.5, color: "#a09a8f", flex: 1 }}>
           OS 연결 프로그램으로 실행됩니다
         </span>
         <GhostButton onClick={() => s.set({ ow: null })}>취소</GhostButton>

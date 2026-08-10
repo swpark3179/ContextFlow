@@ -10,7 +10,7 @@ export default function TitleBar({ title }: { title: string }) {
     alignItems: "center",
     justifyContent: "center",
     color: "#5d594f",
-    fontSize: 12,
+    fontSize: 13,
     cursor: "default",
   };
 
@@ -36,16 +36,16 @@ export default function TitleBar({ title }: { title: string }) {
             background: "linear-gradient(140deg,#3a6fd8,#6a54c6)",
           }}
         />
-        <span style={{ fontSize: 12, fontWeight: 600, letterSpacing: "-.1px" }}>ContextFlow</span>
+        <span style={{ fontSize: 13, fontWeight: 600, letterSpacing: "-.1px" }}>ContextFlow</span>
         <span
           style={{
-            fontFamily: "'IBM Plex Mono',monospace",
-            fontSize: 9.5,
+            fontFamily: "'Roboto Mono',monospace",
+            fontSize: 10.5,
             color: "#9b968c",
             border: "1px solid #ded9d0",
             borderRadius: 3,
             padding: "0 4px",
-            lineHeight: "14px",
+            lineHeight: "15px",
           }}
         >
           v0.3
@@ -56,7 +56,7 @@ export default function TitleBar({ title }: { title: string }) {
         style={{
           flex: 1,
           textAlign: "center",
-          fontSize: 11.5,
+          fontSize: 12.5,
           color: "#8a857c",
           overflow: "hidden",
           textOverflow: "ellipsis",
@@ -72,7 +72,7 @@ export default function TitleBar({ title }: { title: string }) {
           –
         </Box>
         <Box
-          style={{ ...btn, fontSize: 10 }}
+          style={{ ...btn, fontSize: 11 }}
           hover={{ background: "#e6e2da" }}
           onClick={() => void win.toggleMaximize()}
         >
