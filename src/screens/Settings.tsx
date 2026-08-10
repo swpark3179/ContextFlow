@@ -1,102 +1,15 @@
 import { useState } from "react";
 import { Box, Input } from "../lib/ui";
-import { GREEN, VIOLET } from "../lib/design";
+import { VIOLET } from "../lib/design";
 import { OptionCard } from "../modals/Modal";
 import { useStore, type Settings as S } from "../store/useStore";
 import * as api from "../lib/api";
-
-const cardStyle: React.CSSProperties = {
-  border: "1px solid #e6e2da",
-  borderRadius: 7,
-  background: "#fff",
-  overflow: "hidden",
-};
-
-const headStyle: React.CSSProperties = {
-  padding: "8px 12px",
-  background: "#f7f5f1",
-  borderBottom: "1px solid #e6e2da",
-  fontSize: 11.5,
-  fontWeight: 600,
-  letterSpacing: ".4px",
-  color: "#6a665e",
-};
-
-const rowStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 12,
-  padding: "10px 12px",
-  borderBottom: "1px solid #f4f1ec",
-};
-
-const inputMono: React.CSSProperties = {
-  height: 28,
-  border: "1px solid #ddd8cf",
-  borderRadius: 5,
-  padding: "0 9px",
-  fontFamily: "'Roboto Mono',monospace",
-  fontSize: 12,
-  outline: "none",
-  background: "#fff",
-  color: "#23211e",
-};
-
-const inputFocus = { borderColor: "#3a6fd8", boxShadow: "0 0 0 2px #e6eefc" };
-
-function Chip({ on, label, onClick }: { on: boolean; label: string; onClick: () => void }) {
-  return (
-    <div
-      onClick={onClick}
-      style={{
-        height: 24,
-        padding: "0 10px",
-        display: "flex",
-        alignItems: "center",
-        borderRadius: 4,
-        fontSize: 11.5,
-        cursor: "pointer",
-        whiteSpace: "nowrap",
-        border: `1px solid ${on ? "#cddcf8" : "#ddd8cf"}`,
-        background: on ? "#eef3fd" : "#fff",
-        color: on ? "#2f5cbb" : "#6a665e",
-        fontWeight: on ? 600 : 400,
-      }}
-    >
-      {label}
-    </div>
-  );
-}
-
-function Toggle({ on, onClick }: { on: boolean; onClick: () => void }) {
-  return (
-    <div
-      onClick={onClick}
-      style={{
-        flex: "0 0 34px",
-        width: 34,
-        height: 19,
-        borderRadius: 11,
-        padding: 2,
-        cursor: "pointer",
-        background: on ? VIOLET : "#d5d0c6",
-        display: "flex",
-        justifyContent: on ? "flex-end" : "flex-start",
-        transition: "background .15s",
-      }}
-    >
-      <div
-        style={{
-          width: 15,
-          height: 15,
-          borderRadius: "50%",
-          background: "#fff",
-          boxShadow: "0 1px 2px rgba(0,0,0,.2)",
-        }}
-      />
-    </div>
-  );
-}
+import ActiveAiCard from "./settings/ActiveAiCard";
+import AiProCard from "./settings/AiProCard";
+import FabrixCard from "./settings/FabrixCard";
+import LocalCliCard from "./settings/LocalCliCard";
+import PromptPacksCard from "./settings/PromptPacksCard";
+import { Chip, Toggle, cardStyle, headStyle, inputFocus, inputMono, rowStyle } from "./settings/shared";
 
 const TOGGLES: [keyof S, string, string][] = [
   [
@@ -117,7 +30,6 @@ export default function Settings() {
   const s = useStore();
   const { settings } = s;
   const [vaultDraft, setVaultDraft] = useState(settings.vault);
-  const [probe, setProbe] = useState<{ ok: boolean; msg: string } | null>(null);
 
   return (
     <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "18px 22px", background: "#fdfcfa" }}>
@@ -267,130 +179,61 @@ export default function Settings() {
           </div>
         </div>
 
-        {/* LLM ---------------------------------------------------------- */}
+        {/* AI 연결 ------------------------------------------------------- */}
+        <div style={{ fontSize: 13, fontWeight: 600, color: "#6a665e", marginTop: 4 }}>
+          AI 연결
+          <span style={{ fontSize: 11.5, fontWeight: 400, color: "#a09a8f", marginLeft: 8 }}>
+            네 가지 중 원하는 것만 설정하면 됩니다. 하나도 없어도 로컬 유사도로 추천합니다.
+          </span>
+        </div>
+        <LocalCliCard id="claude" />
+        <LocalCliCard id="codex" />
+        <AiProCard />
+        <FabrixCard />
+        <ActiveAiCard />
+        <PromptPacksCard />
+
+        {/* 추천 임계값 --------------------------------------------------- */}
         <div style={cardStyle}>
-          <div style={headStyle}>사내 LLM API</div>
-          <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 12 }}>
-            <div>
-              <div style={{ fontSize: 12.5, fontWeight: 500, marginBottom: 5 }}>Endpoint</div>
-              <Input
-                value={settings.api}
-                onChange={(e) => s.patchSettings({ api: e.target.value })}
-                placeholder="https://llm.internal.corp/v1 (비워두면 로컬 유사도 사용)"
-                style={{ ...inputMono, width: "100%" }}
-                focusStyle={inputFocus}
-              />
-              <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-                <Input
-                  value={settings.model}
-                  onChange={(e) => s.patchSettings({ model: e.target.value })}
-                  placeholder="임베딩 모델"
-                  style={{ ...inputMono, flex: 1 }}
-                  focusStyle={inputFocus}
-                />
-                <Input
-                  type="password"
-                  value={settings.apiKey}
-                  onChange={(e) => s.patchSettings({ apiKey: e.target.value })}
-                  placeholder="API Key (선택)"
-                  style={{ ...inputMono, flex: 1 }}
-                  focusStyle={inputFocus}
-                />
-                <Box
-                  onClick={() => {
-                    void (async () => {
-                      if (!settings.api.trim()) {
-                        setProbe({ ok: false, msg: "Endpoint가 비어 있습니다" });
-                        return;
-                      }
-                      const res = await api.recommendTasks(
-                        "연결 확인",
-                        [
-                          {
-                            id: "probe",
-                            title: "연결 확인",
-                            tags: [],
-                            path: "",
-                            date: "",
-                            text: "연결 확인",
-                          },
-                        ],
-                        settings.threshold,
-                        {
-                          endpoint: settings.api,
-                          model: settings.model,
-                          apiKey: settings.apiKey,
-                        },
-                      );
-                      setProbe({
-                        ok: res.engine === "llm",
-                        msg: res.note || (res.engine === "llm" ? "연결됨" : "로컬로 대체됨"),
-                      });
-                    })().catch((e) => setProbe({ ok: false, msg: api.errMessage(e) }));
-                  }}
-                  style={{
-                    height: 28,
-                    padding: "0 12px",
-                    display: "flex",
-                    alignItems: "center",
-                    border: "1px solid #ddd8cf",
-                    borderRadius: 5,
-                    background: "#f7f5f1",
-                    fontSize: 12.5,
-                    color: "#4e4a43",
-                    cursor: "pointer",
-                    whiteSpace: "nowrap",
-                  }}
-                  hover={{ background: "#ece8e0" }}
-                >
-                  연결 확인
-                </Box>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
-                <div
-                  style={{
-                    width: 6,
-                    height: 6,
-                    borderRadius: "50%",
-                    background: probe ? (probe.ok ? GREEN : "#c04a4a") : "#b5afa2",
-                    flex: "0 0 6px",
-                  }}
-                />
-                <span style={{ fontSize: 11.5, color: "#8a857c", lineHeight: 1.5 }}>
-                  {probe
-                    ? probe.msg
-                    : settings.api.trim()
-                      ? "미확인 · [연결 확인]을 눌러 사내 LLM 응답을 검사하세요"
-                      : "Endpoint 미설정 · 로컬 유사도(외부 통신 없음)로 추천합니다"}
-                </span>
-              </div>
+          <div style={headStyle}>유사 업무 추천</div>
+          <div style={{ padding: 12 }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 6 }}>
+              <span style={{ fontSize: 12.5, fontWeight: 500 }}>클러스터링 유사도 임계값</span>
+              <span
+                style={{
+                  fontFamily: "'Roboto Mono',monospace",
+                  fontSize: 12.5,
+                  fontWeight: 600,
+                  color: VIOLET,
+                }}
+              >
+                {settings.threshold}%
+              </span>
+              <span style={{ fontSize: 11.5, color: "#a09a8f" }}>
+                새 업무 추가 시 추천 클러스터를 접는 기준
+              </span>
             </div>
-            <div>
-              <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 6 }}>
-                <span style={{ fontSize: 12.5, fontWeight: 500 }}>클러스터링 유사도 임계값</span>
-                <span
-                  style={{
-                    fontFamily: "'Roboto Mono',monospace",
-                    fontSize: 12.5,
-                    fontWeight: 600,
-                    color: VIOLET,
-                  }}
-                >
-                  {settings.threshold}%
-                </span>
-                <span style={{ fontSize: 11.5, color: "#a09a8f" }}>
-                  새 업무 추가 시 추천 클러스터를 접는 기준
-                </span>
-              </div>
-              <input
-                type="range"
-                min={70}
-                max={95}
-                step={1}
-                value={settings.threshold}
-                onChange={(e) => s.patchSettings({ threshold: parseInt(e.target.value, 10) })}
-                style={{ width: "100%", accentColor: VIOLET }}
-              />
+            <input
+              type="range"
+              min={70}
+              max={95}
+              step={1}
+              value={settings.threshold}
+              onChange={(e) => s.patchSettings({ threshold: parseInt(e.target.value, 10) })}
+              style={{ width: "100%", accentColor: VIOLET }}
+            />
+            <div
+              style={{
+                fontSize: 11.5,
+                color: "#a09a8f",
+                lineHeight: 1.7,
+                marginTop: 7,
+                paddingTop: 6,
+                borderTop: "1px dashed #eae6de",
+              }}
+            >
+              AI 연결을 골랐으면 이 값이 프롬프트에 실려 "거의 같은 업무" 의 기준이 되고, 로컬
+              유사도에서는 클러스터를 접는 임계값으로 쓰입니다.
             </div>
           </div>
         </div>

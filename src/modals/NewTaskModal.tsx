@@ -2,6 +2,7 @@ import { Box, Input, TextArea } from "../lib/ui";
 import { BLUE, VIOLET } from "../lib/design";
 import { sanitizeFolderName } from "../lib/vaultPaths";
 import { scheduleRecommend, useStore } from "../store/useStore";
+import { activeRun, useAi } from "../store/aiStore";
 import { inputFocus } from "./Modal";
 
 const TAG_STYLE: Record<string, { label: string; fg: string; bg: string }> = {
@@ -12,18 +13,28 @@ const TAG_STYLE: Record<string, { label: string; fg: string; bg: string }> = {
 
 export default function NewTaskModal() {
   const s = useStore();
+  // 전체 구독 — 파생 배열을 셀렉터에서 만들면 스냅샷이 불안정해진다(`ActiveAiCard` 참고).
+  const ai = useAi();
   if (!s.newOpen) return null;
 
-  const { nt, ntRecs, ntLoading, settings } = s;
+  const { nt, ntRecs, ntLoading, ntEngine, settings } = s;
   const title = nt.title.trim();
   const monthPrefix = new Date().toISOString().slice(0, 7);
   const folderPreview = `${settings.vault.split("/").pop()}/Tasks/[${monthPrefix}] ${
     sanitizeFolderName(title) || "새 업무"
   }/`;
 
+  const agentName = (id: string) => ai.infos.find((i) => i.id === id)?.name ?? id;
+
+  // 실제로 점수를 낸 엔진. `ntEngine` 은 `"local"` 이거나 AI 에이전트 id 다.
+  const engineName = ntEngine === "local" ? null : agentName(ntEngine);
+  // 아직 한 번도 안 돌렸을 때 안내할 대상은 **설정에서 고른** 연결이다 — `ntEngine` 의
+  // 초기값은 `"local"` 이라 그것으로는 AI 를 켜 둔 사용자에게 거짓말을 하게 된다.
+  const activeName = activeRun(ai) ? agentName(ai.settings!.active.agentId) : null;
+
   const status = ntLoading
-    ? s.settings.api.trim()
-      ? "사내 LLM 분석 중"
+    ? engineName
+      ? `${engineName} 분석 중`
       : "로컬 유사도 분석 중"
     : ntRecs.length
       ? `${ntRecs.length}건 검색됨`
@@ -522,7 +533,10 @@ export default function NewTaskModal() {
           >
             {ntRecs.length
               ? "추천 카드에서 [기반 재개]를 고르면 새 노트를 만들지 않고 기존 노드에 회차만 추가합니다."
-              : s.ntNote || "모든 분석은 로컬에서 수행됩니다."}
+              : s.ntNote ||
+                (activeName
+                  ? `제목을 입력하면 ${activeName}로 과거 업무를 훑습니다. 실패하면 로컬 유사도로 대체됩니다.`
+                  : "모든 분석은 로컬에서 수행됩니다 (외부 통신 없음).")}
           </span>
           <Box
             onClick={() => s.set({ newOpen: false })}

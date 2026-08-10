@@ -22,7 +22,12 @@ serde_json = "1"
 chrono = "0.4"
 walkdir = "2"
 urlencoding = "2"
-ureq = { version = "2", features = ["json"] }
+# 탐지 단계의 `--version` 프로브가 멈춘 CLI 에 매달리지 않도록 대기에 상한을 건다.
+wait-timeout = "0.2"
+# 원격 AI 서비스(AI Pro · FabriX)용. blocking 은 이 앱의 워커 스레드 관례와 맞고
+# (IPC 스레드에서는 절대 호출하지 않는다), native-tls 는 Windows 에서 schannel 이라
+# OS 인증서 저장소 — 사내 TLS 검사 프록시의 CA 가 사는 곳 — 를 그대로 신뢰한다.
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "native-tls"] }
 
 [profile.release]
 panic = "abort"

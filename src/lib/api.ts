@@ -1,6 +1,18 @@
 /** Typed wrappers over the Rust commands in src-tauri/src/lib.rs. */
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import type { FileEntry } from "./tree";
+import type {
+  AgentInfo,
+  AiProConfig,
+  AiSettings,
+  DetectedAgent,
+  FabrixConfig,
+  PromptPack,
+  RunArgs,
+  RunEvent,
+} from "./ai";
+
+export { Channel };
 
 export interface TaskMeta {
   id: string;
@@ -79,7 +91,8 @@ export interface Recommendation {
 }
 
 export interface RecommendResult {
-  engine: "local" | "llm";
+  /** `"local"` (로컬 유사도) 또는 추천을 만든 AI 에이전트의 id. */
+  engine: string;
   note: string;
   items: Recommendation[];
 }
@@ -182,12 +195,52 @@ export const writeArchiveMoc = (root: string, archiveDays: number) =>
 
 // -- recommendation ---------------------------------------------------------
 
+/**
+ * 로컬 유사도 추천. AI 경로가 없거나 실패했을 때의 폴백이며 언제나 동작한다.
+ *
+ * `maxItems` 를 생략하면 화면용 3건. AI 경로는 후보를 추리는 1차 필터로도 이 커맨드를
+ * 쓰면서 더 큰 값을 준다.
+ */
 export const recommendTasks = (
   query: string,
   candidates: RecCandidate[],
   threshold: number,
-  llm: { endpoint: string; model?: string | null; apiKey?: string | null } | null,
-) => invoke<RecommendResult>("recommend_tasks", { query, candidates, threshold, llm });
+  maxItems?: number,
+) => invoke<RecommendResult>("recommend_tasks", { query, candidates, threshold, maxItems });
+
+// -- AI 연결 ---------------------------------------------------------------
+
+export const listAgents = () => invoke<AgentInfo[]>("list_agents");
+export const detectAgent = (id: string, force = false) =>
+  invoke<DetectedAgent>("detect_agent", { id, force });
+
+export const getAiSettings = () => invoke<AiSettings>("get_ai_settings");
+export const setAgentBin = (id: string, path: string | null) =>
+  invoke<AiSettings>("set_agent_bin", { id, path });
+export const setAiProConfig = (config: AiProConfig | null) =>
+  invoke<AiSettings>("set_aipro_config", { config });
+export const setFabrixConfig = (config: FabrixConfig | null) =>
+  invoke<AiSettings>("set_fabrix_config", { config });
+export const setActiveAi = (agentId: string, model: string) =>
+  invoke<AiSettings>("set_active_ai", { agentId, model });
+
+export const probeAiPro = () => invoke<string>("probe_aipro");
+export const probeFabrix = () => invoke<string>("probe_fabrix");
+
+// -- 프롬프트 팩 -----------------------------------------------------------
+
+export const listPromptPacks = () => invoke<PromptPack[]>("list_prompt_packs");
+export const promptDirPath = () => invoke<string>("prompt_dir_path");
+export const openPromptDir = () => invoke<void>("open_prompt_dir");
+export const setPromptHook = (stage: string, files: string[]) =>
+  invoke<AiSettings>("set_prompt_hook", { stage, files });
+
+// -- AI 실행 ---------------------------------------------------------------
+
+/** `runId` 를 즉시 돌려주고 `onEvent` 로 스트리밍한다. */
+export const runAgent = (args: RunArgs, onEvent: Channel<RunEvent>) =>
+  invoke<string>("run_agent", { args, onEvent });
+export const cancelRun = (runId: string) => invoke<void>("cancel_run", { runId });
 
 export interface SearchHit {
   folder: string;
