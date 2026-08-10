@@ -4,6 +4,8 @@ import type { TaskMeta, TemplateMeta, Recommendation } from "../lib/api";
 import type { FileEntry } from "../lib/tree";
 import { TOAST } from "../lib/design";
 import { daysSince, hhmm, joinPath } from "../lib/format";
+import { aiRecommend } from "../lib/aiRecommend";
+import { activeRun, useAi } from "./aiStore";
 
 export type Screen = "workspace" | "templates" | "archive" | "settings";
 export type TabMode = "md" | "text";
@@ -35,9 +37,13 @@ export interface TaskUi {
 
 export interface Settings {
   vault: string;
-  api: string;
-  apiKey: string;
-  model: string;
+  /**
+   * 같은 패턴으로 접는 기준(%). AI 경로에서는 프롬프트에 실리고, 로컬 유사도에서는
+   * 클러스터 임계값으로 쓰인다.
+   *
+   * AI 연결 설정(엔드포인트 · 키 · 모델)은 여기 없다 — `ai.json` 을 Rust 가 소유하고
+   * `aiStore` 가 그 사본을 든다(`src/store/aiStore.ts`).
+   */
   threshold: number;
   archDays: number;
   archMode: "tag" | "move";
@@ -50,9 +56,6 @@ export interface Settings {
 
 export const DEFAULT_SETTINGS: Settings = {
   vault: "",
-  api: "",
-  apiKey: "",
-  model: "in-house-embed-v2",
   threshold: 85,
   archDays: 14,
   archMode: "tag",
@@ -834,18 +837,43 @@ export const useStore = create<State & Actions>((set, get) => ({
       date: t.completedAt ?? t.updated.slice(0, 10),
       text: t.tagline,
     }));
+
+    // 로컬 유사도를 항상 먼저 낸다. 두 가지 역할을 한다: AI 가 없거나 실패할 때의 답이고,
+    // AI 에게 보낼 후보를 추려 주는 1차 필터다(Vault 가 커지면 전부 실을 수 없다).
+    let local: api.RecommendResult;
     try {
-      const res = await api.recommendTasks(
-        query,
-        candidates,
-        settings.threshold,
-        settings.api.trim()
-          ? { endpoint: settings.api, model: settings.model, apiKey: settings.apiKey }
-          : null,
-      );
-      set({ ntRecs: res.items, ntLoading: false, ntEngine: res.engine, ntNote: res.note });
+      local = await api.recommendTasks(query, candidates, settings.threshold);
     } catch (e) {
       set({ ntRecs: [], ntLoading: false, ntNote: api.errMessage(e) });
+      return;
+    }
+
+    const active = activeRun(useAi.getState());
+    if (!active) {
+      set({
+        ntRecs: local.items,
+        ntLoading: false,
+        ntEngine: local.engine,
+        ntNote: local.note,
+      });
+      return;
+    }
+
+    // 로컬 결과를 먼저 보여 주되 엔진은 AI 로 표시한다 — 지금 도는 것이 그쪽이고,
+    // 화면의 "분석 중" 라벨도 이 값에서 나온다.
+    set({ ntRecs: local.items, ntEngine: active.agentId, ntNote: "AI 추천 중…" });
+
+    const ai = await aiRecommend({ active, query, candidates, threshold: settings.threshold });
+    if (ai) {
+      set({ ntRecs: ai.items, ntLoading: false, ntEngine: ai.engine, ntNote: ai.note });
+    } else {
+      // 폴백. 이미 손에 있는 로컬 결과를 그대로 쓰고 사유만 덧붙인다.
+      set({
+        ntRecs: local.items,
+        ntLoading: false,
+        ntEngine: local.engine,
+        ntNote: `${local.note} · AI 추천 실패로 대체`,
+      });
     }
   },
 
@@ -954,6 +982,11 @@ export const useStore = create<State & Actions>((set, get) => ({
 }));
 
 /** Debounced recommendation trigger used by the new-task title field. */
+/**
+ * 입력이 멎으면 추천을 돌린다. `ntLoading` 은 호출부가 세우고
+ * `runRecommend` 의 모든 종료 경로가 내린다 — AI 경로는 자식 프로세스나 원격 스트림을
+ * 타므로 몇 초가 걸리고, 그 사이 패널에 스피너가 돌아야 한다.
+ */
 export function scheduleRecommend(): void {
   window.clearTimeout(recTimer);
   recTimer = window.setTimeout(() => void useStore.getState().runRecommend(), 650);

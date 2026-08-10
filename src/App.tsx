@@ -17,12 +17,16 @@ import OpenWithModal from "./modals/OpenWithModal";
 import TemplateModal from "./modals/TemplateModal";
 import { Box } from "./lib/ui";
 import { useStore } from "./store/useStore";
+import { useAi } from "./store/aiStore";
 
 export default function App() {
   const s = useStore();
 
   useEffect(() => {
     void useStore.getState().boot();
+    // AI 연결 탐지는 Vault 부팅과 독립이다 — 캐시 우선이라 네트워크를 타지 않고,
+    // 실패해도 앱은 로컬 유사도로 정상 동작한다.
+    void useAi.getState().refreshAll();
   }, []);
 
   // OS-level file drops. The webview's HTML drop events never carry real paths,

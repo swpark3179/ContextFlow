@@ -1,12 +1,15 @@
-//! Similar-task recommendation.
+//! Similar-task recommendation — the local engine.
 //!
-//! Two interchangeable engines behind one shape:
-//!   * `local`  — IDF-weighted Dice coefficient over word/Hangul-bigram tokens.
-//!                No network, always available.
-//!   * `llm`    — cosine over embeddings from an OpenAI-compatible
-//!                `POST {endpoint}/embeddings`, for the in-house LLM gateway.
+//! IDF-weighted Dice coefficient over word/Hangul-bigram tokens. No network, so
+//! it is always available; it is also the fallback whenever the AI path fails.
 //!
-//! Both return a genuine similarity in [0,1]; we do not massage the number to
+//! The AI path does not live here. The four connection methods (`agents.rs`) are
+//! all chat services — two of them are CLIs that cannot produce embeddings at
+//! all — so ranking by AI means sending a prompt and parsing a fenced JSON
+//! answer. That belongs with the prompt text, which is on the frontend
+//! (`src/lib/recommendPrompt.ts`).
+//!
+//! Scores are a genuine similarity in [0,1]; we do not massage the number to
 //! look like the mockup. The active engine is reported so the UI can say which
 //! one produced the scores.
 
@@ -27,14 +30,6 @@ pub struct Candidate {
     /// Title + tags + headings. Kept short on purpose: long bodies drown out
     /// the signal that actually decides whether two tasks are the same pattern.
     pub text: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LlmConfig {
-    pub endpoint: String,
-    pub model: Option<String>,
-    pub api_key: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -61,7 +56,7 @@ pub struct Recommendation {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RecommendResult {
-    /// `"local"` or `"llm"`.
+    /// Always `"local"` here. The AI path reports the agent id instead.
     pub engine: String,
     pub note: String,
     pub items: Vec<Recommendation>,
@@ -166,62 +161,8 @@ fn weighted_dice(a: &[String], b: &[String], idf: &HashMap<String, f64>) -> f64 
     (2.0 * inter / (total_a + total_b)).clamp(0.0, 1.0)
 }
 
-fn cosine(a: &[f32], b: &[f32]) -> f64 {
-    let mut dot = 0.0f64;
-    let mut na = 0.0f64;
-    let mut nb = 0.0f64;
-    for i in 0..a.len().min(b.len()) {
-        dot += a[i] as f64 * b[i] as f64;
-        na += (a[i] as f64).powi(2);
-        nb += (b[i] as f64).powi(2);
-    }
-    if na == 0.0 || nb == 0.0 {
-        return 0.0;
-    }
-    (dot / (na.sqrt() * nb.sqrt())).clamp(0.0, 1.0)
-}
-
 fn pct(v: f64) -> u32 {
     (v * 100.0).round().clamp(0.0, 100.0) as u32
-}
-
-// ---------------------------------------------------------------------------
-// LLM embeddings
-// ---------------------------------------------------------------------------
-
-#[derive(Deserialize)]
-struct EmbeddingItem {
-    embedding: Vec<f32>,
-}
-
-#[derive(Deserialize)]
-struct EmbeddingResponse {
-    data: Vec<EmbeddingItem>,
-}
-
-fn embed_remote(cfg: &LlmConfig, texts: &[String]) -> std::result::Result<Vec<Vec<f32>>, String> {
-    let base = cfg.endpoint.trim_end_matches('/');
-    let url = format!("{}/embeddings", base);
-    let model = cfg.model.clone().unwrap_or_else(|| "in-house-embed-v2".to_string());
-
-    let mut req = ureq::post(&url)
-        .timeout(std::time::Duration::from_secs(20))
-        .set("content-type", "application/json");
-    if let Some(key) = cfg.api_key.as_ref().filter(|k| !k.is_empty()) {
-        req = req.set("authorization", &format!("Bearer {}", key));
-    }
-
-    let body = serde_json::json!({ "model": model, "input": texts });
-    let resp = req.send_json(body).map_err(|e| e.to_string())?;
-    let parsed: EmbeddingResponse = resp.into_json().map_err(|e| e.to_string())?;
-    if parsed.data.len() != texts.len() {
-        return Err(format!(
-            "임베딩 개수 불일치 (요청 {}, 응답 {})",
-            texts.len(),
-            parsed.data.len()
-        ));
-    }
-    Ok(parsed.data.into_iter().map(|d| d.embedding).collect())
 }
 
 // ---------------------------------------------------------------------------
@@ -234,7 +175,6 @@ pub fn recommend(
     query: &str,
     candidates: &[Candidate],
     threshold: u32,
-    llm: Option<LlmConfig>,
     max_items: usize,
 ) -> Result<RecommendResult> {
     if candidates.is_empty() || query.trim().chars().count() < 2 {
@@ -245,37 +185,8 @@ pub fn recommend(
         });
     }
 
-    let mut engine = "local".to_string();
-    let mut note = String::new();
-
     // sim_to_query[i], and a closure-free pairwise matrix for clustering.
-    let (query_scores, pair): (Vec<f64>, Box<dyn Fn(usize, usize) -> f64>) = 'scores: {
-        if let Some(cfg) = llm.as_ref().filter(|c| !c.endpoint.trim().is_empty()) {
-            let mut texts = vec![query.to_string()];
-            texts.extend(
-                candidates
-                    .iter()
-                    .map(|c| format!("{} {} {}", c.title, c.tags.join(" "), c.text)),
-            );
-            match embed_remote(cfg, &texts) {
-                Ok(vectors) => {
-                    engine = "llm".into();
-                    note = format!("사내 LLM 임베딩 · {}", cfg.endpoint);
-                    let q = vectors[0].clone();
-                    let docs: Vec<Vec<f32>> = vectors[1..].to_vec();
-                    let scores: Vec<f64> = docs.iter().map(|d| cosine(&q, d)).collect();
-                    let docs2 = docs.clone();
-                    break 'scores (
-                        scores,
-                        Box::new(move |i, j| cosine(&docs2[i], &docs2[j])),
-                    );
-                }
-                Err(e) => {
-                    note = format!("사내 LLM 연결 실패 · 로컬 유사도로 대체 ({})", e);
-                }
-            }
-        }
-
+    let (query_scores, pair): (Vec<f64>, Box<dyn Fn(usize, usize) -> f64>) = {
         let doc_tokens: Vec<Vec<String>> = candidates
             .iter()
             .map(|c| tokens(&format!("{} {} {}", c.title, c.tags.join(" "), c.text)))
@@ -294,9 +205,8 @@ pub fn recommend(
         )
     };
 
-    if note.is_empty() && engine == "local" {
-        note = "로컬 유사도 (사내 LLM 미설정)".into();
-    }
+    let engine = "local".to_string();
+    let note = "로컬 유사도 (외부 통신 없음)".to_string();
 
     // Rank, then fold near-duplicates under the top-scoring representative.
     let mut order: Vec<usize> = (0..candidates.len()).collect();
@@ -392,7 +302,7 @@ mod tests {
             cand("a", "Q3 보고서 작성", "2026-07-30"),
             cand("b", "Tauri 1.5 업그레이드 마이그레이션", "2026-05-14"),
         ];
-        let r = recommend("Tauri 2.0 마이그레이션", &cands, 85, None, 3).unwrap();
+        let r = recommend("Tauri 2.0 마이그레이션", &cands, 85, 3).unwrap();
         assert_eq!(r.engine, "local");
         assert!(!r.items.is_empty());
         assert_eq!(r.items[0].id, "b");
@@ -406,7 +316,7 @@ mod tests {
             cand("c", "데이터베이스 백업 스크립트", "2026-02-01"),
         ];
         // Identical titles sit at 100%, so any threshold <= 100 folds them.
-        let r = recommend("릴리스 노트 정리", &cands, 85, None, 5).unwrap();
+        let r = recommend("릴리스 노트 정리", &cands, 85, 5).unwrap();
         let first = &r.items[0];
         assert_eq!(first.cluster.as_ref().unwrap().len(), 2);
         assert!(first.cluster.as_ref().unwrap()[0].title.ends_with("(대표)"));
@@ -417,6 +327,6 @@ mod tests {
     #[test]
     fn short_queries_return_nothing() {
         let cands = vec![cand("a", "무언가", "2026-01-01")];
-        assert!(recommend("T", &cands, 85, None, 3).unwrap().items.is_empty());
+        assert!(recommend("T", &cands, 85, 3).unwrap().items.is_empty());
     }
 }
