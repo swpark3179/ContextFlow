@@ -95,7 +95,7 @@ export default function Archive() {
     display: "flex",
     alignItems: "center",
     borderRadius: 5,
-    fontSize: 11,
+    fontSize: 12,
     cursor: "pointer",
     whiteSpace: "nowrap" as const,
     border: `1px solid ${on ? "#cddcf8" : "#ddd8cf"}`,
@@ -111,10 +111,10 @@ export default function Archive() {
       >
         <div style={{ display: "flex", alignItems: "flex-start", gap: 14 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 15, fontWeight: 600, letterSpacing: "-.2px" }}>보관함</div>
+            <div style={{ fontSize: 16, fontWeight: 600, letterSpacing: "-.2px" }}>보관함</div>
             <div
               style={{
-                fontSize: 11.5,
+                fontSize: 12.5,
                 color: "#8a857c",
                 marginTop: 3,
                 lineHeight: 1.65,
@@ -138,8 +138,8 @@ export default function Archive() {
               >
                 <div
                   style={{
-                    fontFamily: "'IBM Plex Mono',monospace",
-                    fontSize: 17,
+                    fontFamily: "'Roboto Mono',monospace",
+                    fontSize: 18,
                     fontWeight: 600,
                     color: st.color,
                     lineHeight: 1.1,
@@ -148,7 +148,7 @@ export default function Archive() {
                   {st.value}
                 </div>
                 <div
-                  style={{ fontSize: 10, color: "#8a857c", marginTop: 2, whiteSpace: "nowrap" }}
+                  style={{ fontSize: 11, color: "#8a857c", marginTop: 2, whiteSpace: "nowrap" }}
                 >
                   {st.label}
                 </div>
@@ -170,7 +170,7 @@ export default function Archive() {
               borderRadius: 5,
               background: "#fff",
               padding: "0 10px",
-              fontSize: 12,
+              fontSize: 13,
               color: "#23211e",
               outline: "none",
             }}
@@ -203,7 +203,7 @@ export default function Archive() {
                   display: "flex",
                   alignItems: "center",
                   borderRadius: 4,
-                  fontSize: 10.5,
+                  fontSize: 11.5,
                   cursor: "pointer",
                   border: `1px solid ${on ? "#d9d4ca" : "transparent"}`,
                   background: on ? "#fff" : "transparent",
@@ -224,12 +224,12 @@ export default function Archive() {
             <div key={g.label} style={{ marginBottom: 16 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                 <span
-                  style={{ fontSize: 11, fontWeight: 600, letterSpacing: ".3px", color: "#6a665e" }}
+                  style={{ fontSize: 12, fontWeight: 600, letterSpacing: ".3px", color: "#6a665e" }}
                 >
                   {g.label}
                 </span>
                 <span
-                  style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 9.5, color: "#b5afa2" }}
+                  style={{ fontFamily: "'Roboto Mono',monospace", fontSize: 10.5, color: "#b5afa2" }}
                 >
                   {g.count}
                 </span>
@@ -256,7 +256,7 @@ export default function Archive() {
                     <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
                       <span
                         style={{
-                          fontSize: 12,
+                          fontSize: 13,
                           fontWeight: 500,
                           color: "#3a3630",
                           overflow: "hidden",
@@ -270,8 +270,8 @@ export default function Archive() {
                         <span
                           key={tg}
                           style={{
-                            fontFamily: "'IBM Plex Mono',monospace",
-                            fontSize: 9,
+                            fontFamily: "'Roboto Mono',monospace",
+                            fontSize: 10,
                             color: "#8a857c",
                             background: "#f2efe9",
                             borderRadius: 3,
@@ -285,7 +285,7 @@ export default function Archive() {
                       {t.archived === true && (
                         <span
                           style={{
-                            fontSize: 9,
+                            fontSize: 10,
                             color: "#8f5d17",
                             background: "#fbf3e6",
                             borderRadius: 3,
@@ -302,8 +302,8 @@ export default function Archive() {
                     >
                       <span
                         style={{
-                          fontFamily: "'IBM Plex Mono',monospace",
-                          fontSize: 9.5,
+                          fontFamily: "'Roboto Mono',monospace",
+                          fontSize: 10.5,
                           color: "#a09a8f",
                           flex: "0 0 auto",
                         }}
@@ -312,7 +312,7 @@ export default function Archive() {
                       </span>
                       <span
                         style={{
-                          fontSize: 10.5,
+                          fontSize: 11.5,
                           color: "#a09a8f",
                           overflow: "hidden",
                           textOverflow: "ellipsis",
@@ -329,8 +329,8 @@ export default function Archive() {
                           padding: "5px 8px",
                           borderLeft: "2px solid #cddcf8",
                           background: "#f7fafe",
-                          fontFamily: "'IBM Plex Mono',monospace",
-                          fontSize: 10,
+                          fontFamily: "'Roboto Mono',monospace",
+                          fontSize: 11,
                           color: "#4e4a43",
                           overflow: "hidden",
                           textOverflow: "ellipsis",
@@ -343,8 +343,8 @@ export default function Archive() {
                   </div>
                   <span
                     style={{
-                      fontFamily: "'IBM Plex Mono',monospace",
-                      fontSize: 9.5,
+                      fontFamily: "'Roboto Mono',monospace",
+                      fontSize: 10.5,
                       color: "#b5afa2",
                       flex: "0 0 auto",
                     }}
@@ -366,7 +366,7 @@ export default function Archive() {
                         border: "1px solid #e0dcd4",
                         background: "#fff",
                         color: "#6a665e",
-                        fontSize: 10.5,
+                        fontSize: 11.5,
                         cursor: "pointer",
                       }}
                       hover={{ borderColor: "#a78bfa", color: "#5a44b4" }}
@@ -387,7 +387,7 @@ export default function Archive() {
                         border: "1px solid #e0d6f8",
                         background: "#f4f0fd",
                         color: "#5a44b4",
-                        fontSize: 10.5,
+                        fontSize: 11.5,
                         fontWeight: 600,
                         cursor: "pointer",
                       }}
@@ -402,7 +402,7 @@ export default function Archive() {
           ))}
 
           {archived.length > 0 && groups.length === 0 && archQuery.trim() && (
-            <div style={{ padding: "8px 2px", fontSize: 11, color: "#b5afa2", lineHeight: 1.7 }}>
+            <div style={{ padding: "8px 2px", fontSize: 12, color: "#b5afa2", lineHeight: 1.7 }}>
               찾는 내용이 없다면 검색 범위를 [본문 전문]으로 바꿔보세요. 보관된 노트의 본문과 첨부
               텍스트까지 훑습니다.
             </div>
@@ -412,7 +412,7 @@ export default function Archive() {
               style={{
                 padding: "48px 12px",
                 textAlign: "center",
-                fontSize: 11.5,
+                fontSize: 12.5,
                 color: "#a09a8f",
                 lineHeight: 1.8,
               }}
@@ -433,12 +433,12 @@ export default function Archive() {
             padding: "13px 14px 18px 14px",
           }}
         >
-          <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: ".4px", color: "#6a665e" }}>
+          <div style={{ fontSize: 11.5, fontWeight: 600, letterSpacing: ".4px", color: "#6a665e" }}>
             Obsidian 연계
           </div>
           <div
             style={{
-              fontSize: 10.5,
+              fontSize: 11.5,
               color: "#8a857c",
               marginTop: 5,
               lineHeight: 1.7,
@@ -461,7 +461,7 @@ export default function Archive() {
                 padding: "6px 9px",
                 background: "#f4f2ee",
                 borderBottom: "1px solid #eae6de",
-                fontSize: 9.5,
+                fontSize: 10.5,
                 fontWeight: 600,
                 letterSpacing: ".3px",
                 color: "#8a857c",
@@ -475,8 +475,8 @@ export default function Archive() {
             <div
               style={{
                 padding: "8px 10px",
-                fontFamily: "'IBM Plex Mono',monospace",
-                fontSize: 10,
+                fontFamily: "'Roboto Mono',monospace",
+                fontSize: 11,
                 lineHeight: 1.75,
               }}
             >
@@ -489,7 +489,7 @@ export default function Archive() {
           <div
             style={{
               marginTop: 11,
-              fontSize: 10,
+              fontSize: 11,
               fontWeight: 600,
               letterSpacing: ".3px",
               color: "#8a857c",
@@ -504,8 +504,8 @@ export default function Archive() {
               borderRadius: 6,
               background: "#fff",
               padding: "8px 10px",
-              fontFamily: "'IBM Plex Mono',monospace",
-              fontSize: 9.5,
+              fontFamily: "'Roboto Mono',monospace",
+              fontSize: 10.5,
               lineHeight: 1.8,
             }}
           >
@@ -548,15 +548,15 @@ export default function Archive() {
             }}
             hover={{ background: "#ece5fb" }}
           >
-            <span style={{ fontSize: 11, fontWeight: 600, color: "#5a44b4", flex: 1, minWidth: 0 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: "#5a44b4", flex: 1, minWidth: 0 }}>
               Archive MOC 노트 열기
             </span>
-            <span style={{ fontSize: 10, color: "#8a7fc0" }}>↗</span>
+            <span style={{ fontSize: 11, color: "#8a7fc0" }}>↗</span>
           </Box>
           <div
             style={{
-              fontFamily: "'IBM Plex Mono',monospace",
-              fontSize: 9.5,
+              fontFamily: "'Roboto Mono',monospace",
+              fontSize: 10.5,
               color: "#b5afa2",
               marginTop: 5,
               lineHeight: 1.6,
@@ -573,7 +573,7 @@ export default function Archive() {
                 borderRadius: 5,
                 background: "#fbf3e6",
                 border: "1px solid #eeddc0",
-                fontSize: 10,
+                fontSize: 11,
                 color: "#8f5d17",
                 lineHeight: 1.6,
               }}

@@ -217,8 +217,8 @@ export default function ContextMenu() {
         >
           <span
             style={{
-              fontFamily: "'IBM Plex Mono',monospace",
-              fontSize: 7.5,
+              fontFamily: "'Roboto Mono',monospace",
+              fontSize: 8.5,
               fontWeight: 600,
               borderRadius: 2,
               padding: "1px 3px",
@@ -230,7 +230,7 @@ export default function ContextMenu() {
           </span>
           <span
             style={{
-              fontSize: 10.5,
+              fontSize: 11.5,
               fontWeight: 600,
               color: "#3a3630",
               overflow: "hidden",
@@ -259,8 +259,8 @@ export default function ContextMenu() {
             >
               <span
                 style={{
-                  fontFamily: "'IBM Plex Mono',monospace",
-                  fontSize: 8,
+                  fontFamily: "'Roboto Mono',monospace",
+                  fontSize: 9,
                   fontWeight: 600,
                   borderRadius: 2,
                   padding: "1px 4px",
@@ -270,8 +270,8 @@ export default function ContextMenu() {
               >
                 {i.badge}
               </span>
-              <span style={{ fontSize: 11, color: "#3a3630", flex: 1 }}>{i.label}</span>
-              <span style={{ fontSize: 9.5, color: "#b5afa2" }}>{i.hint}</span>
+              <span style={{ fontSize: 12, color: "#3a3630", flex: 1 }}>{i.label}</span>
+              <span style={{ fontSize: 10.5, color: "#b5afa2" }}>{i.hint}</span>
             </Box>
           </div>
         ))}

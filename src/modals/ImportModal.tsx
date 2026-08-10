@@ -28,8 +28,8 @@ export default function ImportModal() {
   return (
     <Modal width={460} zIndex={76} onClose={() => s.set({ drop: null })}>
       <div style={{ padding: "14px 16px 12px 16px", borderBottom: "1px solid #f0ede7" }}>
-        <div style={{ fontSize: 13, fontWeight: 600 }}>외부 파일을 업무 폴더로 가져오기</div>
-        <div style={{ fontSize: 10.5, color: "#8a857c", marginTop: 4 }}>
+        <div style={{ fontSize: 14, fontWeight: 600 }}>외부 파일을 업무 폴더로 가져오기</div>
+        <div style={{ fontSize: 11.5, color: "#8a857c", marginTop: 4 }}>
           {drop.names.length}개 항목 · 창 밖에서 끌어온 항목
         </div>
       </div>
@@ -56,8 +56,8 @@ export default function ImportModal() {
               <span
                 style={{
                   flex: "0 0 auto",
-                  fontFamily: "'IBM Plex Mono',monospace",
-                  fontSize: 7.5,
+                  fontFamily: "'Roboto Mono',monospace",
+                  fontSize: 8.5,
                   fontWeight: 600,
                   borderRadius: 2,
                   padding: "1px 3px",
@@ -69,7 +69,7 @@ export default function ImportModal() {
               </span>
               <span
                 style={{
-                  fontSize: 11.5,
+                  fontSize: 12.5,
                   color: "#3a3630",
                   flex: 1,
                   minWidth: 0,
@@ -82,8 +82,8 @@ export default function ImportModal() {
               </span>
               <span
                 style={{
-                  fontFamily: "'IBM Plex Mono',monospace",
-                  fontSize: 9.5,
+                  fontFamily: "'Roboto Mono',monospace",
+                  fontSize: 10.5,
                   color: "#b5afa2",
                   flex: "0 0 auto",
                 }}
@@ -121,8 +121,8 @@ export default function ImportModal() {
               border: "1px solid #ddd8cf",
               borderRadius: 5,
               padding: "0 6px",
-              fontFamily: "'IBM Plex Mono',monospace",
-              fontSize: 10.5,
+              fontFamily: "'Roboto Mono',monospace",
+              fontSize: 11.5,
               background: "#fff",
               outline: "none",
             }}
@@ -140,8 +140,8 @@ export default function ImportModal() {
       <ModalFooter>
         <span
           style={{
-            fontFamily: "'IBM Plex Mono',monospace",
-            fontSize: 9.5,
+            fontFamily: "'Roboto Mono',monospace",
+            fontSize: 10.5,
             color: "#a09a8f",
             flex: 1,
             minWidth: 0,

@@ -28,12 +28,12 @@ export default function Templates() {
     <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "18px 22px", background: "#fdfcfa" }}>
       <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 15, fontWeight: 600, letterSpacing: "-.2px" }}>
+          <div style={{ fontSize: 16, fontWeight: 600, letterSpacing: "-.2px" }}>
             표준 패턴 · 실행 이력
           </div>
           <div
             style={{
-              fontSize: 11.5,
+              fontSize: 12.5,
               color: "#8a857c",
               marginTop: 3,
               lineHeight: 1.6,
@@ -65,13 +65,13 @@ export default function Templates() {
             borderRadius: 5,
             background: "#3a6fd8",
             color: "#fff",
-            fontSize: 11.5,
+            fontSize: 12.5,
             fontWeight: 600,
             cursor: "pointer",
           }}
           hover={{ background: "#2f5cbb" }}
         >
-          <span style={{ fontSize: 13, lineHeight: 1 }}>+</span> 템플릿 추가
+          <span style={{ fontSize: 14, lineHeight: 1 }}>+</span> 템플릿 추가
         </Box>
       </div>
 
@@ -90,8 +90,8 @@ export default function Templates() {
           >
             <div
               style={{
-                fontFamily: "'IBM Plex Mono',monospace",
-                fontSize: 19,
+                fontFamily: "'Roboto Mono',monospace",
+                fontSize: 20,
                 fontWeight: 600,
                 color: st.color,
                 lineHeight: 1.1,
@@ -99,7 +99,7 @@ export default function Templates() {
             >
               {st.value}
             </div>
-            <div style={{ fontSize: 10.5, color: "#8a857c", marginTop: 3 }}>{st.label}</div>
+            <div style={{ fontSize: 11.5, color: "#8a857c", marginTop: 3 }}>{st.label}</div>
           </div>
         ))}
       </div>
@@ -113,7 +113,7 @@ export default function Templates() {
             gridTemplateColumns: GRID,
             background: "#f7f5f1",
             borderBottom: "1px solid #e6e2da",
-            fontSize: 10.5,
+            fontSize: 11.5,
             fontWeight: 600,
             color: "#8a857c",
           }}
@@ -129,7 +129,7 @@ export default function Templates() {
             style={{
               padding: "36px 16px",
               textAlign: "center",
-              fontSize: 11.5,
+              fontSize: 12.5,
               color: "#a09a8f",
               lineHeight: 1.8,
             }}
@@ -163,11 +163,11 @@ export default function Templates() {
                     minWidth: 0,
                   }}
                 >
-                  <span style={{ fontSize: 8, color: "#a09a8f" }}>{open ? "▼" : "▶"}</span>
+                  <span style={{ fontSize: 9, color: "#a09a8f" }}>{open ? "▼" : "▶"}</span>
                   <div style={{ minWidth: 0 }}>
                     <div
                       style={{
-                        fontSize: 12,
+                        fontSize: 13,
                         fontWeight: 500,
                         overflow: "hidden",
                         textOverflow: "ellipsis",
@@ -178,8 +178,8 @@ export default function Templates() {
                     </div>
                     <div
                       style={{
-                        fontFamily: "'IBM Plex Mono',monospace",
-                        fontSize: 9.5,
+                        fontFamily: "'Roboto Mono',monospace",
+                        fontSize: 10.5,
                         color: "#a09a8f",
                         marginTop: 2,
                       }}
@@ -192,8 +192,8 @@ export default function Templates() {
                   style={{
                     padding: "9px 12px",
                     textAlign: "right",
-                    fontFamily: "'IBM Plex Mono',monospace",
-                    fontSize: 11.5,
+                    fontFamily: "'Roboto Mono',monospace",
+                    fontSize: 12.5,
                     color: "#3a3630",
                   }}
                 >
@@ -203,8 +203,8 @@ export default function Templates() {
                   style={{
                     padding: "9px 12px",
                     textAlign: "right",
-                    fontFamily: "'IBM Plex Mono',monospace",
-                    fontSize: 11,
+                    fontFamily: "'Roboto Mono',monospace",
+                    fontSize: 12,
                     color: "#8a857c",
                   }}
                 >
@@ -214,8 +214,8 @@ export default function Templates() {
                   style={{
                     padding: "9px 12px",
                     textAlign: "right",
-                    fontFamily: "'IBM Plex Mono',monospace",
-                    fontSize: 11.5,
+                    fontFamily: "'Roboto Mono',monospace",
+                    fontSize: 12.5,
                     color: GREEN,
                   }}
                 >
@@ -232,7 +232,7 @@ export default function Templates() {
                 >
                   <div
                     style={{
-                      fontSize: 10,
+                      fontSize: 11,
                       fontWeight: 600,
                       color: "#8a857c",
                       letterSpacing: ".4px",
@@ -242,7 +242,7 @@ export default function Templates() {
                     RUN LOG
                   </div>
                   {tp.runs.length === 0 && (
-                    <div style={{ fontSize: 11, color: "#a09a8f" }}>
+                    <div style={{ fontSize: 12, color: "#a09a8f" }}>
                       아직 이 템플릿을 사용한 업무가 없습니다.
                     </div>
                   )}
@@ -258,15 +258,15 @@ export default function Templates() {
                     >
                       <span
                         style={{
-                          fontFamily: "'IBM Plex Mono',monospace",
-                          fontSize: 10,
+                          fontFamily: "'Roboto Mono',monospace",
+                          fontSize: 11,
                           color: "#a09a8f",
                           flex: "0 0 108px",
                         }}
                       >
                         {run.date}
                       </span>
-                      <span style={{ fontSize: 11, color: "#4e4a43", flex: 1 }}>{run.text}</span>
+                      <span style={{ fontSize: 12, color: "#4e4a43", flex: 1 }}>{run.text}</span>
                     </div>
                   ))}
                 </div>

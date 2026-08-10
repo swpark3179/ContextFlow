@@ -42,12 +42,12 @@ export default function Toasts() {
             }}
           />
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 11.5, fontWeight: 500 }}>{t.title}</div>
+            <div style={{ fontSize: 12.5, fontWeight: 500 }}>{t.title}</div>
             {t.sub && (
               <div
                 style={{
-                  fontFamily: "'IBM Plex Mono',monospace",
-                  fontSize: 9.5,
+                  fontFamily: "'Roboto Mono',monospace",
+                  fontSize: 10.5,
                   color: "#a8a29a",
                   marginTop: 2,
                   overflow: "hidden",

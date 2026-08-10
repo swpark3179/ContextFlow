@@ -82,7 +82,7 @@ export function GhostButton({ onClick, children }: { onClick: () => void; childr
         border: "1px solid #ddd8cf",
         borderRadius: 5,
         background: "#fff",
-        fontSize: 11.5,
+        fontSize: 12.5,
         cursor: "pointer",
       }}
       hover={{ background: "#f2efe9" }}
@@ -114,7 +114,7 @@ export function PrimaryButton({
         display: "flex",
         alignItems: "center",
         borderRadius: 5,
-        fontSize: 11.5,
+        fontSize: 12.5,
         fontWeight: 600,
         background: disabled ? "#e6e2da" : bg,
         color: disabled ? "#a09a8f" : "#fff",
@@ -177,15 +177,15 @@ export function OptionCard({
         />
       </div>
       <div style={{ minWidth: 0 }}>
-        <div style={{ fontSize: 11.5, fontWeight: on ? 600 : 500, color: "#23211e" }}>{label}</div>
-        <div style={{ fontSize: 10, color: "#8a857c", marginTop: 2, lineHeight: 1.5 }}>{desc}</div>
+        <div style={{ fontSize: 12.5, fontWeight: on ? 600 : 500, color: "#23211e" }}>{label}</div>
+        <div style={{ fontSize: 11, color: "#8a857c", marginTop: 2, lineHeight: 1.5 }}>{desc}</div>
       </div>
     </Box>
   );
 }
 
 export const labelStyle: CSSProperties = {
-  fontSize: 10,
+  fontSize: 11,
   fontWeight: 600,
   letterSpacing: ".4px",
   color: "#a09a8f",
@@ -198,7 +198,7 @@ export const inputStyle: CSSProperties = {
   border: "1px solid #ddd8cf",
   borderRadius: 5,
   padding: "0 9px",
-  fontSize: 11.5,
+  fontSize: 12.5,
   outline: "none",
   color: "#23211e",
   background: "#fff",

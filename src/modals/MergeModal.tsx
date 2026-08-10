@@ -82,8 +82,8 @@ export default function MergeModal() {
             background: "#faf9f6",
           }}
         >
-          <span style={{ fontSize: 13, fontWeight: 600 }}>유사 노드 병합</span>
-          <span style={{ fontSize: 10.5, color: "#8a857c" }}>
+          <span style={{ fontSize: 14, fontWeight: 600 }}>유사 노드 병합</span>
+          <span style={{ fontSize: 11.5, color: "#8a857c" }}>
             파편화된 노드를 대표 업무 노드 1개로 통합하고 나머지는 Run Log로 접습니다
           </span>
           <div style={{ flex: 1 }} />
@@ -98,7 +98,7 @@ export default function MergeModal() {
               borderRadius: 4,
               cursor: "pointer",
               color: "#8a857c",
-              fontSize: 12,
+              fontSize: 13,
             }}
             hover={{ background: "#ece8e0" }}
           >
@@ -116,7 +116,7 @@ export default function MergeModal() {
               borderRight: "1px solid #e6e2da",
             }}
           >
-            <div style={{ fontSize: 11, fontWeight: 600, color: "#6a665e", marginBottom: 7 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "#6a665e", marginBottom: 7 }}>
               통합 대상 노드 ({selected}/{nodes.length})
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
@@ -144,7 +144,7 @@ export default function MergeModal() {
                           border: `1px solid ${on ? VIOLET : "#cfcabf"}`,
                           background: on ? VIOLET : "#fff",
                           color: "#fff",
-                          fontSize: 10,
+                          fontSize: 11,
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "center",
@@ -155,7 +155,7 @@ export default function MergeModal() {
                       </div>
                       <span
                         style={{
-                          fontSize: 11.5,
+                          fontSize: 12.5,
                           fontWeight: 600,
                           flex: 1,
                           minWidth: 0,
@@ -168,8 +168,8 @@ export default function MergeModal() {
                       </span>
                       <span
                         style={{
-                          fontFamily: "'IBM Plex Mono',monospace",
-                          fontSize: 9.5,
+                          fontFamily: "'Roboto Mono',monospace",
+                          fontSize: 10.5,
                           color: "#a09a8f",
                         }}
                       >
@@ -214,7 +214,7 @@ export default function MergeModal() {
                         </div>
                         <span
                           style={{
-                            fontSize: 10.5,
+                            fontSize: 11.5,
                             color: pri ? "#5a44b4" : "#8a857c",
                             fontWeight: pri ? 600 : 400,
                           }}
@@ -225,8 +225,8 @@ export default function MergeModal() {
                       <div style={{ flex: 1 }} />
                       <span
                         style={{
-                          fontFamily: "'IBM Plex Mono',monospace",
-                          fontSize: 9.5,
+                          fontFamily: "'Roboto Mono',monospace",
+                          fontSize: 10.5,
                           color: "#b5afa2",
                           overflow: "hidden",
                           textOverflow: "ellipsis",
@@ -263,14 +263,14 @@ export default function MergeModal() {
                 borderBottom: "1px solid #e6e2da",
               }}
             >
-              <span style={{ fontSize: 10.5, fontWeight: 600, color: "#4e4a43" }}>
+              <span style={{ fontSize: 11.5, fontWeight: 600, color: "#4e4a43" }}>
                 병합 결과 미리보기
               </span>
               <div style={{ flex: 1 }} />
               <span
                 style={{
-                  fontFamily: "'IBM Plex Mono',monospace",
-                  fontSize: 9.5,
+                  fontFamily: "'Roboto Mono',monospace",
+                  fontSize: 10.5,
                   color: "#a09a8f",
                   overflow: "hidden",
                   textOverflow: "ellipsis",
@@ -286,8 +286,8 @@ export default function MergeModal() {
                 <div
                   key={i}
                   style={{
-                    fontFamily: "'IBM Plex Mono',monospace",
-                    fontSize: 10.5,
+                    fontFamily: "'Roboto Mono',monospace",
+                    fontSize: 11.5,
                     lineHeight: 1.75,
                     color: l.fg,
                     background: l.bg,
@@ -316,7 +316,7 @@ export default function MergeModal() {
             background: "#faf9f6",
           }}
         >
-          <span style={{ fontSize: 10.5, color: "#8a857c", flex: 1, minWidth: 0 }}>
+          <span style={{ fontSize: 11.5, color: "#8a857c", flex: 1, minWidth: 0 }}>
             {selected > 1
               ? `${selected - 1}개 노드가 대표 노드의 Run Log로 접히고 원본 폴더는 보관 처리됩니다.`
               : "대표 노드 외 1개 이상을 선택하세요."}
@@ -331,7 +331,7 @@ export default function MergeModal() {
               border: "1px solid #ddd8cf",
               borderRadius: 5,
               background: "#fff",
-              fontSize: 11.5,
+              fontSize: 12.5,
               cursor: "pointer",
             }}
             hover={{ background: "#f2efe9" }}
@@ -346,7 +346,7 @@ export default function MergeModal() {
               display: "flex",
               alignItems: "center",
               borderRadius: 5,
-              fontSize: 11.5,
+              fontSize: 12.5,
               fontWeight: 600,
               cursor: selected > 1 ? "pointer" : "not-allowed",
               background: selected > 1 ? VIOLET : "#e6e2da",

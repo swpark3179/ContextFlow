@@ -34,7 +34,7 @@ export default function Notepad() {
       >
         <span
           style={{
-            fontSize: 10.5,
+            fontSize: 11.5,
             fontWeight: 600,
             letterSpacing: ".4px",
             color: "#6a665e",
@@ -47,7 +47,7 @@ export default function Notepad() {
         {s.noteMin && (
           <span
             style={{
-              fontSize: 10,
+              fontSize: 11,
               color: "#a09a8f",
               whiteSpace: "nowrap",
               overflow: "hidden",
@@ -62,8 +62,8 @@ export default function Notepad() {
         <div style={{ flex: 1, minWidth: 0 }} />
         <span
           style={{
-            fontFamily: "'IBM Plex Mono',monospace",
-            fontSize: 9.5,
+            fontFamily: "'Roboto Mono',monospace",
+            fontSize: 10.5,
             color: "#a09a8f",
             whiteSpace: "nowrap",
             flex: "0 0 auto",
@@ -82,7 +82,7 @@ export default function Notepad() {
             justifyContent: "center",
             borderRadius: 3,
             color: "#8a857c",
-            fontSize: 11,
+            fontSize: 12,
             lineHeight: 1,
           }}
           hover={{ background: "#e6e2da", color: "#3a3630" }}
@@ -104,7 +104,7 @@ export default function Notepad() {
             border: 0,
             outline: "none",
             padding: "9px 12px",
-            fontSize: 11.5,
+            fontSize: 12.5,
             lineHeight: 1.7,
             color: "#3a3630",
             background: "#fffef9",

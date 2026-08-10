@@ -16,7 +16,7 @@ const headStyle: React.CSSProperties = {
   padding: "8px 12px",
   background: "#f7f5f1",
   borderBottom: "1px solid #e6e2da",
-  fontSize: 10.5,
+  fontSize: 11.5,
   fontWeight: 600,
   letterSpacing: ".4px",
   color: "#6a665e",
@@ -35,8 +35,8 @@ const inputMono: React.CSSProperties = {
   border: "1px solid #ddd8cf",
   borderRadius: 5,
   padding: "0 9px",
-  fontFamily: "'IBM Plex Mono',monospace",
-  fontSize: 11,
+  fontFamily: "'Roboto Mono',monospace",
+  fontSize: 12,
   outline: "none",
   background: "#fff",
   color: "#23211e",
@@ -54,7 +54,7 @@ function Chip({ on, label, onClick }: { on: boolean; label: string; onClick: () 
         display: "flex",
         alignItems: "center",
         borderRadius: 4,
-        fontSize: 10.5,
+        fontSize: 11.5,
         cursor: "pointer",
         whiteSpace: "nowrap",
         border: `1px solid ${on ? "#cddcf8" : "#ddd8cf"}`,
@@ -121,7 +121,7 @@ export default function Settings() {
 
   return (
     <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "18px 22px", background: "#fdfcfa" }}>
-      <div style={{ fontSize: 15, fontWeight: 600, letterSpacing: "-.2px" }}>설정</div>
+      <div style={{ fontSize: 16, fontWeight: 600, letterSpacing: "-.2px" }}>설정</div>
       <div
         style={{ maxWidth: 680, marginTop: 14, display: "flex", flexDirection: "column", gap: 16 }}
       >
@@ -129,7 +129,7 @@ export default function Settings() {
         <div style={cardStyle}>
           <div style={headStyle}>저장소 (Obsidian Vault)</div>
           <div style={{ padding: 12 }}>
-            <div style={{ fontSize: 11.5, fontWeight: 500, marginBottom: 5 }}>Vault Root 경로</div>
+            <div style={{ fontSize: 12.5, fontWeight: 500, marginBottom: 5 }}>Vault Root 경로</div>
             <div style={{ display: "flex", gap: 6 }}>
               <Input
                 value={vaultDraft}
@@ -163,7 +163,7 @@ export default function Settings() {
                   border: "1px solid #ddd8cf",
                   borderRadius: 5,
                   background: "#f7f5f1",
-                  fontSize: 11.5,
+                  fontSize: 12.5,
                   color: "#4e4a43",
                   cursor: "pointer",
                 }}
@@ -174,8 +174,8 @@ export default function Settings() {
             </div>
             <div
               style={{
-                fontFamily: "'IBM Plex Mono',monospace",
-                fontSize: 10,
+                fontFamily: "'Roboto Mono',monospace",
+                fontSize: 11,
                 color: "#a09a8f",
                 marginTop: 7,
                 lineHeight: 1.7,
@@ -194,8 +194,8 @@ export default function Settings() {
           <div style={headStyle}>파일 열기 기본값</div>
           <div style={{ ...rowStyle, borderBottom: "none" }}>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 11.5, fontWeight: 500 }}>.md 파일 더블클릭</div>
-              <div style={{ fontSize: 10.5, color: "#8a857c", marginTop: 2 }}>
+              <div style={{ fontSize: 12.5, fontWeight: 500 }}>.md 파일 더블클릭</div>
+              <div style={{ fontSize: 11.5, color: "#8a857c", marginTop: 2 }}>
                 탐색기에서 마크다운 파일을 더블클릭했을 때의 기본 동작
               </div>
             </div>
@@ -219,8 +219,8 @@ export default function Settings() {
           <div style={headStyle}>완료 업무 보관</div>
           <div style={rowStyle}>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 11.5, fontWeight: 500 }}>자동 보관 기간</div>
-              <div style={{ fontSize: 10.5, color: "#8a857c", marginTop: 2 }}>
+              <div style={{ fontSize: 12.5, fontWeight: 500 }}>자동 보관 기간</div>
+              <div style={{ fontSize: 11.5, color: "#8a857c", marginTop: 2 }}>
                 완료 후 이 기간이 지나면 업무 리스트에서 접힙니다
               </div>
             </div>
@@ -239,7 +239,7 @@ export default function Settings() {
             </div>
           </div>
           <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-            <div style={{ fontSize: 11.5, fontWeight: 500 }}>Vault에서의 처리 방식</div>
+            <div style={{ fontSize: 12.5, fontWeight: 500 }}>Vault에서의 처리 방식</div>
             <OptionCard
               on={settings.archMode === "tag"}
               label="frontmatter 태그"
@@ -254,7 +254,7 @@ export default function Settings() {
             />
             <div
               style={{
-                fontSize: 10.5,
+                fontSize: 11.5,
                 color: "#a09a8f",
                 lineHeight: 1.7,
                 paddingTop: 6,
@@ -272,7 +272,7 @@ export default function Settings() {
           <div style={headStyle}>사내 LLM API</div>
           <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 12 }}>
             <div>
-              <div style={{ fontSize: 11.5, fontWeight: 500, marginBottom: 5 }}>Endpoint</div>
+              <div style={{ fontSize: 12.5, fontWeight: 500, marginBottom: 5 }}>Endpoint</div>
               <Input
                 value={settings.api}
                 onChange={(e) => s.patchSettings({ api: e.target.value })}
@@ -336,7 +336,7 @@ export default function Settings() {
                     border: "1px solid #ddd8cf",
                     borderRadius: 5,
                     background: "#f7f5f1",
-                    fontSize: 11.5,
+                    fontSize: 12.5,
                     color: "#4e4a43",
                     cursor: "pointer",
                     whiteSpace: "nowrap",
@@ -356,7 +356,7 @@ export default function Settings() {
                     flex: "0 0 6px",
                   }}
                 />
-                <span style={{ fontSize: 10.5, color: "#8a857c", lineHeight: 1.5 }}>
+                <span style={{ fontSize: 11.5, color: "#8a857c", lineHeight: 1.5 }}>
                   {probe
                     ? probe.msg
                     : settings.api.trim()
@@ -367,18 +367,18 @@ export default function Settings() {
             </div>
             <div>
               <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 6 }}>
-                <span style={{ fontSize: 11.5, fontWeight: 500 }}>클러스터링 유사도 임계값</span>
+                <span style={{ fontSize: 12.5, fontWeight: 500 }}>클러스터링 유사도 임계값</span>
                 <span
                   style={{
-                    fontFamily: "'IBM Plex Mono',monospace",
-                    fontSize: 11.5,
+                    fontFamily: "'Roboto Mono',monospace",
+                    fontSize: 12.5,
                     fontWeight: 600,
                     color: VIOLET,
                   }}
                 >
                   {settings.threshold}%
                 </span>
-                <span style={{ fontSize: 10.5, color: "#a09a8f" }}>
+                <span style={{ fontSize: 11.5, color: "#a09a8f" }}>
                   새 업무 추가 시 추천 클러스터를 접는 기준
                 </span>
               </div>
@@ -404,8 +404,8 @@ export default function Settings() {
               style={{ ...rowStyle, borderBottom: i === TOGGLES.length - 1 ? "none" : rowStyle.borderBottom }}
             >
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 11.5, fontWeight: 500 }}>{label}</div>
-                <div style={{ fontSize: 10.5, color: "#8a857c", marginTop: 2 }}>{desc}</div>
+                <div style={{ fontSize: 12.5, fontWeight: 500 }}>{label}</div>
+                <div style={{ fontSize: 11.5, color: "#8a857c", marginTop: 2 }}>{desc}</div>
               </div>
               <Toggle
                 on={!!settings[k]}

@@ -73,11 +73,11 @@ export default function Sidebar() {
           }}
           hover={{ background: "#ece8e0" }}
         >
-          <span style={{ fontSize: 8, color: "#8a857c" }}>▶</span>
+          <span style={{ fontSize: 9, color: "#8a857c" }}>▶</span>
           <span
             style={{
               writingMode: "vertical-rl",
-              fontSize: 10.5,
+              fontSize: 11.5,
               fontWeight: 600,
               letterSpacing: 1,
               color: "#8a857c",
@@ -88,8 +88,8 @@ export default function Sidebar() {
           <span
             style={{
               writingMode: "vertical-rl",
-              fontFamily: "'IBM Plex Mono',monospace",
-              fontSize: 9.5,
+              fontFamily: "'Roboto Mono',monospace",
+              fontSize: 10.5,
               color: "#b5afa2",
             }}
           >
@@ -125,7 +125,7 @@ export default function Sidebar() {
       >
         <span
           style={{
-            fontSize: 10.5,
+            fontSize: 11.5,
             fontWeight: 600,
             letterSpacing: ".6px",
             color: "#8a857c",
@@ -137,8 +137,8 @@ export default function Sidebar() {
         </span>
         <span
           style={{
-            fontFamily: "'IBM Plex Mono',monospace",
-            fontSize: 10,
+            fontFamily: "'Roboto Mono',monospace",
+            fontSize: 11,
             color: "#9b968c",
             flex: "0 0 auto",
           }}
@@ -157,7 +157,7 @@ export default function Sidebar() {
             borderRadius: 3,
             cursor: "pointer",
             color: "#8a857c",
-            fontSize: 11,
+            fontSize: 12,
             lineHeight: 1,
           }}
           hover={{ background: "#e6e2da", color: "#3a3630" }}
@@ -177,7 +177,7 @@ export default function Sidebar() {
             borderRadius: 5,
             background: "#fff",
             padding: "0 8px",
-            fontSize: 11.5,
+            fontSize: 12.5,
             color: "#23211e",
             outline: "none",
           }}
@@ -193,7 +193,7 @@ export default function Sidebar() {
                 style={{
                   flex: 1,
                   textAlign: "center",
-                  fontSize: 10.5,
+                  fontSize: 11.5,
                   lineHeight: "20px",
                   height: 21,
                   borderRadius: 4,
@@ -246,8 +246,8 @@ export default function Sidebar() {
               <div style={{ minWidth: 0, flex: 1 }}>
                 <div
                   style={{
-                    fontSize: 12,
-                    lineHeight: "16px",
+                    fontSize: 13,
+                    lineHeight: "17px",
                     fontWeight: on ? 600 : 400,
                     color: on ? "#23211e" : "#3a3630",
                     overflow: "hidden",
@@ -260,8 +260,8 @@ export default function Sidebar() {
                 <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 2 }}>
                   <span
                     style={{
-                      fontFamily: "'IBM Plex Mono',monospace",
-                      fontSize: 9.5,
+                      fontFamily: "'Roboto Mono',monospace",
+                      fontSize: 10.5,
                       color: "#a09a8f",
                       flex: "0 0 auto",
                     }}
@@ -270,7 +270,7 @@ export default function Sidebar() {
                   </span>
                   <span
                     style={{
-                      fontSize: 9.5,
+                      fontSize: 10.5,
                       color: "#a09a8f",
                       overflow: "hidden",
                       textOverflow: "ellipsis",
@@ -284,14 +284,14 @@ export default function Sidebar() {
               {t.runs > 1 && (
                 <div
                   style={{
-                    fontFamily: "'IBM Plex Mono',monospace",
-                    fontSize: 9,
+                    fontFamily: "'Roboto Mono',monospace",
+                    fontSize: 10,
                     color: "#8a857c",
                     background: "#ece8e0",
                     borderRadius: 3,
                     padding: "1px 4px",
-                    height: 15,
-                    lineHeight: "13px",
+                    height: 16,
+                    lineHeight: "14px",
                     marginTop: 1,
                   }}
                 >
@@ -307,7 +307,7 @@ export default function Sidebar() {
             style={{
               padding: "22px 12px",
               textAlign: "center",
-              fontSize: 11.5,
+              fontSize: 12.5,
               color: "#a09a8f",
               lineHeight: 1.6,
             }}
@@ -324,7 +324,7 @@ export default function Sidebar() {
               <div style={{ flex: 1, height: 1, background: "#e0dcd4" }} />
               <span
                 style={{
-                  fontSize: 9.5,
+                  fontSize: 10.5,
                   letterSpacing: ".3px",
                   color: "#a09a8f",
                   whiteSpace: "nowrap",
@@ -362,8 +362,8 @@ export default function Sidebar() {
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div
                     style={{
-                      fontSize: 11.5,
-                      lineHeight: "15px",
+                      fontSize: 12.5,
+                      lineHeight: "16px",
                       color: "#7d7871",
                       overflow: "hidden",
                       textOverflow: "ellipsis",
@@ -374,8 +374,8 @@ export default function Sidebar() {
                   </div>
                   <div
                     style={{
-                      fontFamily: "'IBM Plex Mono',monospace",
-                      fontSize: 9.5,
+                      fontFamily: "'Roboto Mono',monospace",
+                      fontSize: 10.5,
                       color: "#b5afa2",
                       marginTop: 1,
                     }}
@@ -390,7 +390,7 @@ export default function Sidebar() {
                   }}
                   style={{
                     flex: "0 0 auto",
-                    fontSize: 9.5,
+                    fontSize: 10.5,
                     color: "#5a44b4",
                     background: "#f2eefc",
                     border: "1px solid #e4dcf8",
@@ -405,7 +405,7 @@ export default function Sidebar() {
             ))}
             <Box
               onClick={() => s.set({ screen: "archive", archQuery: query.trim() })}
-              style={{ fontSize: 10.5, color: "#3a6fd8", cursor: "pointer", padding: "5px 7px" }}
+              style={{ fontSize: 11.5, color: "#3a6fd8", cursor: "pointer", padding: "5px 7px" }}
               hover={{ textDecoration: "underline" }}
             >
               {sideArch.length > 4
@@ -440,7 +440,7 @@ export default function Sidebar() {
             borderRadius: 5,
             background: "#3a6fd8",
             color: "#fff",
-            fontSize: 11.5,
+            fontSize: 12.5,
             fontWeight: 600,
             display: "flex",
             alignItems: "center",
@@ -450,7 +450,7 @@ export default function Sidebar() {
           }}
           hover={{ background: "#2f5cbb" }}
         >
-          <span style={{ fontSize: 13, lineHeight: 1 }}>+</span> 새 업무 추가
+          <span style={{ fontSize: 14, lineHeight: 1 }}>+</span> 새 업무 추가
         </Box>
         <Box
           onClick={() => s.setScreen("archive")}
@@ -475,11 +475,11 @@ export default function Sidebar() {
               flex: "0 0 9px",
             }}
           />
-          <span style={{ fontSize: 10.5, color: "#6a665e", flex: 1, minWidth: 0 }}>보관함</span>
+          <span style={{ fontSize: 11.5, color: "#6a665e", flex: 1, minWidth: 0 }}>보관함</span>
           <span
             style={{
-              fontFamily: "'IBM Plex Mono',monospace",
-              fontSize: 10,
+              fontFamily: "'Roboto Mono',monospace",
+              fontSize: 11,
               color: "#8a857c",
               flex: "0 0 auto",
             }}
@@ -497,7 +497,7 @@ export default function Sidebar() {
                 style={{
                   height: 24,
                   borderRadius: 4,
-                  fontSize: 10.5,
+                  fontSize: 11.5,
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",

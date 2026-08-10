@@ -27,7 +27,7 @@ export default function DeleteModal() {
               flex: "0 0 18px",
               background: "#fceceb",
               color: "#a83c3c",
-              fontSize: 11,
+              fontSize: 12,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -35,14 +35,14 @@ export default function DeleteModal() {
           >
             !
           </div>
-          <span style={{ fontSize: 13, fontWeight: 600 }}>
+          <span style={{ fontSize: 14, fontWeight: 600 }}>
             {del.isDir ? "폴더를 완전히 삭제할까요?" : "파일을 완전히 삭제할까요?"}
           </span>
         </div>
         <div
           style={{
-            fontFamily: "'IBM Plex Mono',monospace",
-            fontSize: 10.5,
+            fontFamily: "'Roboto Mono',monospace",
+            fontSize: 11.5,
             color: "#6a665e",
             marginTop: 8,
             wordBreak: "break-all",
@@ -51,7 +51,7 @@ export default function DeleteModal() {
           {task?.relFolder ?? ""}
           {del.path}
         </div>
-        <div style={{ fontSize: 10.5, color: "#a83c3c", marginTop: 6, lineHeight: 1.6 }}>
+        <div style={{ fontSize: 11.5, color: "#a83c3c", marginTop: 6, lineHeight: 1.6 }}>
           {del.isDir
             ? `하위 파일 ${del.files}개 · 하위 폴더 ${del.dirs}개가 함께 삭제됩니다`
             : "이 파일이 삭제됩니다"}{" "}
@@ -59,9 +59,9 @@ export default function DeleteModal() {
         </div>
       </div>
       <div style={{ padding: "12px 16px" }}>
-        <div style={{ fontSize: 10.5, color: "#6a665e", marginBottom: 6 }}>
+        <div style={{ fontSize: 11.5, color: "#6a665e", marginBottom: 6 }}>
           확인을 위해 이름을 입력하세요 —{" "}
-          <span style={{ fontFamily: "'IBM Plex Mono',monospace", color: "#23211e" }}>
+          <span style={{ fontFamily: "'Roboto Mono',monospace", color: "#23211e" }}>
             {del.name}
           </span>
         </div>
@@ -80,8 +80,8 @@ export default function DeleteModal() {
             border: "1px solid #ddd8cf",
             borderRadius: 5,
             padding: "0 9px",
-            fontFamily: "'IBM Plex Mono',monospace",
-            fontSize: 11.5,
+            fontFamily: "'Roboto Mono',monospace",
+            fontSize: 12.5,
             outline: "none",
           }}
           focusStyle={{ borderColor: "#c04a4a", boxShadow: "0 0 0 2px #fbe8e6" }}
@@ -98,7 +98,7 @@ export default function DeleteModal() {
             display: "flex",
             alignItems: "center",
             borderRadius: 5,
-            fontSize: 11.5,
+            fontSize: 12.5,
             fontWeight: 600,
             background: ready ? "#c04a4a" : "#f0dcd9",
             color: ready ? "#fff" : "#c9a7a2",
