@@ -1,0 +1,114 @@
+/* Ported verbatim from design/ContextFlow.dc.html <helmet> block (lines 10-31). */
+@import "@fontsource/ibm-plex-sans-kr/400.css";
+@import "@fontsource/ibm-plex-sans-kr/500.css";
+@import "@fontsource/ibm-plex-sans-kr/600.css";
+@import "@fontsource/ibm-plex-sans-kr/700.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+@import "@fontsource/ibm-plex-mono/600.css";
+
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: #e7e4de;
+}
+body {
+  font-family: "IBM Plex Sans KR", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  color: #23211e;
+  overflow: hidden;
+}
+#root {
+  height: 100%;
+}
+a {
+  color: #3a6fd8;
+  text-decoration: none;
+}
+a:hover {
+  color: #2b56ad;
+  text-decoration: underline;
+}
+input,
+textarea,
+button,
+select {
+  font-family: inherit;
+}
+textarea {
+  resize: none;
+}
+/*
+ * The custom scrollbar below occupies layout width. In a narrow column, the
+ * content can be short enough to fit without a scrollbar but too tall once the
+ * scrollbar steals 11px — so Chrome adds it, the content reflows shorter,
+ * Chrome removes it, and layout oscillates forever, hanging the renderer.
+ * Reserving the gutter on every scroll container breaks that feedback loop.
+ * (This is also why `text-wrap: pretty`, which the design used in four places,
+ * is not used here: its line-rebalancing makes the oscillation far easier to
+ * hit.)
+ */
+* {
+  scrollbar-gutter: stable;
+}
+::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+}
+::-webkit-scrollbar-thumb {
+  background: #cfcabf;
+  border-radius: 8px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #b5afa2;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+@keyframes tIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes fIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes pIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.995);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Native window chrome is disabled; this makes the custom title bar draggable. */
+[data-tauri-drag-region] {
+  -webkit-user-select: none;
+  user-select: none;
+}

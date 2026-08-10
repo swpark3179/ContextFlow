@@ -1,0 +1,2083 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;height:100%;background:#e7e4de}
+body{font-family:'IBM Plex Sans KR',system-ui,sans-serif;-webkit-font-smoothing:antialiased;color:#23211e}
+a{color:#3a6fd8;text-decoration:none}
+a:hover{color:#2b56ad;text-decoration:underline}
+input,textarea,button,select{font-family:inherit}
+textarea{resize:none}
+::-webkit-scrollbar{width:11px;height:11px}
+::-webkit-scrollbar-thumb{background:#cfcabf;border-radius:8px;border:3px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background:#b5afa2;background-clip:content-box}
+::-webkit-scrollbar-track{background:transparent}
+@keyframes tIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes fIn{from{opacity:0}to{opacity:1}}
+@keyframes pIn{from{opacity:0;transform:translateY(8px) scale(.995)}to{opacity:1;transform:none}}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</helmet>
+
+<div style="height:100vh;padding:10px;display:flex;background:radial-gradient(1200px 600px at 20% 0%,#efece6,#e2ded7)">
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;background:#fff;border:1px solid #c6c1b6;border-radius:9px;box-shadow:0 24px 60px rgba(35,33,30,.22),0 2px 6px rgba(35,33,30,.10);overflow:hidden">
+
+<sc-if value="{{ showChrome }}" hint-placeholder-val="{{ true }}">
+<div style="height:34px;flex:0 0 34px;display:flex;align-items:center;gap:10px;padding:0 0 0 11px;background:linear-gradient(#f7f5f1,#f1eee9);border-bottom:1px solid #e0dcd4">
+  <div style="display:flex;align-items:center;gap:7px">
+    <div style="width:13px;height:13px;border-radius:4px;background:linear-gradient(140deg,#3a6fd8,#6a54c6)"></div>
+    <span style="font-size:12px;font-weight:600;letter-spacing:-.1px">ContextFlow</span>
+    <span style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#9b968c;border:1px solid #ded9d0;border-radius:3px;padding:0 4px;line-height:14px">v0.3</span>
+  </div>
+  <div style="flex:1;text-align:center;font-size:11.5px;color:#8a857c;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ chromeTitle }}</div>
+  <div style="display:flex;align-items:stretch;height:34px">
+    <div style="width:44px;display:flex;align-items:center;justify-content:center;color:#5d594f;font-size:12px;cursor:default" style-hover="background:#e6e2da">&#8211;</div>
+    <div style="width:44px;display:flex;align-items:center;justify-content:center;color:#5d594f;font-size:10px;cursor:default" style-hover="background:#e6e2da">&#9723;</div>
+    <div style="width:46px;display:flex;align-items:center;justify-content:center;color:#5d594f;font-size:12px;cursor:default" style-hover="background:#d64545;color:#fff">&#10005;</div>
+  </div>
+</div>
+</sc-if>
+
+<div style="height:27px;flex:0 0 27px;display:flex;align-items:center;gap:2px;padding:0 8px;background:#faf9f6;border-bottom:1px solid #e6e2da">
+  <sc-for list="{{ menus }}" as="m" hint-placeholder-count="5">
+    <div style="font-size:11.5px;color:#4e4a43;padding:3px 7px;border-radius:4px;cursor:default" style-hover="background:#ece8e0">{{ m }}</div>
+  </sc-for>
+  <div style="flex:1"></div>
+  <div style="display:flex;align-items:center;gap:6px">
+    <div style="width:6px;height:6px;border-radius:50%;background:#2f7f57"></div>
+    <span style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:#8a857c">{{ vaultPath }}</span>
+  </div>
+</div>
+
+<div ref="{{ refBody }}" style="flex:1;min-height:0;display:flex">
+
+  <div style="flex:0 0 auto;min-width:0;display:flex;flex-direction:column;background:#f5f3ef;border-right:1px solid #e0dcd4;width: {{ sidebarW }}px">
+    <sc-if value="{{ sidebarMin }}" hint-placeholder-val="{{ false }}">
+      <div onClick="{{ onToggleSidebar }}" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:11px;padding:9px 0;cursor:pointer" style-hover="background:#ece8e0">
+        <span style="font-size:8px;color:#8a857c">▶</span>
+        <span style="writing-mode:vertical-rl;font-size:10.5px;font-weight:600;letter-spacing:1px;color:#8a857c">업무 리스트</span>
+        <span style="writing-mode:vertical-rl;font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#b5afa2">{{ taskCount }}</span>
+      </div>
+    </sc-if>
+    <sc-if value="{{ sidebarFull }}" hint-placeholder-val="{{ true }}">
+    <div style="height:30px;flex:0 0 30px;display:flex;align-items:center;gap:6px;padding:0 6px 0 11px;border-bottom:1px solid #e6e2da">
+      <span style="font-size:10.5px;font-weight:600;letter-spacing:.6px;color:#8a857c;flex:1;min-width:0">업무 리스트</span>
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#9b968c;flex:0 0 auto">{{ taskCount }}</span>
+      <div onClick="{{ onToggleSidebar }}" style="flex:0 0 17px;width:17px;height:17px;display:flex;align-items:center;justify-content:center;border-radius:3px;cursor:pointer;color:#8a857c;font-size:11px;line-height:1" style-hover="background:#e6e2da;color:#3a3630">–</div>
+    </div>
+    <div style="padding:8px 9px 6px 9px;display:flex;flex-direction:column;gap:7px">
+      <input value="{{ query }}" onChange="{{ onQuery }}" placeholder="업무 · 태그 · 경로 검색" style="height:26px;border:1px solid #ddd8cf;border-radius:5px;background:#fff;padding:0 8px;font-size:11.5px;color:#23211e;outline:none" style-focus="border-color:#3a6fd8;box-shadow:0 0 0 2px #e6eefc">
+      <div style="display:flex;gap:4px">
+        <sc-for list="{{ filters }}" as="f" hint-placeholder-count="4">
+          <div onClick="{{ f.onClick }}" style="flex:1;text-align:center;font-size:10.5px;line-height:20px;height:21px;border-radius:4px;cursor:pointer;user-select:none;border:1px solid {{ f.bd }};background:{{ f.bg }};color:{{ f.fg }};font-weight:{{ f.fw }}">{{ f.label }} {{ f.count }}</div>
+        </sc-for>
+      </div>
+    </div>
+    <div style="flex:1;min-height:0;overflow-y:auto;padding:2px 6px 8px 6px">
+      <sc-for list="{{ visibleTasks }}" as="t" hint-placeholder-count="6">
+        <div onClick="{{ t.onSelect }}" style="display:flex;gap:8px;padding:7px 8px 7px 7px;border-radius:5px;cursor:pointer;margin-bottom:1px;border-left:2px solid {{ t.accent }};background:{{ t.rowBg }};box-shadow:{{ t.rowShadow }}" style-hover="background:#ede9e2">
+          <div style="width:7px;height:7px;border-radius:50%;margin-top:4px;flex:0 0 7px;background:{{ t.dot }}"></div>
+          <div style="min-width:0;flex:1">
+            <div style="font-size:12px;line-height:16px;font-weight:{{ t.fw }};color:{{ t.titleColor }};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ t.title }}</div>
+            <div style="display:flex;align-items:center;gap:5px;margin-top:2px">
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#a09a8f">{{ t.updated }}</span>
+              <span style="font-size:9.5px;color:#a09a8f;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ t.tagline }}</span>
+            </div>
+          </div>
+          <sc-if value="{{ t.hasRuns }}" hint-placeholder-val="{{ false }}">
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:#8a857c;background:#ece8e0;border-radius:3px;padding:1px 4px;height:15px;line-height:13px;margin-top:1px">×{{ t.runs }}</div>
+          </sc-if>
+        </div>
+      </sc-for>
+      <sc-if value="{{ noResults }}" hint-placeholder-val="{{ false }}">
+        <div style="padding:22px 12px;text-align:center;font-size:11.5px;color:#a09a8f;line-height:1.6">조건에 맞는 업무가 없습니다.<br>보관함까지 찾으려면 아래 보관함을 열어보세요.</div>
+      </sc-if>
+      <sc-if value="{{ showArchHits }}" hint-placeholder-val="{{ false }}">
+        <div style="margin-top:9px;padding:0 2px">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px">
+            <div style="flex:1;height:1px;background:#e0dcd4"></div>
+            <span style="font-size:9.5px;letter-spacing:.3px;color:#a09a8f;white-space:nowrap">보관함 {{ archHitCount }}</span>
+            <div style="flex:1;height:1px;background:#e0dcd4"></div>
+          </div>
+          <sc-for list="{{ archHits }}" as="h" hint-placeholder-count="2">
+            <div onClick="{{ h.onOpen }}" style="display:flex;align-items:center;gap:7px;padding:6px 7px;border-radius:5px;cursor:pointer;margin-bottom:1px" style-hover="background:#ece8e0">
+              <div style="width:7px;height:7px;border-radius:50%;flex:0 0 7px;border:1px solid #c5c0b6;background:#e6e2da"></div>
+              <div style="min-width:0;flex:1">
+                <div style="font-size:11.5px;line-height:15px;color:#7d7871;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ h.title }}</div>
+                <div style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#b5afa2;margin-top:1px">완료 {{ h.date }}</div>
+              </div>
+              <div onClick="{{ h.onRestore }}" style="flex:0 0 auto;font-size:9.5px;color:#5a44b4;background:#f2eefc;border:1px solid #e4dcf8;border-radius:3px;padding:2px 6px" style-hover="background:#ece5fb">재개</div>
+            </div>
+          </sc-for>
+          <div onClick="{{ onGoArchive }}" style="font-size:10.5px;color:#3a6fd8;cursor:pointer;padding:5px 7px" style-hover="text-decoration:underline">{{ archMoreLabel }}</div>
+        </div>
+      </sc-if>
+    </div>
+    <div style="flex:0 0 auto;border-top:1px solid #e6e2da;padding:8px 9px;display:flex;flex-direction:column;gap:6px">
+      <div onClick="{{ onNewTask }}" style="height:28px;border-radius:5px;background:#3a6fd8;color:#fff;font-size:11.5px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:5px;cursor:pointer" style-hover="background:#2f5cbb">
+        <span style="font-size:13px;line-height:1">+</span> 새 업무 추가
+      </div>
+      <div onClick="{{ onGoArchive }}" style="display:flex;align-items:center;gap:7px;height:25px;padding:0 8px;border-radius:4px;cursor:pointer;background:#ebe7df" style-hover="background:#e2ded4">
+        <div style="width:9px;height:7px;border-radius:1px 2px 2px 2px;background:#cfcabf;flex:0 0 9px"></div>
+        <span style="font-size:10.5px;color:#6a665e;flex:1;min-width:0">보관함</span>
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#8a857c;flex:0 0 auto">{{ archivedCount }}</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px">
+        <sc-for list="{{ navItems }}" as="n" hint-placeholder-count="4">
+          <div onClick="{{ n.onClick }}" style="height:24px;border-radius:4px;font-size:10.5px;display:flex;align-items:center;justify-content:center;cursor:pointer;border:1px solid {{ n.bd }};background:{{ n.bg }};color:{{ n.fg }};font-weight:{{ n.fw }}">{{ n.label }}</div>
+        </sc-for>
+      </div>
+    </div>
+    </sc-if>
+  </div>
+
+  <sc-if value="{{ sidebarFull }}" hint-placeholder-val="{{ true }}">
+    <div onMouseDown="{{ onDragSidebar }}" style="flex:0 0 5px;cursor:col-resize;background:transparent;margin-left:-2px;z-index:5" style-hover="background:#c9dbf7"></div>
+  </sc-if>
+
+  <div style="flex:1;min-width:0;display:flex;flex-direction:column;background:#fff">
+
+    <sc-if value="{{ isWorkspace }}" hint-placeholder-val="{{ true }}">
+    <div style="flex:1;min-height:0;display:flex;flex-direction:column">
+      <div style="flex:0 0 auto;border-bottom:1px solid #e6e2da;padding:8px 12px 7px 12px;display:flex;align-items:center;gap:10px;background:#fdfcfa;position:relative">
+        <div style="min-width:0">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:14.5px;font-weight:600;letter-spacing:-.2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ at.title }}</span>
+            <sc-for list="{{ at.tags }}" as="tag" hint-placeholder-count="3">
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#6a665e;background:#f0ede7;border:1px solid #e4e0d8;border-radius:3px;padding:1px 5px">#{{ tag }}</span>
+            </sc-for>
+          </div>
+          <div style="display:flex;align-items:center;gap:7px;margin-top:3px">
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#a09a8f;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ at.folder }}</span>
+          </div>
+        </div>
+        <div style="flex:1"></div>
+        <div style="display:flex;align-items:center;gap:6px;font-size:10.5px;color:#8a857c">
+          <div style="width:5px;height:5px;border-radius:50%;background:#2f7f57"></div>
+          <span>스냅샷 {{ snapAt }}</span>
+        </div>
+        <div onClick="{{ onToggleStatusMenu }}" style="display:flex;align-items:center;gap:6px;height:26px;padding:0 9px;border-radius:5px;cursor:pointer;border:1px solid {{ at.statusBd }};background:{{ at.statusBg }};color:{{ at.statusFg }};font-size:11.5px;font-weight:600">
+          <div style="width:6px;height:6px;border-radius:50%;background:{{ at.dot }}"></div>
+          {{ at.statusLabel }}
+          <span style="font-size:8px;opacity:.7">▼</span>
+        </div>
+        <sc-if value="{{ statusMenuOpen }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute;top:44px;right:12px;z-index:30;background:#fff;border:1px solid #d9d4ca;border-radius:6px;box-shadow:0 10px 26px rgba(35,33,30,.16);padding:4px;min-width:172px;animation:pIn .12s ease-out">
+            <sc-for list="{{ statusOptions }}" as="s" hint-placeholder-count="4">
+              <div onClick="{{ s.onClick }}" style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:4px;cursor:pointer;font-size:11.5px;color:#3a3630;background:{{ s.bg }}" style-hover="background:#f2efe9">
+                <div style="width:7px;height:7px;border-radius:50%;background:{{ s.dot }}"></div>
+                <span style="flex:1">{{ s.label }}</span>
+                <span style="font-size:10px;color:#a09a8f">{{ s.hint }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+      </div>
+
+      <sc-if value="{{ archBanner }}" hint-placeholder-val="{{ false }}">
+        <div style="flex:0 0 auto;display:flex;align-items:center;gap:10px;padding:7px 12px;background:#f4f2ee;border-bottom:1px solid #e6e2da">
+          <div style="width:6px;height:6px;border-radius:50%;background:#b5afa2;flex:0 0 6px"></div>
+          <span style="font-size:11px;color:#6a665e;flex:1;min-width:0">보관된 업무입니다 · 읽기 참조용으로 열려 있으며 목록에는 표시되지 않습니다</span>
+          <div onClick="{{ onRestoreActive }}" style="flex:0 0 auto;height:24px;padding:0 11px;display:flex;align-items:center;border-radius:4px;border:1px solid #e0d6f8;background:#f4f0fd;color:#5a44b4;font-size:11px;font-weight:600;cursor:pointer" style-hover="background:#ece5fb">여기서 재개</div>
+        </div>
+      </sc-if>
+
+      <div ref="{{ refDock }}" style="flex:1;min-height:0;display:flex">
+        <div ref="{{ refLeft }}" style="min-width:0;display:flex;flex-direction:column;flex: {{ leftFlex }};width: {{ leftW }}">
+
+          <div style="min-height:0;display:flex;flex-direction:column;border-bottom:1px solid #e6e2da;flex: {{ editorFlex }};height: {{ editorH }}">
+            <div style="flex:0 0 27px;display:flex;align-items:stretch;background:#f7f5f1;border-bottom:1px solid #e6e2da;overflow:hidden">
+              <div style="display:flex;align-items:stretch;flex:1 1 auto;min-width:0;overflow:hidden">
+                <sc-for list="{{ fileTabs }}" as="tab" hint-placeholder-count="2">
+                  <div onClick="{{ tab.onClick }}" style="display:flex;align-items:center;gap:6px;padding:0 8px 0 9px;font-family:'IBM Plex Mono',monospace;font-size:10.5px;cursor:pointer;border-right:1px solid #e6e2da;white-space:nowrap;flex:0 1 auto;min-width:0;max-width:180px;background:{{ tab.bg }};color:{{ tab.fg }};box-shadow:{{ tab.line }}">
+                    <span style="flex:0 0 auto;font-size:8px;font-weight:600;letter-spacing:.3px;border-radius:2px;padding:1px 3px;color:{{ tab.modeFg }};background:{{ tab.modeBg }}">{{ tab.mode }}</span>
+                    <span style="flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis">{{ tab.name }}</span>
+                    <sc-if value="{{ tab.dirty }}" hint-placeholder-val="{{ false }}">
+                      <span style="width:5px;height:5px;border-radius:50%;flex:0 0 5px;background:#b07520;display:block"></span>
+                    </sc-if>
+                    <span onClick="{{ tab.onClose }}" style="width:13px;height:13px;flex:0 0 13px;display:flex;align-items:center;justify-content:center;border-radius:3px;font-size:9px;color:#a09a8f" style-hover="background:#e0dcd4;color:#4e4a43">✕</span>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+
+            <sc-if value="{{ showEmpty }}" hint-placeholder-val="{{ false }}">
+              <div style="flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;background:#fdfcfa">
+                <div style="font-size:12px;color:#8a857c">열려 있는 파일이 없습니다</div>
+                <div style="font-size:10.5px;color:#a09a8f;text-align:center;line-height:1.7">오른쪽 탐색기에서 파일을 더블클릭하거나,<br>우클릭해 열기 방식을 선택하세요.</div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ showBinary }}" hint-placeholder-val="{{ false }}">
+              <div style="flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;background:#fdfcfa;padding:20px">
+                <div style="width:38px;height:38px;border-radius:6px;border:1px solid #e4e0d8;background:#f2efe9;display:flex;align-items:center;justify-content:center;font-family:'IBM Plex Mono',monospace;font-size:10px;color:#8a857c">{{ binExt }}</div>
+                <div style="font-size:12px;font-weight:500">{{ binName }}</div>
+                <div style="font-size:10.5px;color:#a09a8f;text-align:center;line-height:1.7">텍스트로 표시할 수 없는 형식입니다 · {{ binSize }}<br>연결 프로그램으로 열어 확인하세요.</div>
+                <div onClick="{{ onBinOpenWith }}" style="height:27px;padding:0 13px;display:flex;align-items:center;border-radius:5px;border:1px solid #cddcf8;background:#eef3fd;color:#2f5cbb;font-size:11.5px;font-weight:600;cursor:pointer" style-hover="background:#e2ebfb">연결 프로그램으로 열기</div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ showMarkdown }}" hint-placeholder-val="{{ false }}">
+              <div style="flex:1;min-height:0;display:flex;flex-direction:column;background:#fff">
+                <div style="flex:0 0 25px;display:flex;align-items:center;gap:8px;padding:0 12px;background:#fbfaf7;border-bottom:1px dashed #e4e0d8">
+                  <span style="font-size:10px;font-weight:600;letter-spacing:.4px;color:#6a665e">마크다운 뷰어</span>
+                  <span style="font-size:10px;color:#a09a8f">읽기 전용 · 위키링크 활성</span>
+                  <div style="flex:1"></div>
+                  <div onClick="{{ onEditAsText }}" style="font-size:10px;color:#3a6fd8;cursor:pointer" style-hover="text-decoration:underline">텍스트로 편집</div>
+                </div>
+                <div style="flex:1;min-height:0;overflow:auto;padding:14px 20px 24px 20px">
+                  <sc-for list="{{ mdBlocks }}" as="b" hint-placeholder-count="6">
+                    <sc-if value="{{ b.isH2 }}" hint-placeholder-val="{{ false }}">
+                      <div style="font-size:15px;font-weight:600;letter-spacing:-.2px;color:#23211e;margin:16px 0 6px 0;padding-bottom:4px;border-bottom:1px solid #f0ede7">{{ b.text }}</div>
+                    </sc-if>
+                    <sc-if value="{{ b.isH3 }}" hint-placeholder-val="{{ false }}">
+                      <div style="font-size:12.5px;font-weight:600;color:#3a3630;margin:12px 0 4px 0">{{ b.text }}</div>
+                    </sc-if>
+                    <sc-if value="{{ b.isHr }}" hint-placeholder-val="{{ false }}">
+                      <div style="height:1px;background:#e6e2da;margin:12px 0"></div>
+                    </sc-if>
+                    <sc-if value="{{ b.isBody }}" hint-placeholder-val="{{ true }}">
+                      <div style="display:flex;gap:7px;margin-top:3px;padding-left: {{ b.indent }}px">
+                        <sc-if value="{{ b.hasMark }}" hint-placeholder-val="{{ false }}">
+                          <span style="flex:0 0 auto;font-size:11.5px;line-height:1.8;color:{{ b.markFg }}">{{ b.mark }}</span>
+                        </sc-if>
+                        <div style="flex:1;min-width:0;font-size:12.5px;line-height:1.8;color:{{ b.fg }};text-wrap:pretty">
+                          <sc-for list="{{ b.segs }}" as="g" hint-placeholder-count="1">
+                            <sc-if value="{{ g.isT }}" hint-placeholder-val="{{ true }}"><span>{{ g.text }}</span></sc-if>
+                            <sc-if value="{{ g.isB }}" hint-placeholder-val="{{ false }}"><span style="font-weight:600;color:#23211e">{{ g.text }}</span></sc-if>
+                            <sc-if value="{{ g.isCode }}" hint-placeholder-val="{{ false }}"><span style="font-family:'IBM Plex Mono',monospace;font-size:11px;background:#f4f2ed;border:1px solid #e6e2da;border-radius:3px;padding:1px 4px">{{ g.text }}</span></sc-if>
+                            <sc-if value="{{ g.isLink }}" hint-placeholder-val="{{ false }}"><span style="color:#3a6fd8;border-bottom:1px solid #cddcf8;cursor:pointer" style-hover="background:#eef3fd">{{ g.text }}</span></sc-if>
+                          </sc-for>
+                        </div>
+                      </div>
+                    </sc-if>
+                  </sc-for>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ showEditor }}" hint-placeholder-val="{{ true }}">
+              <div style="flex:1;min-height:0;display:flex;flex-direction:column">
+                <sc-if value="{{ showFm }}" hint-placeholder-val="{{ true }}">
+                <div style="flex:0 0 auto;padding:8px 12px;background:#faf9f6;border-bottom:1px dashed #e4e0d8;font-family:'IBM Plex Mono',monospace;font-size:10.5px;line-height:1.65;color:#6a665e">
+                  <div style="color:#b5afa2">---</div>
+                  <div><span style="color:#6a54c6">id:</span> {{ fm.id }}</div>
+                  <div><span style="color:#6a54c6">status:</span> <span style="color:{{ fm.statusColor }}">{{ fm.status }}</span> <span style="color:#b5afa2">&nbsp;tags:</span> {{ fm.tags }}</div>
+                  <div><span style="color:#6a54c6">updated:</span> {{ fm.updated }} <span style="color:#b5afa2">&nbsp;template_ref:</span> <span style="color:#3a6fd8">{{ fm.template }}</span></div>
+                  <div style="color:#b5afa2">---</div>
+                </div>
+                </sc-if>
+                <textarea value="{{ bodyText }}" onChange="{{ onEditBody }}" onKeyUp="{{ onCaret }}" onClick="{{ onCaret }}" spellcheck="false" style="flex:1;min-height:0;width:100%;border:0;outline:none;padding:10px 12px;font-family:'IBM Plex Mono',monospace;font-size:12px;line-height:1.72;color:#2c2a26;background:#fff"></textarea>
+                <div style="flex:0 0 22px;display:flex;align-items:center;gap:12px;padding:0 12px;background:#f7f5f1;border-top:1px solid #e6e2da;font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#8a857c">
+                  <span>Ln {{ caretLn }}, Col {{ caretCol }}</span>
+                  <span>{{ langLabel }}</span>
+                  <span>UTF-8</span>
+                  <div style="flex:1"></div>
+                  <span style="color:{{ savedColor }}">{{ savedLabel }}</span>
+                </div>
+              </div>
+            </sc-if>
+          </div>
+
+          <sc-if value="{{ noteFull }}" hint-placeholder-val="{{ true }}">
+            <div onMouseDown="{{ onDragRowL }}" style="flex:0 0 5px;cursor:row-resize;margin-top:-3px;z-index:5" style-hover="background:#c9dbf7"></div>
+          </sc-if>
+
+          <div style="min-height:0;display:flex;flex-direction:column;flex: {{ noteFlex }}">
+            <div onClick="{{ onToggleNote }}" style="flex:0 0 26px;display:flex;align-items:center;gap:8px;padding:0 7px 0 11px;background:#f7f5f1;border-bottom:1px solid #e6e2da;cursor:pointer">
+              <span style="font-size:10.5px;font-weight:600;letter-spacing:.4px;color:#6a665e;white-space:nowrap;flex:0 0 auto">간단 메모장</span>
+              <sc-if value="{{ noteMin }}" hint-placeholder-val="{{ false }}">
+                <span style="font-size:10px;color:#a09a8f;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1 1 auto;min-width:0">{{ notePeek }}</span>
+              </sc-if>
+              <div style="flex:1;min-width:0"></div>
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#a09a8f;white-space:nowrap;flex:0 0 auto;overflow:hidden">자동 저장 {{ snapAt }}</span>
+              <div style="flex:0 0 17px;width:17px;height:17px;display:flex;align-items:center;justify-content:center;border-radius:3px;color:#8a857c;font-size:11px;line-height:1" style-hover="background:#e6e2da;color:#3a3630">{{ noteToggleIcon }}</div>
+            </div>
+            <sc-if value="{{ noteFull }}" hint-placeholder-val="{{ true }}">
+              <textarea value="{{ notepadText }}" onChange="{{ onEditNote }}" spellcheck="false" placeholder="휘발성 메모 — 업무 전환 시 .context_snapshot.json에 그대로 보존됩니다." style="flex:1;min-height:0;width:100%;border:0;outline:none;padding:9px 12px;font-size:11.5px;line-height:1.7;color:#3a3630;background:#fffef9"></textarea>
+            </sc-if>
+          </div>
+        </div>
+
+        <sc-if value="{{ explorerFull }}" hint-placeholder-val="{{ true }}">
+          <div onMouseDown="{{ onDragCol }}" style="flex:0 0 5px;cursor:col-resize;margin-left:-2px;background:#e6e2da;z-index:5" style-hover="background:#c9dbf7"></div>
+        </sc-if>
+
+        <div style="min-width:0;display:flex;flex-direction:column;background:#faf9f6;border-left:1px solid #e6e2da;flex: {{ expFlex }}">
+          <sc-if value="{{ explorerMin }}" hint-placeholder-val="{{ false }}">
+            <div onClick="{{ onToggleExplorer }}" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:11px;padding:9px 0;cursor:pointer" style-hover="background:#efece6">
+              <span style="font-size:8px;color:#8a857c">◀</span>
+              <span style="writing-mode:vertical-rl;font-size:10.5px;font-weight:600;letter-spacing:1px;color:#6a665e">탐색기</span>
+              <span style="writing-mode:vertical-rl;font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#b5afa2">{{ treeCount }}</span>
+            </div>
+          </sc-if>
+          <sc-if value="{{ explorerFull }}" hint-placeholder-val="{{ true }}">
+          <div style="flex:0 0 26px;display:flex;align-items:center;gap:5px;padding:0 6px 0 11px;background:#f7f5f1;border-bottom:1px solid #e6e2da">
+            <span style="font-size:10.5px;font-weight:600;letter-spacing:.4px;color:#6a665e;white-space:nowrap;flex:1 1 auto;min-width:0">탐색기</span>
+            <div onClick="{{ onNewFile }}" style="font-size:10px;color:#4e4a43;cursor:pointer;padding:2px 5px;border-radius:3px;border:1px solid #e0dcd4;background:#fff;white-space:nowrap;flex:0 0 auto" style-hover="border-color:#3a6fd8;color:#2f5cbb">＋ 파일</div>
+            <div onClick="{{ onNewFolder }}" style="font-size:10px;color:#4e4a43;cursor:pointer;padding:2px 5px;border-radius:3px;border:1px solid #e0dcd4;background:#fff;white-space:nowrap;flex:0 0 auto" style-hover="border-color:#b07520;color:#8f5d17">＋ 폴더</div>
+            <div onClick="{{ onCollapseAll }}" style="font-size:10px;color:#8a857c;cursor:pointer;padding:2px 4px;border-radius:3px;white-space:nowrap;flex:0 0 auto" style-hover="background:#e6e2da;color:#4e4a43">{{ collapseLabel }}</div>
+            <div onClick="{{ onToggleExplorer }}" style="flex:0 0 17px;width:17px;height:17px;display:flex;align-items:center;justify-content:center;border-radius:3px;cursor:pointer;color:#8a857c;font-size:11px;line-height:1" style-hover="background:#e6e2da;color:#3a3630">–</div>
+          </div>
+
+          <div style="flex:0 0 auto;display:flex;align-items:center;gap:6px;padding:6px 10px;border-bottom:1px solid #eae6de;background:#fdfcfa">
+            <div style="width:11px;height:9px;border-radius:1.5px 2px 2px 2px;background:#d9c78f;border:1px solid #c5b073;flex:0 0 11px"></div>
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#6a665e;flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ rootName }}</span>
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#b5afa2;flex:0 0 auto">{{ treeCount }}</span>
+          </div>
+
+          <div onDragOver="{{ onDragOver }}" onDragLeave="{{ onDragLeave }}" onDrop="{{ onDropFiles }}" style="flex:1;min-height:0;overflow:auto;padding:5px 6px 8px 6px;background:{{ dzPaneBg }}">
+            <sc-if value="{{ mkOpen }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;align-items:center;gap:6px;height:26px;margin-bottom:4px;padding:0 5px;border:1px solid #cddcf8;border-radius:4px;background:#f7fafe">
+                <span style="flex:0 0 auto;font-family:'IBM Plex Mono',monospace;font-size:7.5px;font-weight:600;color:{{ mk.badgeFg }};background:{{ mk.badgeBg }};border-radius:2px;padding:1px 3px">{{ mk.badge }}</span>
+                <input ref="{{ mkRef }}" value="{{ mk.name }}" onChange="{{ onMkName }}" onKeyDown="{{ onMkKey }}" placeholder="{{ mk.placeholder }}" style="flex:1;min-width:0;border:0;outline:none;background:transparent;font-family:'IBM Plex Mono',monospace;font-size:11px;color:#23211e">
+                <div onClick="{{ onMkCommit }}" style="flex:0 0 auto;font-size:10px;font-weight:600;color:#2f5cbb;cursor:pointer;padding:2px 5px;border-radius:3px" style-hover="background:#e2ebfb">만들기</div>
+                <div onClick="{{ onMkCancel }}" style="flex:0 0 auto;font-size:10px;color:#a09a8f;cursor:pointer;padding:2px 4px">취소</div>
+              </div>
+              <div style="font-size:9.5px;color:#a09a8f;margin:-1px 0 6px 6px">위치 · {{ mk.parentLabel }}</div>
+            </sc-if>
+            <sc-for list="{{ treeRows }}" as="r" hint-placeholder-count="9">
+              <div onClick="{{ r.onClick }}" onDoubleClick="{{ r.onDbl }}" onContextMenu="{{ r.onCtx }}" style="display:flex;align-items:center;gap:6px;height:23px;border-radius:4px;cursor:default;user-select:none;padding-right:6px;background:{{ r.bg }};padding-left: {{ r.pad }}px" style-hover="background:#efece6">
+                <sc-if value="{{ r.isDir }}" hint-placeholder-val="{{ false }}">
+                  <span style="flex:0 0 9px;font-size:7px;color:#a09a8f;text-align:center">{{ r.chevron }}</span>
+                  <div style="width:11px;height:9px;border-radius:1.5px 2px 2px 2px;background:#e2d6ae;border:1px solid #cbba86;flex:0 0 11px"></div>
+                  <span style="font-size:11.5px;font-weight:500;color:#4e4a43;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.name }}</span>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:#b5afa2;flex:0 0 auto">{{ r.count }}</span>
+                </sc-if>
+                <sc-if value="{{ r.isFile }}" hint-placeholder-val="{{ true }}">
+                  <span style="flex:0 0 9px"></span>
+                  <span style="flex:0 0 auto;font-family:'IBM Plex Mono',monospace;font-size:7.5px;font-weight:600;letter-spacing:.2px;border-radius:2px;padding:1px 3px;color:{{ r.extFg }};background:{{ r.extBg }}">{{ r.ext }}</span>
+                  <span style="font-size:11.5px;color:{{ r.fg }};font-weight:{{ r.fw }};flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.name }}</span>
+                  <sc-if value="{{ r.openedMd }}" hint-placeholder-val="{{ false }}">
+                    <span style="flex:0 0 auto;font-family:'IBM Plex Mono',monospace;font-size:7.5px;color:#5a44b4;background:#f2eefc;border-radius:2px;padding:1px 3px">MD</span>
+                  </sc-if>
+                  <sc-if value="{{ r.openedTxt }}" hint-placeholder-val="{{ false }}">
+                    <span style="flex:0 0 auto;font-family:'IBM Plex Mono',monospace;font-size:7.5px;color:#2f5cbb;background:#eef3fd;border-radius:2px;padding:1px 3px">TXT</span>
+                  </sc-if>
+                  <sc-if value="{{ r.openedExt }}" hint-placeholder-val="{{ false }}">
+                    <span style="flex:0 0 auto;font-family:'IBM Plex Mono',monospace;font-size:8px;color:#8a857c;background:#efece6;border-radius:2px;padding:1px 3px">↗</span>
+                  </sc-if>
+                  <sc-if value="{{ r.isLink }}" hint-placeholder-val="{{ false }}">
+                    <span style="flex:0 0 auto;font-family:'IBM Plex Mono',monospace;font-size:7.5px;font-weight:600;color:#8f5d17;background:#fbf3e6;border-radius:2px;padding:1px 3px">LNK</span>
+                  </sc-if>
+                </sc-if>
+              </div>
+            </sc-for>
+            <div style="margin-top:9px;border:1px dashed {{ dzBd }};border-radius:6px;padding:10px 8px;text-align:center;background:{{ dzBg }}">
+              <div style="font-size:10.5px;color:{{ dzFg }};line-height:1.6">{{ dzText }}</div>
+              <div style="font-size:9.5px;color:#b5afa2;margin-top:2px">복사 또는 심볼릭 링크를 선택할 수 있습니다</div>
+            </div>
+          </div>
+
+          <sc-if value="{{ hasSel }}" hint-placeholder-val="{{ true }}">
+            <div style="flex:0 0 auto;border-top:1px solid #e0dcd4;background:#fff;padding:8px 10px 9px 10px">
+              <div style="display:flex;align-items:center;gap:7px;margin-bottom:7px;min-width:0">
+                <span style="font-family:'IBM Plex Mono',monospace;font-size:7.5px;font-weight:600;border-radius:2px;padding:1px 3px;color:{{ sel.extFg }};background:{{ sel.extBg }};flex:0 0 auto">{{ sel.ext }}</span>
+                <span style="font-size:11.5px;font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ sel.name }}</span>
+                <span style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#a09a8f;flex:0 0 auto">{{ sel.size }}</span>
+              </div>
+              <div style="font-size:9.5px;font-weight:600;letter-spacing:.4px;color:#a09a8f;margin-bottom:5px">열기 방식</div>
+              <div style="display:flex;flex-direction:column;gap:4px">
+                <div onClick="{{ sel.onText }}" style="display:flex;align-items:center;gap:8px;height:27px;padding:0 8px;border-radius:5px;border:1px solid #ddd8cf;background:#fff;cursor:pointer" style-hover="border-color:#3a6fd8;background:#f7fafe">
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:8px;font-weight:600;color:#2f5cbb;background:#eef3fd;border-radius:2px;padding:1px 4px">TXT</span>
+                  <span style="font-size:11px;color:#3a3630;flex:1">텍스트 에디터로 열기</span>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:#b5afa2">편집 가능</span>
+                </div>
+                <div onClick="{{ sel.onMd }}" style="display:flex;align-items:center;gap:8px;height:27px;padding:0 8px;border-radius:5px;cursor:{{ sel.mdCursor }};border:1px solid {{ sel.mdBd }};background:{{ sel.mdBg }};opacity:{{ sel.mdOpacity }}" style-hover="border-color:#6a54c6">
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:8px;font-weight:600;color:#5a44b4;background:#f2eefc;border-radius:2px;padding:1px 4px">MD</span>
+                  <span style="font-size:11px;color:#3a3630;flex:1">마크다운 뷰어로 열기</span>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:#b5afa2">{{ sel.mdHint }}</span>
+                </div>
+                <div onClick="{{ sel.onExt }}" style="display:flex;align-items:center;gap:8px;height:27px;padding:0 8px;border-radius:5px;border:1px solid #ddd8cf;background:#fff;cursor:pointer" style-hover="border-color:#8a857c;background:#faf9f6">
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:8px;font-weight:600;color:#6a665e;background:#f0ede7;border-radius:2px;padding:1px 4px">↗</span>
+                  <span style="font-size:11px;color:#3a3630;flex:1">연결 프로그램으로 열기</span>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:#b5afa2">{{ sel.defaultApp }}</span>
+                </div>
+              </div>
+              <div style="font-size:9.5px;color:#b5afa2;margin-top:7px;line-height:1.6">더블클릭 = 기본 열기 · 우클릭 = 열기 방식 메뉴</div>
+            </div>
+          </sc-if>
+          </sc-if>
+        </div>
+      </div>
+    </div>
+    </sc-if>
+
+    <sc-if value="{{ isTemplates }}" hint-placeholder-val="{{ false }}">
+      <div style="flex:1;min-height:0;overflow:auto;padding:18px 22px;background:#fdfcfa">
+        <div style="display:flex;align-items:flex-start;gap:12px">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:15px;font-weight:600;letter-spacing:-.2px">표준 패턴 · 실행 이력</div>
+            <div style="font-size:11.5px;color:#8a857c;margin-top:3px;line-height:1.6;max-width:680px">반복 업무는 새 노드를 양산하는 대신 대표 템플릿 하위에 회차별 Run Log로 누적됩니다. 아래 숫자가 곧 “만들지 않은 중복 노트 수”입니다.</div>
+          </div>
+          <div onClick="{{ onNewTemplate }}" style="flex:0 0 auto;height:29px;padding:0 13px;display:flex;align-items:center;gap:5px;border-radius:5px;background:#3a6fd8;color:#fff;font-size:11.5px;font-weight:600;cursor:pointer" style-hover="background:#2f5cbb">
+            <span style="font-size:13px;line-height:1">+</span> 템플릿 추가
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;margin:14px 0 12px 0">
+          <sc-for list="{{ tplStats }}" as="s" hint-placeholder-count="3">
+            <div style="flex:0 0 auto;min-width:132px;border:1px solid #e6e2da;border-radius:6px;padding:9px 12px;background:#fff">
+              <div style="font-family:'IBM Plex Mono',monospace;font-size:19px;font-weight:600;color:{{ s.color }};line-height:1.1">{{ s.value }}</div>
+              <div style="font-size:10.5px;color:#8a857c;margin-top:3px">{{ s.label }}</div>
+            </div>
+          </sc-for>
+        </div>
+        <div style="border:1px solid #e6e2da;border-radius:7px;overflow:hidden;background:#fff">
+          <div style="display:grid;grid-template-columns:1fr 92px 128px 108px;gap:0;background:#f7f5f1;border-bottom:1px solid #e6e2da;font-size:10.5px;font-weight:600;color:#8a857c">
+            <div style="padding:7px 12px">템플릿 / 대표 노드</div>
+            <div style="padding:7px 12px;text-align:right">실행 횟수</div>
+            <div style="padding:7px 12px;text-align:right">최근 실행</div>
+            <div style="padding:7px 12px;text-align:right">절감 노트</div>
+          </div>
+          <sc-for list="{{ templates }}" as="tp" hint-placeholder-count="4">
+            <div style="border-bottom:1px solid #f0ede7">
+              <div onClick="{{ tp.onToggle }}" style="display:grid;grid-template-columns:1fr 92px 128px 108px;cursor:pointer;background:{{ tp.bg }}" style-hover="background:#faf9f6">
+                <div style="padding:9px 12px;display:flex;align-items:center;gap:8px;min-width:0">
+                  <span style="font-size:8px;color:#a09a8f">{{ tp.chevron }}</span>
+                  <div style="min-width:0">
+                    <div style="font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ tp.name }}</div>
+                    <div style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#a09a8f;margin-top:2px">{{ tp.path }}</div>
+                  </div>
+                </div>
+                <div style="padding:9px 12px;text-align:right;font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:#3a3630">{{ tp.uses }}</div>
+                <div style="padding:9px 12px;text-align:right;font-family:'IBM Plex Mono',monospace;font-size:11px;color:#8a857c">{{ tp.last }}</div>
+                <div style="padding:9px 12px;text-align:right;font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:#2f7f57">−{{ tp.saved }}</div>
+              </div>
+              <sc-if value="{{ tp.open }}" hint-placeholder-val="{{ false }}">
+                <div style="background:#faf9f6;border-top:1px solid #f0ede7;padding:8px 12px 10px 32px">
+                  <div style="font-size:10px;font-weight:600;color:#8a857c;letter-spacing:.4px;margin-bottom:5px">RUN LOG</div>
+                  <sc-for list="{{ tp.runs }}" as="run" hint-placeholder-count="3">
+                    <div style="display:flex;gap:10px;padding:3px 0;border-bottom:1px dotted #eae6de">
+                      <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#a09a8f;flex:0 0 108px">{{ run.date }}</span>
+                      <span style="font-size:11px;color:#4e4a43;flex:1">{{ run.text }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+              </sc-if>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isArchive }}" hint-placeholder-val="{{ false }}">
+      <div style="flex:1;min-height:0;display:flex;flex-direction:column;background:#fdfcfa">
+        <div style="flex:0 0 auto;padding:16px 22px 12px 22px;border-bottom:1px solid #eae6de">
+          <div style="display:flex;align-items:flex-start;gap:14px">
+            <div style="flex:1;min-width:0">
+              <div style="font-size:15px;font-weight:600;letter-spacing:-.2px">보관함</div>
+              <div style="font-size:11.5px;color:#8a857c;margin-top:3px;line-height:1.65;max-width:640px;text-wrap:pretty">{{ archRule }}</div>
+            </div>
+            <div style="display:flex;gap:8px;flex:0 0 auto">
+              <sc-for list="{{ archStats }}" as="s" hint-placeholder-count="3">
+                <div style="min-width:96px;border:1px solid #e6e2da;border-radius:6px;padding:7px 11px;background:#fff">
+                  <div style="font-family:'IBM Plex Mono',monospace;font-size:17px;font-weight:600;color:{{ s.color }};line-height:1.1">{{ s.value }}</div>
+                  <div style="font-size:10px;color:#8a857c;margin-top:2px;white-space:nowrap">{{ s.label }}</div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:7px;margin-top:13px">
+            <input value="{{ archQuery }}" onChange="{{ onArchQuery }}" placeholder="보관된 업무 검색 — 제목, 태그, 본문 내용" style="flex:1;min-width:0;height:30px;border:1px solid #ddd8cf;border-radius:5px;background:#fff;padding:0 10px;font-size:12px;color:#23211e;outline:none" style-focus="border-color:#3a6fd8;box-shadow:0 0 0 2px #e6eefc">
+            <div style="display:flex;gap:4px;flex:0 0 auto">
+              <sc-for list="{{ archScopes }}" as="c" hint-placeholder-count="2">
+                <div onClick="{{ c.onClick }}" style="height:30px;padding:0 11px;display:flex;align-items:center;border-radius:5px;font-size:11px;cursor:pointer;white-space:nowrap;border:1px solid {{ c.bd }};background:{{ c.bg }};color:{{ c.fg }};font-weight:{{ c.fw }}">{{ c.label }}</div>
+              </sc-for>
+            </div>
+          </div>
+          <div style="display:flex;gap:4px;margin-top:8px">
+            <sc-for list="{{ archYears }}" as="y" hint-placeholder-count="3">
+              <div onClick="{{ y.onClick }}" style="height:22px;padding:0 10px;display:flex;align-items:center;border-radius:4px;font-size:10.5px;cursor:pointer;border:1px solid {{ y.bd }};background:{{ y.bg }};color:{{ y.fg }};font-weight:{{ y.fw }}">{{ y.label }}</div>
+            </sc-for>
+          </div>
+        </div>
+
+        <div style="flex:1;min-height:0;display:flex">
+          <div style="flex:1;min-width:0;overflow:auto;padding:12px 22px 20px 22px">
+            <sc-for list="{{ archGroups }}" as="g" hint-placeholder-count="2">
+              <div style="margin-bottom:16px">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                  <span style="font-size:11px;font-weight:600;letter-spacing:.3px;color:#6a665e">{{ g.label }}</span>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#b5afa2">{{ g.count }}</span>
+                  <div style="flex:1;height:1px;background:#eae6de"></div>
+                </div>
+                <sc-for list="{{ g.items }}" as="it" hint-placeholder-count="3">
+                  <div onClick="{{ it.onOpen }}" style="display:flex;align-items:center;gap:11px;padding:9px 11px;border:1px solid #eae6de;border-radius:6px;background:#fff;margin-bottom:4px;cursor:pointer" style-hover="border-color:#d9d4ca;background:#fffdf9">
+                    <div style="min-width:0;flex:1">
+                      <div style="display:flex;align-items:center;gap:7px;min-width:0">
+                        <span style="font-size:12px;font-weight:500;color:#3a3630;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ it.title }}</span>
+                        <sc-for list="{{ it.tags }}" as="tg" hint-placeholder-count="2">
+                          <span style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:#8a857c;background:#f2efe9;border-radius:3px;padding:1px 5px;white-space:nowrap">#{{ tg.name }}</span>
+                        </sc-for>
+                        <sc-if value="{{ it.manual }}" hint-placeholder-val="{{ false }}">
+                          <span style="font-size:9px;color:#8f5d17;background:#fbf3e6;border-radius:3px;padding:1px 5px;white-space:nowrap">직접 보관</span>
+                        </sc-if>
+                      </div>
+                      <div style="display:flex;align-items:center;gap:8px;margin-top:3px;min-width:0">
+                        <span style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#a09a8f;flex:0 0 auto">{{ it.date }} · {{ it.ago }}</span>
+                        <span style="font-size:10.5px;color:#a09a8f;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ it.tagline }}</span>
+                      </div>
+                      <sc-if value="{{ it.hasSnippet }}" hint-placeholder-val="{{ false }}">
+                        <div style="margin-top:5px;padding:5px 8px;border-left:2px solid #cddcf8;background:#f7fafe;font-family:'IBM Plex Mono',monospace;font-size:10px;color:#4e4a43;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ it.snippet }}</div>
+                      </sc-if>
+                    </div>
+                    <span style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#b5afa2;flex:0 0 auto">{{ it.runs }}</span>
+                    <div style="display:flex;gap:5px;flex:0 0 auto">
+                      <div onClick="{{ it.onObsidian }}" style="height:24px;padding:0 9px;display:flex;align-items:center;border-radius:4px;border:1px solid #e0dcd4;background:#fff;color:#6a665e;font-size:10.5px" style-hover="border-color:#a78bfa;color:#5a44b4">Obsidian</div>
+                      <div onClick="{{ it.onRestore }}" style="height:24px;padding:0 10px;display:flex;align-items:center;border-radius:4px;border:1px solid #e0d6f8;background:#f4f0fd;color:#5a44b4;font-size:10.5px;font-weight:600" style-hover="background:#ece5fb">재개</div>
+                    </div>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-for>
+            <sc-if value="{{ archEmpty }}" hint-placeholder-val="{{ false }}">
+              <div style="padding:8px 2px;font-size:11px;color:#b5afa2;line-height:1.7">찾는 내용이 없다면 검색 범위를 [본문 전문]으로 바꿔보세요. 보관된 노트의 본문과 첨부 텍스트까지 훑습니다.</div>
+            </sc-if>
+            <sc-if value="{{ archEmptyNone }}" hint-placeholder-val="{{ false }}">
+              <div style="padding:48px 12px;text-align:center;font-size:11.5px;color:#a09a8f;line-height:1.8">아직 보관된 업무가 없습니다.<br>완료 후 설정한 기간이 지나면 여기로 접힙니다.</div>
+            </sc-if>
+          </div>
+
+          <div style="flex:0 0 272px;border-left:1px solid #eae6de;background:#faf9f6;overflow:auto;padding:13px 14px 18px 14px">
+            <div style="font-size:10.5px;font-weight:600;letter-spacing:.4px;color:#6a665e">Obsidian 연계</div>
+            <div style="font-size:10.5px;color:#8a857c;margin-top:5px;line-height:1.7;text-wrap:pretty">보관은 ContextFlow 목록에서만 접는 동작입니다. Vault 안의 노트는 그대로 남아 Obsidian 검색·그래프·Dataview에서 계속 조회됩니다.</div>
+            <div style="margin-top:11px;border:1px solid #e6e2da;border-radius:6px;background:#fff;overflow:hidden">
+              <div style="padding:6px 9px;background:#f4f2ee;border-bottom:1px solid #eae6de;font-size:9.5px;font-weight:600;letter-spacing:.3px;color:#8a857c">현재 방식 · {{ archModeLabel }}</div>
+              <div style="padding:8px 10px;font-family:'IBM Plex Mono',monospace;font-size:10px;line-height:1.75">
+                <sc-for list="{{ archFm }}" as="l" hint-placeholder-count="4">
+                  <div style="white-space:pre-wrap;color:{{ l.fg }}">{{ l.text }}</div>
+                </sc-for>
+              </div>
+            </div>
+            <div style="margin-top:11px;font-size:10px;font-weight:600;letter-spacing:.3px;color:#8a857c">Obsidian에서 같은 목록 보기</div>
+            <div style="margin-top:5px;border:1px solid #e6e2da;border-radius:6px;background:#fff;padding:8px 10px;font-family:'IBM Plex Mono',monospace;font-size:9.5px;line-height:1.8">
+              <sc-for list="{{ archDv }}" as="l" hint-placeholder-count="6">
+                <div style="white-space:pre-wrap;color:{{ l.fg }}">{{ l.text }}</div>
+              </sc-for>
+            </div>
+            <div onClick="{{ onOpenMoc }}" style="margin-top:10px;display:flex;align-items:center;gap:8px;height:29px;padding:0 10px;border-radius:5px;border:1px solid #e0d6f8;background:#f4f0fd;cursor:pointer" style-hover="background:#ece5fb">
+              <span style="font-size:11px;font-weight:600;color:#5a44b4;flex:1;min-width:0">Archive MOC 노트 열기</span>
+              <span style="font-size:10px;color:#8a7fc0">↗</span>
+            </div>
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#b5afa2;margin-top:5px;line-height:1.6;word-break:break-all">{{ archMocPath }}</div>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isSettings }}" hint-placeholder-val="{{ false }}">
+      <div style="flex:1;min-height:0;overflow:auto;padding:18px 22px;background:#fdfcfa">
+        <div style="font-size:15px;font-weight:600;letter-spacing:-.2px">설정</div>
+        <div style="max-width:680px;margin-top:14px;display:flex;flex-direction:column;gap:16px">
+          <div style="border:1px solid #e6e2da;border-radius:7px;background:#fff;overflow:hidden">
+            <div style="padding:8px 12px;background:#f7f5f1;border-bottom:1px solid #e6e2da;font-size:10.5px;font-weight:600;letter-spacing:.4px;color:#6a665e">저장소 (Obsidian Vault)</div>
+            <div style="padding:12px">
+              <div style="font-size:11.5px;font-weight:500;margin-bottom:5px">Vault Root 경로</div>
+              <div style="display:flex;gap:6px">
+                <input value="{{ st.vault }}" onChange="{{ onVault }}" style="flex:1;height:28px;border:1px solid #ddd8cf;border-radius:5px;padding:0 9px;font-family:'IBM Plex Mono',monospace;font-size:11px;outline:none" style-focus="border-color:#3a6fd8;box-shadow:0 0 0 2px #e6eefc">
+                <div style="height:28px;padding:0 12px;display:flex;align-items:center;border:1px solid #ddd8cf;border-radius:5px;background:#f7f5f1;font-size:11.5px;color:#4e4a43;cursor:pointer" style-hover="background:#ece8e0">찾아보기</div>
+              </div>
+              <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#a09a8f;margin-top:7px;line-height:1.7">{{ st.vault }}/Tasks/[YYYY-MM] 업무명/index.md<br>{{ st.vault }}/Templates/</div>
+            </div>
+          </div>
+          <div style="border:1px solid #e6e2da;border-radius:7px;background:#fff;overflow:hidden">
+            <div style="padding:8px 12px;background:#f7f5f1;border-bottom:1px solid #e6e2da;font-size:10.5px;font-weight:600;letter-spacing:.4px;color:#6a665e">파일 열기 기본값</div>
+            <sc-for list="{{ openPrefs }}" as="op" hint-placeholder-count="2">
+              <div style="display:flex;align-items:center;gap:12px;padding:10px 12px;border-bottom:1px solid #f4f1ec">
+                <div style="flex:1">
+                  <div style="font-size:11.5px;font-weight:500">{{ op.label }}</div>
+                  <div style="font-size:10.5px;color:#8a857c;margin-top:2px">{{ op.desc }}</div>
+                </div>
+                <div style="display:flex;gap:4px;flex:0 0 auto">
+                  <sc-for list="{{ op.choices }}" as="c" hint-placeholder-count="2">
+                    <div onClick="{{ c.onClick }}" style="height:24px;padding:0 10px;display:flex;align-items:center;border-radius:4px;font-size:10.5px;cursor:pointer;border:1px solid {{ c.bd }};background:{{ c.bg }};color:{{ c.fg }};font-weight:{{ c.fw }}">{{ c.label }}</div>
+                  </sc-for>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+          <div style="border:1px solid #e6e2da;border-radius:7px;background:#fff;overflow:hidden">
+            <div style="padding:8px 12px;background:#f7f5f1;border-bottom:1px solid #e6e2da;font-size:10.5px;font-weight:600;letter-spacing:.4px;color:#6a665e">완료 업무 보관</div>
+            <div style="padding:12px;display:flex;flex-direction:column;gap:13px">
+              <div>
+                <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:6px">
+                  <span style="font-size:11.5px;font-weight:500">자동 보관 기간</span>
+                  <span style="font-size:10.5px;color:#a09a8f">완료 후 이 기간이 지나면 업무 리스트에서 접힙니다</span>
+                </div>
+                <div style="display:flex;gap:4px">
+                  <sc-for list="{{ archDayChoices }}" as="c" hint-placeholder-count="5">
+                    <div onClick="{{ c.onClick }}" style="height:26px;padding:0 12px;display:flex;align-items:center;border-radius:4px;font-size:11px;cursor:pointer;border:1px solid {{ c.bd }};background:{{ c.bg }};color:{{ c.fg }};font-weight:{{ c.fw }}">{{ c.label }}</div>
+                  </sc-for>
+                </div>
+              </div>
+              <div>
+                <div style="font-size:11.5px;font-weight:500;margin-bottom:6px">Vault에서의 처리 방식</div>
+                <div style="display:flex;flex-direction:column;gap:5px">
+                  <sc-for list="{{ archModeChoices }}" as="m" hint-placeholder-count="2">
+                    <div onClick="{{ m.onClick }}" style="display:flex;align-items:flex-start;gap:9px;padding:9px 10px;border-radius:6px;cursor:pointer;border:1px solid {{ m.bd }};background:{{ m.bg }}" style-hover="border-color:#c9dbf7">
+                      <div style="width:13px;height:13px;border-radius:50%;flex:0 0 13px;margin-top:1px;border:1px solid {{ m.radioBd }};display:flex;align-items:center;justify-content:center">
+                        <div style="width:6px;height:6px;border-radius:50%;background:{{ m.radioFill }}"></div>
+                      </div>
+                      <div style="min-width:0">
+                        <div style="font-size:11.5px;font-weight:{{ m.fw }};color:#23211e">{{ m.label }}</div>
+                        <div style="font-size:10.5px;color:#8a857c;margin-top:2px;line-height:1.6;text-wrap:pretty">{{ m.desc }}</div>
+                      </div>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+              <div style="font-size:10.5px;color:#a09a8f;line-height:1.7;padding-top:2px;border-top:1px dashed #eae6de">보관은 삭제가 아닙니다. 좌측 검색창에 입력하면 보관된 업무도 함께 검색되고, 보관함 화면에서 본문 전문 검색과 재개가 가능합니다.</div>
+            </div>
+          </div>
+          <div style="border:1px solid #e6e2da;border-radius:7px;background:#fff;overflow:hidden">
+            <div style="padding:8px 12px;background:#f7f5f1;border-bottom:1px solid #e6e2da;font-size:10.5px;font-weight:600;letter-spacing:.4px;color:#6a665e">사내 LLM API</div>
+            <div style="padding:12px;display:flex;flex-direction:column;gap:12px">
+              <div>
+                <div style="font-size:11.5px;font-weight:500;margin-bottom:5px">Endpoint</div>
+                <input value="{{ st.api }}" onChange="{{ onApi }}" style="width:100%;height:28px;border:1px solid #ddd8cf;border-radius:5px;padding:0 9px;font-family:'IBM Plex Mono',monospace;font-size:11px;outline:none" style-focus="border-color:#3a6fd8;box-shadow:0 0 0 2px #e6eefc">
+                <div style="display:flex;align-items:center;gap:6px;margin-top:6px">
+                  <div style="width:6px;height:6px;border-radius:50%;background:#2f7f57"></div>
+                  <span style="font-size:10.5px;color:#8a857c">연결됨 · 임베딩 모델 in-house-embed-v2 · 외부 API 미사용</span>
+                </div>
+              </div>
+              <div>
+                <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:6px">
+                  <span style="font-size:11.5px;font-weight:500">클러스터링 유사도 임계값</span>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:11.5px;font-weight:600;color:#6a54c6">{{ threshold }}%</span>
+                  <span style="font-size:10.5px;color:#a09a8f">새 업무 추가 시 추천 클러스터를 접는 기준</span>
+                </div>
+                <input type="range" min="70" max="95" step="1" value="{{ threshold }}" onChange="{{ onThreshold }}" style="width:100%;accent-color:#6a54c6">
+              </div>
+            </div>
+          </div>
+          <div style="border:1px solid #e6e2da;border-radius:7px;background:#fff;overflow:hidden">
+            <div style="padding:8px 12px;background:#f7f5f1;border-bottom:1px solid #e6e2da;font-size:10.5px;font-weight:600;letter-spacing:.4px;color:#6a665e">컨텍스트 보존</div>
+            <sc-for list="{{ toggles }}" as="tg" hint-placeholder-count="3">
+              <div style="display:flex;align-items:center;gap:12px;padding:10px 12px;border-bottom:1px solid #f4f1ec">
+                <div style="flex:1">
+                  <div style="font-size:11.5px;font-weight:500">{{ tg.label }}</div>
+                  <div style="font-size:10.5px;color:#8a857c;margin-top:2px">{{ tg.desc }}</div>
+                </div>
+                <div onClick="{{ tg.onClick }}" style="flex:0 0 34px;width:34px;height:19px;border-radius:11px;padding:2px;cursor:pointer;background:{{ tg.trackBg }};display:flex;justify-content:{{ tg.justify }};transition:background .15s">
+                  <div style="width:15px;height:15px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2)"></div>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+
+  </div>
+</div>
+</div>
+
+<sc-if value="{{ ctxOpen }}" hint-placeholder-val="{{ false }}">
+  <div onClick="{{ onCloseCtx }}" onContextMenu="{{ onCloseCtx }}" style="position:fixed;inset:0;z-index:80"></div>
+  <div ref="{{ ctxRef }}" style="position:fixed;z-index:81;min-width:206px;background:#fff;border:1px solid #d9d4ca;border-radius:6px;box-shadow:0 12px 30px rgba(35,33,30,.20);padding:4px;animation:pIn .1s ease-out;left: {{ ctx.x }}px;top: {{ ctx.y }}px">
+    <div style="display:flex;align-items:center;gap:6px;padding:5px 8px 6px 8px;border-bottom:1px solid #f0ede7;margin-bottom:3px">
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:7.5px;font-weight:600;border-radius:2px;padding:1px 3px;color:{{ ctx.extFg }};background:{{ ctx.extBg }}">{{ ctx.ext }}</span>
+      <span style="font-size:10.5px;font-weight:600;color:#3a3630;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ ctx.name }}</span>
+    </div>
+    <sc-for list="{{ ctxItems }}" as="i" hint-placeholder-count="4">
+      <div style="display:flex;flex-direction:column">
+        <sc-if value="{{ i.sep }}" hint-placeholder-val="{{ false }}">
+          <div style="height:1px;background:#f0ede7;margin:3px 0"></div>
+        </sc-if>
+        <div onClick="{{ i.onClick }}" style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:4px;cursor:{{ i.cursor }};opacity:{{ i.opacity }}" style-hover="background:#f2efe9">
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:8px;font-weight:600;border-radius:2px;padding:1px 4px;color:{{ i.badgeFg }};background:{{ i.badgeBg }}">{{ i.badge }}</span>
+          <span style="font-size:11px;color:#3a3630;flex:1">{{ i.label }}</span>
+          <span style="font-size:9.5px;color:#b5afa2">{{ i.hint }}</span>
+        </div>
+      </div>
+    </sc-for>
+  </div>
+</sc-if>
+
+<sc-if value="{{ delOpen }}" hint-placeholder-val="{{ false }}">
+  <div style="position:fixed;inset:0;background:rgba(35,33,30,.34);backdrop-filter:blur(1.5px);display:flex;align-items:center;justify-content:center;z-index:82;animation:fIn .12s ease-out">
+    <div style="width:420px;max-width:92vw;background:#fff;border:1px solid #c6c1b6;border-radius:9px;box-shadow:0 30px 70px rgba(35,33,30,.3);display:flex;flex-direction:column;overflow:hidden;animation:pIn .14s ease-out">
+      <div style="padding:14px 16px 12px 16px;border-bottom:1px solid #f0ede7">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="width:18px;height:18px;border-radius:4px;flex:0 0 18px;background:#fceceb;color:#a83c3c;font-size:11px;display:flex;align-items:center;justify-content:center">!</div>
+          <span style="font-size:13px;font-weight:600">{{ del.title }}</span>
+        </div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:#6a665e;margin-top:8px;word-break:break-all">{{ del.path }}</div>
+        <div style="font-size:10.5px;color:#a83c3c;margin-top:6px;line-height:1.6">{{ del.countLabel }} · 휴지통을 거치지 않고 즉시 삭제되며 되돌릴 수 없습니다.</div>
+      </div>
+      <div style="padding:12px 16px">
+        <div style="font-size:10.5px;color:#6a665e;margin-bottom:6px">확인을 위해 이름을 입력하세요 — <span style="font-family:'IBM Plex Mono',monospace;color:#23211e">{{ del.name }}</span></div>
+        <input value="{{ del.confirm }}" onChange="{{ onDelConfirm }}" onKeyDown="{{ onDelKey }}" placeholder="{{ del.name }}" style="width:100%;height:29px;border:1px solid #ddd8cf;border-radius:5px;padding:0 9px;font-family:'IBM Plex Mono',monospace;font-size:11.5px;outline:none" style-focus="border-color:#c04a4a;box-shadow:0 0 0 2px #fbe8e6">
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;padding:10px 14px;background:#faf9f6;border-top:1px solid #e6e2da">
+        <div style="flex:1"></div>
+        <div onClick="{{ onCloseDel }}" style="height:28px;padding:0 13px;display:flex;align-items:center;border:1px solid #ddd8cf;border-radius:5px;background:#fff;font-size:11.5px;cursor:pointer" style-hover="background:#f2efe9">취소</div>
+        <div onClick="{{ onCommitDel }}" style="height:28px;padding:0 15px;display:flex;align-items:center;border-radius:5px;font-size:11.5px;font-weight:600;background:{{ del.btnBg }};color:{{ del.btnFg }};cursor:{{ del.cursor }}">완전 삭제</div>
+      </div>
+    </div>
+  </div>
+</sc-if>
+
+<sc-if value="{{ dropOpen }}" hint-placeholder-val="{{ false }}">
+  <div style="position:fixed;inset:0;background:rgba(35,33,30,.34);backdrop-filter:blur(1.5px);display:flex;align-items:center;justify-content:center;z-index:76;animation:fIn .12s ease-out">
+    <div style="width:460px;max-width:92vw;background:#fff;border:1px solid #c6c1b6;border-radius:9px;box-shadow:0 30px 70px rgba(35,33,30,.3);display:flex;flex-direction:column;overflow:hidden;animation:pIn .14s ease-out">
+      <div style="padding:14px 16px 12px 16px;border-bottom:1px solid #f0ede7">
+        <div style="font-size:13px;font-weight:600">외부 파일을 업무 폴더로 가져오기</div>
+        <div style="font-size:10.5px;color:#8a857c;margin-top:4px">{{ dp.countLabel }} · 바탕화면에서 끌어온 항목</div>
+      </div>
+      <div style="padding:9px 12px;display:flex;flex-direction:column;gap:3px;max-height:132px;overflow:auto;border-bottom:1px solid #f0ede7">
+        <sc-for list="{{ dropNames }}" as="n" hint-placeholder-count="2">
+          <div style="display:flex;align-items:center;gap:8px;padding:4px 4px">
+            <span style="flex:0 0 auto;font-family:'IBM Plex Mono',monospace;font-size:7.5px;font-weight:600;border-radius:2px;padding:1px 3px;color:{{ n.extFg }};background:{{ n.extBg }}">{{ n.ext }}</span>
+            <span style="font-size:11.5px;color:#3a3630;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ n.name }}</span>
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#b5afa2;flex:0 0 auto">{{ n.src }}</span>
+          </div>
+        </sc-for>
+      </div>
+      <div style="padding:12px 14px;display:flex;flex-direction:column;gap:10px">
+        <div>
+          <div style="font-size:10px;font-weight:600;letter-spacing:.4px;color:#a09a8f;margin-bottom:5px">가져오는 방식</div>
+          <div style="display:flex;flex-direction:column;gap:4px">
+            <sc-for list="{{ dropModes }}" as="m" hint-placeholder-count="2">
+              <div onClick="{{ m.onClick }}" style="display:flex;align-items:flex-start;gap:9px;padding:8px 9px;border-radius:6px;cursor:pointer;border:1px solid {{ m.bd }};background:{{ m.bg }}" style-hover="border-color:#c9dbf7">
+                <div style="width:13px;height:13px;border-radius:50%;flex:0 0 13px;margin-top:1px;border:1px solid {{ m.radioBd }};display:flex;align-items:center;justify-content:center">
+                  <div style="width:6px;height:6px;border-radius:50%;background:{{ m.radioFill }}"></div>
+                </div>
+                <div style="min-width:0">
+                  <div style="font-size:11.5px;font-weight:{{ m.fw }};color:#23211e">{{ m.label }}</div>
+                  <div style="font-size:10px;color:#8a857c;margin-top:2px;line-height:1.5">{{ m.desc }}</div>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+        <div>
+          <div style="font-size:10px;font-weight:600;letter-spacing:.4px;color:#a09a8f;margin-bottom:5px">대상 폴더</div>
+          <select value="{{ dp.target }}" onChange="{{ onDropTarget }}" style="width:100%;height:28px;border:1px solid #ddd8cf;border-radius:5px;padding:0 6px;font-family:'IBM Plex Mono',monospace;font-size:10.5px;background:#fff;outline:none">
+            <sc-for list="{{ dropFolders }}" as="f" hint-placeholder-count="2">
+              <option value="{{ f.value }}">{{ f.label }}</option>
+            </sc-for>
+          </select>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;padding:10px 14px;background:#faf9f6;border-top:1px solid #e6e2da">
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#a09a8f;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ dp.previewPath }}</span>
+        <div onClick="{{ onCloseDrop }}" style="height:28px;padding:0 13px;display:flex;align-items:center;border:1px solid #ddd8cf;border-radius:5px;background:#fff;font-size:11.5px;cursor:pointer" style-hover="background:#f2efe9">취소</div>
+        <div onClick="{{ onConfirmDrop }}" style="height:28px;padding:0 15px;display:flex;align-items:center;border-radius:5px;font-size:11.5px;font-weight:600;color:#fff;background:#3a6fd8;cursor:pointer" style-hover="background:#2f5cbb">{{ dp.cta }}</div>
+      </div>
+    </div>
+  </div>
+</sc-if>
+
+<sc-if value="{{ tplOpen }}" hint-placeholder-val="{{ false }}">
+  <div style="position:fixed;inset:0;background:rgba(35,33,30,.34);backdrop-filter:blur(1.5px);display:flex;align-items:center;justify-content:center;z-index:74;animation:fIn .12s ease-out">
+    <div style="width:660px;max-width:94vw;background:#fff;border:1px solid #c6c1b6;border-radius:9px;box-shadow:0 30px 70px rgba(35,33,30,.3);display:flex;flex-direction:column;overflow:hidden;animation:pIn .14s ease-out">
+      <div style="flex:0 0 40px;display:flex;align-items:center;gap:10px;padding:0 14px;border-bottom:1px solid #e6e2da;background:#faf9f6">
+        <span style="font-size:13px;font-weight:600">표준 패턴 추가</span>
+        <span style="font-size:10.5px;color:#8a857c">반복되는 업무의 골격을 템플릿으로 등록해 회차 로그로 누적합니다</span>
+        <div style="flex:1"></div>
+        <div onClick="{{ onCloseTpl }}" style="width:24px;height:24px;display:flex;align-items:center;justify-content:center;border-radius:4px;cursor:pointer;color:#8a857c;font-size:12px" style-hover="background:#ece8e0">✕</div>
+      </div>
+      <div style="display:flex;min-height:0">
+        <div style="flex:0 0 56%;min-width:0;padding:14px;display:flex;flex-direction:column;gap:11px;border-right:1px solid #e6e2da">
+          <div>
+            <div style="font-size:11px;font-weight:600;color:#6a665e;margin-bottom:5px">템플릿 이름</div>
+            <input value="{{ tp.name }}" onChange="{{ onTplName }}" placeholder="예: 릴리스 노트 양식" style="width:100%;height:30px;border:1px solid #ddd8cf;border-radius:5px;padding:0 9px;font-size:12.5px;outline:none" style-focus="border-color:#3a6fd8;box-shadow:0 0 0 2px #e6eefc">
+          </div>
+          <div>
+            <div style="font-size:11px;font-weight:600;color:#6a665e;margin-bottom:5px">설명</div>
+            <input value="{{ tp.desc }}" onChange="{{ onTplDesc }}" placeholder="어떤 상황에서 쓰는 패턴인지" style="width:100%;height:28px;border:1px solid #ddd8cf;border-radius:5px;padding:0 9px;font-size:11.5px;outline:none" style-focus="border-color:#3a6fd8;box-shadow:0 0 0 2px #e6eefc">
+          </div>
+          <div>
+            <div style="display:flex;align-items:baseline;gap:7px;margin-bottom:5px">
+              <span style="font-size:11px;font-weight:600;color:#6a665e">섹션 구성</span>
+              <span style="font-size:10px;color:#a09a8f">한 줄에 하나씩</span>
+            </div>
+            <textarea value="{{ tp.sections }}" onChange="{{ onTplSections }}" spellcheck="false" style="width:100%;height:96px;border:1px solid #ddd8cf;border-radius:5px;padding:8px 9px;font-family:'IBM Plex Mono',monospace;font-size:11px;line-height:1.7;outline:none" style-focus="border-color:#3a6fd8;box-shadow:0 0 0 2px #e6eefc"></textarea>
+          </div>
+          <div onClick="{{ onTplFromTask }}" style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <div style="width:14px;height:14px;border-radius:3px;flex:0 0 14px;border:1px solid {{ tp.boxBd }};background:{{ tp.boxBg }};color:#fff;font-size:9px;display:flex;align-items:center;justify-content:center">{{ tp.check }}</div>
+            <span style="font-size:11px;color:#4e4a43">현재 업무의 index.md 구조에서 섹션 가져오기</span>
+          </div>
+        </div>
+        <div style="flex:1;min-width:0;display:flex;flex-direction:column;background:#fbfaf7">
+          <div style="flex:0 0 27px;display:flex;align-items:center;gap:8px;padding:0 12px;background:#f7f5f1;border-bottom:1px solid #e6e2da">
+            <span style="font-size:10.5px;font-weight:600;letter-spacing:.4px;color:#6a665e">생성될 템플릿</span>
+          </div>
+          <div style="flex:1;min-height:0;overflow:auto;padding:10px 12px;font-family:'IBM Plex Mono',monospace;font-size:10.5px;line-height:1.85;color:#3a3630">
+            <sc-for list="{{ tplPreview }}" as="l" hint-placeholder-count="6">
+              <div style="white-space:pre-wrap;color:{{ l.fg }}">{{ l.text }}</div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+      <div style="flex:0 0 46px;display:flex;align-items:center;gap:8px;padding:0 14px;border-top:1px solid #e6e2da;background:#faf9f6">
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#a09a8f;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ tp.path }}</span>
+        <div onClick="{{ onCloseTpl }}" style="height:29px;padding:0 14px;display:flex;align-items:center;border:1px solid #ddd8cf;border-radius:5px;background:#fff;font-size:11.5px;cursor:pointer" style-hover="background:#f2efe9">취소</div>
+        <div onClick="{{ onCreateTpl }}" style="height:29px;padding:0 16px;display:flex;align-items:center;border-radius:5px;font-size:11.5px;font-weight:600;cursor:{{ tp.cursor }};background:{{ tp.btnBg }};color:{{ tp.btnFg }}">템플릿 등록</div>
+      </div>
+    </div>
+  </div>
+</sc-if>
+
+<sc-if value="{{ owOpen }}" hint-placeholder-val="{{ false }}">
+  <div style="position:fixed;inset:0;background:rgba(35,33,30,.34);backdrop-filter:blur(1.5px);display:flex;align-items:center;justify-content:center;z-index:75;animation:fIn .12s ease-out">
+    <div style="width:410px;max-width:92vw;background:#fff;border:1px solid #c6c1b6;border-radius:9px;box-shadow:0 30px 70px rgba(35,33,30,.3);display:flex;flex-direction:column;overflow:hidden;animation:pIn .14s ease-out">
+      <div style="padding:14px 16px 12px 16px;border-bottom:1px solid #f0ede7">
+        <div style="font-size:13px;font-weight:600">이 파일을 열 방법 선택</div>
+        <div style="display:flex;align-items:center;gap:7px;margin-top:8px;min-width:0">
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:8px;font-weight:600;border-radius:2px;padding:2px 4px;color:{{ ow.extFg }};background:{{ ow.extBg }}">{{ ow.ext }}</span>
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:#6a665e;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ ow.path }}</span>
+        </div>
+      </div>
+      <div style="padding:8px;display:flex;flex-direction:column;gap:3px;max-height:280px;overflow:auto">
+        <sc-for list="{{ owApps }}" as="p" hint-placeholder-count="3">
+          <div onClick="{{ p.onClick }}" style="display:flex;align-items:center;gap:10px;padding:8px 9px;border-radius:6px;cursor:pointer;border:1px solid {{ p.bd }};background:{{ p.bg }}" style-hover="border-color:#c9dbf7">
+            <div style="width:26px;height:26px;border-radius:6px;flex:0 0 26px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:#fff;background:{{ p.iconBg }}">{{ p.initial }}</div>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:11.5px;font-weight:{{ p.fw }};color:#23211e">{{ p.name }}</div>
+              <div style="font-size:10px;color:#a09a8f;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ p.desc }}</div>
+            </div>
+            <div style="width:13px;height:13px;border-radius:50%;flex:0 0 13px;border:1px solid {{ p.radioBd }};display:flex;align-items:center;justify-content:center">
+              <div style="width:6px;height:6px;border-radius:50%;background:{{ p.radioFill }}"></div>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+      <div onClick="{{ onToggleAlways }}" style="display:flex;align-items:center;gap:8px;padding:9px 16px;border-top:1px solid #f0ede7;cursor:pointer">
+        <div style="width:14px;height:14px;border-radius:3px;flex:0 0 14px;border:1px solid {{ ow.boxBd }};background:{{ ow.boxBg }};color:#fff;font-size:9px;display:flex;align-items:center;justify-content:center">{{ ow.check }}</div>
+        <span style="font-size:11px;color:#4e4a43">항상 이 앱으로 {{ ow.dotExt }} 파일 열기</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;padding:10px 14px;background:#faf9f6;border-top:1px solid #e6e2da">
+        <span style="font-size:10px;color:#a09a8f;flex:1;min-width:0">OS 연결 프로그램으로 실행됩니다</span>
+        <div onClick="{{ onCloseOw }}" style="height:28px;padding:0 13px;display:flex;align-items:center;border:1px solid #ddd8cf;border-radius:5px;background:#fff;font-size:11.5px;cursor:pointer" style-hover="background:#f2efe9">취소</div>
+        <div onClick="{{ onConfirmOw }}" style="height:28px;padding:0 15px;display:flex;align-items:center;border-radius:5px;font-size:11.5px;font-weight:600;color:#fff;background:#3a6fd8;cursor:pointer" style-hover="background:#2f5cbb">열기</div>
+      </div>
+    </div>
+  </div>
+</sc-if>
+
+<sc-if value="{{ newOpen }}" hint-placeholder-val="{{ false }}">
+  <div style="position:fixed;inset:0;background:rgba(35,33,30,.34);backdrop-filter:blur(1.5px);display:flex;align-items:center;justify-content:center;z-index:60;animation:fIn .12s ease-out">
+    <div style="width:900px;max-width:94vw;height:560px;max-height:90vh;background:#fff;border:1px solid #c6c1b6;border-radius:9px;box-shadow:0 30px 70px rgba(35,33,30,.3);display:flex;flex-direction:column;overflow:hidden;animation:pIn .15s ease-out">
+      <div style="flex:0 0 40px;display:flex;align-items:center;gap:10px;padding:0 14px;border-bottom:1px solid #e6e2da;background:#faf9f6">
+        <span style="font-size:13px;font-weight:600">새 업무 추가</span>
+        <span style="font-size:10.5px;color:#8a857c">제목을 입력하면 사내 LLM이 과거 Vault 노드와 유사도를 계산합니다</span>
+        <div style="flex:1"></div>
+        <div onClick="{{ onCloseNew }}" style="width:24px;height:24px;display:flex;align-items:center;justify-content:center;border-radius:4px;cursor:pointer;color:#8a857c;font-size:12px" style-hover="background:#ece8e0">✕</div>
+      </div>
+      <div style="flex:1;min-height:0;display:flex">
+        <div style="flex:0 0 52%;min-width:0;padding:14px;display:flex;flex-direction:column;gap:11px;overflow:auto;border-right:1px solid #e6e2da">
+          <div>
+            <div style="font-size:11px;font-weight:600;color:#6a665e;margin-bottom:5px">업무 제목</div>
+            <input value="{{ nt.title }}" onChange="{{ onNtTitle }}" placeholder="예: Tauri 2.0 마이그레이션" style="width:100%;height:30px;border:1px solid #ddd8cf;border-radius:5px;padding:0 9px;font-size:12.5px;outline:none" style-focus="border-color:#3a6fd8;box-shadow:0 0 0 2px #e6eefc">
+          </div>
+          <div>
+            <div style="font-size:11px;font-weight:600;color:#6a665e;margin-bottom:5px">개요</div>
+            <textarea value="{{ nt.summary }}" onChange="{{ onNtSummary }}" placeholder="한두 줄로 목적과 범위를 적어두면 추천 정확도가 올라갑니다." style="width:100%;height:74px;border:1px solid #ddd8cf;border-radius:5px;padding:8px 9px;font-size:11.5px;line-height:1.65;outline:none" style-focus="border-color:#3a6fd8;box-shadow:0 0 0 2px #e6eefc"></textarea>
+          </div>
+          <div style="display:flex;gap:9px">
+            <div style="flex:1">
+              <div style="font-size:11px;font-weight:600;color:#6a665e;margin-bottom:5px">태그</div>
+              <input value="{{ nt.tags }}" onChange="{{ onNtTags }}" placeholder="dev, tauri, rust" style="width:100%;height:28px;border:1px solid #ddd8cf;border-radius:5px;padding:0 9px;font-family:'IBM Plex Mono',monospace;font-size:11px;outline:none" style-focus="border-color:#3a6fd8;box-shadow:0 0 0 2px #e6eefc">
+            </div>
+            <div style="flex:1">
+              <div style="font-size:11px;font-weight:600;color:#6a665e;margin-bottom:5px">표준 템플릿</div>
+              <select value="{{ nt.template }}" onChange="{{ onNtTemplate }}" style="width:100%;height:28px;border:1px solid #ddd8cf;border-radius:5px;padding:0 6px;font-size:11.5px;background:#fff;outline:none">
+                <sc-for list="{{ templateOptions }}" as="o" hint-placeholder-count="4">
+                  <option value="{{ o }}">{{ o }}</option>
+                </sc-for>
+              </select>
+            </div>
+          </div>
+          <div style="border:1px dashed #ddd8cf;border-radius:6px;padding:9px 10px;background:#faf9f6">
+            <div style="font-size:10.5px;font-weight:600;color:#6a665e;margin-bottom:5px">생성될 폴더 구조</div>
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;line-height:1.75;color:#8a857c">{{ ntFolder }}<br>&nbsp;&nbsp;├── index.md<br>&nbsp;&nbsp;├── notes.md<br>&nbsp;&nbsp;└── attachments/</div>
+          </div>
+        </div>
+        <div style="flex:1;min-width:0;display:flex;flex-direction:column;background:#fbfaf7">
+          <div style="flex:0 0 30px;display:flex;align-items:center;gap:7px;padding:0 12px;border-bottom:1px solid #e6e2da">
+            <div style="width:7px;height:7px;border-radius:50%;background:#6a54c6"></div>
+            <span style="font-size:10.5px;font-weight:600;letter-spacing:.4px;color:#4e4a43">시작 전 유사 업무 추천</span>
+            <div style="flex:1"></div>
+            <sc-if value="{{ ntLoading }}" hint-placeholder-val="{{ false }}">
+              <div style="width:11px;height:11px;border:2px solid #ddd8cf;border-top-color:#6a54c6;border-radius:50%;animation:spin .7s linear infinite"></div>
+            </sc-if>
+            <span style="font-size:10px;color:#a09a8f">{{ ntStatus }}</span>
+          </div>
+          <div style="flex:1;min-height:0;overflow:auto;padding:9px">
+            <sc-if value="{{ ntEmpty }}" hint-placeholder-val="{{ true }}">
+              <div style="padding:40px 18px;text-align:center;font-size:11.5px;color:#a09a8f;line-height:1.8">제목을 입력하면<br>과거 업무와의 의미론적 유사도를 계산합니다.</div>
+            </sc-if>
+            <sc-for list="{{ ntRecs }}" as="r" hint-placeholder-count="0">
+              <div style="border:1px solid {{ r.bd }};border-radius:6px;background:#fff;padding:9px;margin-bottom:6px;animation:pIn .18s ease-out">
+                <div style="display:flex;align-items:center;gap:7px">
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:600;color:{{ r.simColor }}">{{ r.sim }}%</span>
+                  <span style="font-size:11.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.title }}</span>
+                  <sc-if value="{{ r.tagged }}" hint-placeholder-val="{{ false }}">
+                    <span style="font-size:9.5px;font-weight:600;color:{{ r.tagFg }};background:{{ r.tagBg }};border-radius:3px;padding:1px 5px;white-space:nowrap">{{ r.tagLabel }}</span>
+                  </sc-if>
+                </div>
+                <div style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#a09a8f;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.path }}</div>
+                <sc-if value="{{ r.isCluster }}" hint-placeholder-val="{{ false }}">
+                  <div onClick="{{ r.onToggle }}" style="display:inline-flex;align-items:center;gap:5px;margin-top:5px;font-size:10px;color:#6a54c6;background:#f2eefc;border:1px solid #e4dcf8;border-radius:4px;padding:2px 7px;cursor:pointer">
+                    <span style="font-size:8px">{{ r.chevron }}</span><span>동일 패턴 {{ r.clusterCount }}건 접힘</span>
+                  </div>
+                </sc-if>
+                <sc-if value="{{ r.expanded }}" hint-placeholder-val="{{ false }}">
+                  <div style="margin-top:6px;border-left:2px solid #e4dcf8;padding-left:9px;display:flex;flex-direction:column;gap:3px">
+                    <sc-for list="{{ r.children }}" as="c" hint-placeholder-count="2">
+                      <div style="display:flex;gap:7px;align-items:center">
+                        <span style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#a09a8f">{{ c.date }}</span>
+                        <span style="font-size:10.5px;color:#5d594f">{{ c.title }}</span>
+                      </div>
+                    </sc-for>
+                  </div>
+                </sc-if>
+                <div style="display:flex;gap:5px;margin-top:8px;flex-wrap:wrap">
+                  <div onClick="{{ r.onRef }}" style="font-size:10.5px;padding:3px 8px;border-radius:4px;border:1px solid #ddd8cf;background:#fff;color:#4e4a43;cursor:pointer" style-hover="background:#f2efe9">참고만 하기</div>
+                  <div onClick="{{ r.onResume }}" style="font-size:10.5px;font-weight:600;padding:3px 8px;border-radius:4px;border:1px solid #cddcf8;background:#eef3fd;color:#2f5cbb;cursor:pointer" style-hover="background:#e2ebfb">기반 재개 · 이력 추가</div>
+                  <sc-if value="{{ r.isCluster }}" hint-placeholder-val="{{ false }}">
+                    <div onClick="{{ r.onMerge }}" style="font-size:10.5px;font-weight:600;padding:3px 8px;border-radius:4px;border:1px solid #e0d6f8;background:#f4f0fd;color:#5a44b4;cursor:pointer" style-hover="background:#ece5fb">병합</div>
+                  </sc-if>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+      <div style="flex:0 0 46px;display:flex;align-items:center;gap:8px;padding:0 14px;border-top:1px solid #e6e2da;background:#faf9f6">
+        <span style="font-size:10.5px;color:#8a857c">{{ ntHint }}</span>
+        <div style="flex:1"></div>
+        <div onClick="{{ onCloseNew }}" style="height:29px;padding:0 14px;display:flex;align-items:center;border:1px solid #ddd8cf;border-radius:5px;background:#fff;font-size:11.5px;cursor:pointer" style-hover="background:#f2efe9">취소</div>
+        <div onClick="{{ onCreate }}" style="height:29px;padding:0 16px;display:flex;align-items:center;border-radius:5px;font-size:11.5px;font-weight:600;cursor:{{ createCursor }};background:{{ createBg }};color:{{ createFg }}">업무 생성</div>
+      </div>
+    </div>
+  </div>
+</sc-if>
+
+<sc-if value="{{ mergeOpen }}" hint-placeholder-val="{{ false }}">
+  <div style="position:fixed;inset:0;background:rgba(35,33,30,.34);backdrop-filter:blur(1.5px);display:flex;align-items:center;justify-content:center;z-index:70;animation:fIn .12s ease-out">
+    <div style="width:840px;max-width:94vw;height:520px;max-height:90vh;background:#fff;border:1px solid #c6c1b6;border-radius:9px;box-shadow:0 30px 70px rgba(35,33,30,.3);display:flex;flex-direction:column;overflow:hidden;animation:pIn .15s ease-out">
+      <div style="flex:0 0 40px;display:flex;align-items:center;gap:10px;padding:0 14px;border-bottom:1px solid #e6e2da;background:#faf9f6">
+        <span style="font-size:13px;font-weight:600">유사 노드 병합</span>
+        <span style="font-size:10.5px;color:#8a857c">파편화된 노드를 대표 업무 노드 1개로 통합하고 나머지는 Run Log로 접습니다</span>
+        <div style="flex:1"></div>
+        <div onClick="{{ onCloseMerge }}" style="width:24px;height:24px;display:flex;align-items:center;justify-content:center;border-radius:4px;cursor:pointer;color:#8a857c;font-size:12px" style-hover="background:#ece8e0">✕</div>
+      </div>
+      <div style="flex:1;min-height:0;display:flex">
+        <div style="flex:0 0 44%;min-width:0;border-right:1px solid #e6e2da;display:flex;flex-direction:column">
+          <div style="flex:0 0 27px;display:flex;align-items:center;padding:0 12px;background:#f7f5f1;border-bottom:1px solid #e6e2da;font-size:10.5px;font-weight:600;letter-spacing:.4px;color:#6a665e">통합 대상 노드 ({{ mergeCount }})</div>
+          <div style="flex:1;min-height:0;overflow:auto;padding:8px">
+            <sc-for list="{{ mergeNodes }}" as="n" hint-placeholder-count="4">
+              <div style="border:1px solid {{ n.bd }};border-radius:6px;padding:8px 9px;margin-bottom:5px;background:{{ n.bg }}">
+                <div style="display:flex;align-items:center;gap:8px">
+                  <div onClick="{{ n.onCheck }}" style="width:14px;height:14px;border-radius:3px;border:1px solid {{ n.boxBd }};background:{{ n.boxBg }};color:#fff;font-size:9px;display:flex;align-items:center;justify-content:center;cursor:pointer">{{ n.check }}</div>
+                  <span style="font-size:11.5px;font-weight:500;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ n.title }}</span>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#a09a8f">{{ n.date }}</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;margin-top:6px;padding-left:22px">
+                  <div onClick="{{ n.onPrimary }}" style="display:flex;align-items:center;gap:5px;cursor:pointer">
+                    <div style="width:12px;height:12px;border-radius:50%;border:1px solid {{ n.radioBd }};display:flex;align-items:center;justify-content:center">
+                      <div style="width:6px;height:6px;border-radius:50%;background:{{ n.radioFill }}"></div>
+                    </div>
+                    <span style="font-size:10.5px;color:{{ n.radioFg }};font-weight:{{ n.radioFw }}">대표 노드로 지정</span>
+                  </div>
+                  <div style="flex:1"></div>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#a09a8f">{{ n.lines }} lines</span>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+        <div style="flex:1;min-width:0;display:flex;flex-direction:column;background:#fbfaf7">
+          <div style="flex:0 0 27px;display:flex;align-items:center;gap:8px;padding:0 12px;background:#f7f5f1;border-bottom:1px solid #e6e2da">
+            <span style="font-size:10.5px;font-weight:600;letter-spacing:.4px;color:#6a665e">병합 결과 미리보기</span>
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#a09a8f;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ mergeTargetPath }}</span>
+          </div>
+          <div style="flex:1;min-height:0;overflow:auto;padding:10px 12px;font-family:'IBM Plex Mono',monospace;font-size:11px;line-height:1.8;color:#3a3630">
+            <sc-for list="{{ mergePreview }}" as="p" hint-placeholder-count="8">
+              <div style="white-space:pre-wrap;color:{{ p.fg }};background:{{ p.bg }}">{{ p.text }}</div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+      <div style="flex:0 0 46px;display:flex;align-items:center;gap:8px;padding:0 14px;border-top:1px solid #e6e2da;background:#faf9f6">
+        <span style="font-size:10.5px;color:#8a857c">{{ mergeHint }}</span>
+        <div style="flex:1"></div>
+        <div onClick="{{ onCloseMerge }}" style="height:29px;padding:0 14px;display:flex;align-items:center;border:1px solid #ddd8cf;border-radius:5px;background:#fff;font-size:11.5px;cursor:pointer" style-hover="background:#f2efe9">취소</div>
+        <div onClick="{{ onDoMerge }}" style="height:29px;padding:0 16px;display:flex;align-items:center;border-radius:5px;font-size:11.5px;font-weight:600;color:#fff;background:#6a54c6;cursor:pointer" style-hover="background:#5a44b4">병합 실행</div>
+      </div>
+    </div>
+  </div>
+</sc-if>
+
+<div style="position:fixed;right:22px;bottom:20px;z-index:90;display:flex;flex-direction:column;gap:7px;align-items:flex-end;pointer-events:none">
+  <sc-for list="{{ toasts }}" as="t" hint-placeholder-count="0">
+    <div style="display:flex;align-items:center;gap:9px;background:#2c2a26;color:#f7f5f1;border-radius:6px;padding:9px 13px;box-shadow:0 10px 26px rgba(35,33,30,.28);animation:tIn .16s ease-out;max-width:420px">
+      <div style="width:6px;height:6px;border-radius:50%;flex:0 0 6px;background:{{ t.color }}"></div>
+      <div style="min-width:0">
+        <div style="font-size:11.5px;font-weight:500">{{ t.title }}</div>
+        <sc-if value="{{ t.hasSub }}" hint-placeholder-val="{{ false }}">
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#a8a29a;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ t.sub }}</div>
+        </sc-if>
+      </div>
+    </div>
+  </sc-for>
+</div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;archiveAfterDays&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[7,14,30,90,0],&quot;default&quot;:14,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;보관&quot;},&quot;mdDefaultOpen&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;markdown&quot;,&quot;text&quot;],&quot;default&quot;:&quot;markdown&quot;,&quot;tsType&quot;:&quot;'markdown'|'text'&quot;,&quot;section&quot;:&quot;탐색기&quot;},&quot;showWindowChrome&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;셸&quot;},&quot;similarityThreshold&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;min&quot;:70,&quot;max&quot;:95,&quot;step&quot;:1,&quot;default&quot;:85,&quot;unit&quot;:&quot;%&quot;,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;추천&quot;},&quot;autoSnapshot&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;동작&quot;}}">
+const BLUE='#3a6fd8', AMBER='#b07520', GREEN='#2f7f57', VIOLET='#6a54c6';
+const STATUS={'in-progress':{label:'진행 중',dot:BLUE,bg:'#eef3fd',fg:'#2f5cbb',bd:'#cddcf8'},'on-hold':{label:'보류',dot:AMBER,bg:'#fbf3e6',fg:'#8f5d17',bd:'#eeddc0'},'completed':{label:'완료',dot:GREEN,bg:'#e9f4ee',fg:'#256b47',bd:'#c9e4d5'},'reopened':{label:'재개됨',dot:VIOLET,bg:'#f4f0fd',fg:'#5a44b4',bd:'#e0d6f8'}};
+
+const LANG={md:'Markdown',json:'JSON',ts:'TypeScript',sql:'SQL',ps1:'PowerShell',csv:'CSV',log:'Plain Text',txt:'Plain Text',har:'JSON',png:'Binary',pdf:'Binary',xlsx:'Binary'};
+const APPS={
+ md:[{n:'Obsidian',d:'기본 앱 · 이 Vault에 연결됨',c:'#6a54c6'},{n:'Visual Studio Code',d:'소스 편집기',c:'#3a6fd8'},{n:'메모장',d:'Windows 기본 텍스트 편집기',c:'#8a857c'}],
+ json:[{n:'Visual Studio Code',d:'기본 앱 · 소스 편집기',c:'#3a6fd8'},{n:'메모장',d:'Windows 기본 텍스트 편집기',c:'#8a857c'}],
+ ts:[{n:'Visual Studio Code',d:'기본 앱 · 소스 편집기',c:'#3a6fd8'},{n:'메모장',d:'Windows 기본 텍스트 편집기',c:'#8a857c'}],
+ sql:[{n:'DBeaver',d:'기본 앱 · SQL 클라이언트',c:'#2f7f57'},{n:'Visual Studio Code',d:'소스 편집기',c:'#3a6fd8'}],
+ ps1:[{n:'Windows PowerShell ISE',d:'기본 앱 · 스크립트 편집기',c:'#2f5cbb'},{n:'메모장',d:'Windows 기본 텍스트 편집기',c:'#8a857c'}],
+ csv:[{n:'스프레드시트',d:'기본 앱 · 표 편집기',c:'#2f7f57'},{n:'메모장',d:'Windows 기본 텍스트 편집기',c:'#8a857c'}],
+ xlsx:[{n:'스프레드시트',d:'기본 앱 · 표 편집기',c:'#2f7f57'}],
+ png:[{n:'사진 뷰어',d:'기본 앱 · 이미지 보기',c:'#b07520'},{n:'그림판',d:'이미지 편집',c:'#8a857c'}],
+ pdf:[{n:'PDF 뷰어',d:'기본 앱 · 문서 보기',c:'#c04a4a'},{n:'웹 브라우저',d:'PDF 열기 지원',c:'#3a6fd8'}],
+ har:[{n:'웹 브라우저',d:'기본 앱 · 네트워크 로그 분석',c:'#3a6fd8'},{n:'메모장',d:'Windows 기본 텍스트 편집기',c:'#8a857c'}],
+ txt:[{n:'메모장',d:'기본 앱 · Windows 기본 텍스트 편집기',c:'#8a857c'},{n:'Visual Studio Code',d:'소스 편집기',c:'#3a6fd8'}],
+ log:[{n:'메모장',d:'기본 앱 · Windows 기본 텍스트 편집기',c:'#8a857c'},{n:'Visual Studio Code',d:'소스 편집기',c:'#3a6fd8'}]
+};
+function appsFor(ext){return APPS[ext]||[{n:'메모장',d:'기본 앱 · Windows 기본 텍스트 편집기',c:'#8a857c'}];}
+function extOf(name){const p=name.split('.');return p.length>1?p.pop().toLowerCase():'';}
+function extStyle(ext){
+  if(ext==='md') return {fg:'#5a44b4',bg:'#f2eefc'};
+  if(ext==='json'||ext==='ts'||ext==='sql'||ext==='ps1') return {fg:'#2f5cbb',bg:'#eef3fd'};
+  if(ext==='csv'||ext==='xlsx') return {fg:'#256b47',bg:'#e9f4ee'};
+  return {fg:'#8a857c',bg:'#f0ede7'};
+}
+
+const T1_BODY=`## 배경
+Tauri 1.x 셸을 2.0으로 올리면서 플러그인 시스템과 권한(Capabilities) 모델을 재정비한다.
+관련 표준 절차: [[Templates/Tauri 마이그레이션 표준절차]]
+
+## 체크리스트
+- [x] tauri.conf.json 스키마 v2 변환
+- [x] fs / dialog 플러그인 분리 설치
+- [ ] capabilities 권한 파일 작성
+- [ ] Windows 코드사이닝 파이프라인 재검증
+
+## 실행 이력 (Run Log)
+- 2026-08-03 15:30 · capabilities 초안 작성, dialog 권한만 우선 허용
+- 2026-07-29 11:10 · 플러그인 분리 후 빌드 성공 (windows-x86_64)`;
+
+const T2_BODY=`## 증상
+사내 LLM API 호출 시 간헐적으로 504가 반환됨. 임베딩 배치 크기가 32를 넘을 때 재현율 높음.
+
+## 원인 가설
+- [x] 게이트웨이 타임아웃 30s 고정
+- [ ] 배치 청크 분할 미적용
+- [ ] 재시도 백오프 없음
+
+## 실행 이력 (Run Log)
+- 2026-08-02 17:40 · 배치 16으로 낮춰 임시 완화`;
+
+const T3_BODY=`## 목적
+Q3 업무 성과와 컨텍스트 손실 절감 수치를 정리한다.
+
+## 구성
+1. 분기 요약
+2. 업무 전환 비용 측정치
+3. Vault 노드 증가 추이
+
+## 실행 이력 (Run Log)
+- 2026-07-30 09:20 · 초안 목차 확정, 보류 처리 (데이터 대기)`;
+
+const T4_BODY=`## 목표
+임베딩 파이프라인의 재색인 시간을 절반으로 줄이고 노이즈 클러스터를 자동 병합한다.
+
+## 진행
+- [x] 코사인 유사도 임계값 실험 (0.82 / 0.85 / 0.88)
+- [ ] 대표 노드 자동 선정 규칙 확정
+
+## 실행 이력 (Run Log)
+- 2026-08-01 14:05 · 0.85에서 정밀도/재현율 균형 최적`;
+
+const T5_BODY=`## 내용
+Vault 전체를 일 1회 증분 백업하고, 7일치 스냅샷을 보관한다.
+
+## 실행 이력 (Run Log)
+- 2026-07-25 18:00 · 스케줄러 등록 및 검증 완료`;
+
+const T6_BODY=`## 범위
+v0.3 릴리스 노트 정리 및 사내 공지 초안.
+
+## 실행 이력 (Run Log)
+- 2026-07-20 16:30 · 배포 공지 발송`;
+
+const FILES={
+ t1:[
+  {p:'index.md',size:'2.1 KB',text:T1_BODY},
+  {p:'notes.md',size:'0.6 KB',text:'· v2 permission 문서 링크 정리\n· dialog:allow-open 만 우선 허용, fs 는 scope 지정 후\n· 빌드 스크립트에서 --config 분기 제거 필요'},
+  {p:'checklist.md',size:'0.8 KB',text:'## 필수 항목\n- [x] tauri.conf.json v2 스키마 변환\n- [x] 플러그인 분리 설치\n- [ ] capabilities 권한 파일\n- [ ] 코드사이닝 재검증\n\n## 선택 항목\n- [ ] 업데이터 v2 전환\n- [ ] 트레이 아이콘 API 정리'},
+  {p:'refs/tauri-v2-permissions.md',size:'1.2 KB',text:'## 권한 모델 요약\nv2에서는 allowlist 대신 **capabilities** 파일로 창(window)별 권한을 부여한다.\n\n- `default.json` — 메인 창 기본 권한\n- 권한 식별자 형식은 `plugin:permission`\n- 범위(scope)는 경로 패턴으로 제한 가능\n\n관련: [[Templates/Tauri 마이그레이션 표준절차]]'},
+  {p:'refs/upgrade-guide.pdf',size:'2.3 MB',bin:true},
+  {p:'src-tauri/tauri.conf.json',size:'0.9 KB',text:'{\n  "productName": "ContextFlow",\n  "version": "0.3.0",\n  "identifier": "corp.contextflow.desktop",\n  "build": {\n    "frontendDist": "../dist",\n    "devUrl": "http://localhost:5173"\n  },\n  "app": {\n    "security": { "csp": "default-src \'self\'" }\n  },\n  "plugins": {\n    "fs": { "requireLiteralLeadingDot": false }\n  }\n}'},
+  {p:'src-tauri/capabilities/default.json',size:'0.4 KB',text:'{\n  "identifier": "default",\n  "windows": ["main"],\n  "permissions": [\n    "core:default",\n    "dialog:allow-open"\n  ]\n}'},
+  {p:'attachments/capabilities-draft.png',size:'184 KB',bin:true},
+  {p:'attachments/migration-checklist.xlsx',size:'42 KB',bin:true},
+  {p:'attachments/build-log-0803.txt',size:'11 KB',text:'[15:22:04] cargo build --release\n[15:24:41] warning: unused import `Manager`\n[15:28:12] finished release [optimized] target(s) in 6m 08s\n[15:28:13] bundling windows-x86_64 ... ok'}
+ ],
+ t2:[
+  {p:'index.md',size:'1.4 KB',text:T2_BODY},
+  {p:'notes.md',size:'0.3 KB',text:'· 게이트웨이 팀 문의 티켓 #4821\n· 재현 스크립트: scripts/repro_504.ts'},
+  {p:'src/embed.ts',size:'0.7 KB',text:'export async function embed(chunks: string[]) {\n  const batches = chunkBy(chunks, 16);\n  const out: number[][] = [];\n  for (const b of batches) {\n    const res = await retry(() =>\n      fetch(API + "/embeddings", {\n        body: JSON.stringify({ input: b }),\n        signal: AbortSignal.timeout(25_000),\n      })\n    );\n    out.push(...(await res.json()).data);\n  }\n  return out;\n}'},
+  {p:'logs/repro-0802.log',size:'34 KB',text:'17:31:02 POST /embeddings batch=32 -> 504 (30.0s)\n17:31:44 POST /embeddings batch=32 -> 504 (30.0s)\n17:33:10 POST /embeddings batch=16 -> 200 (11.4s)\n17:34:02 POST /embeddings batch=16 -> 200 (9.8s)'},
+  {p:'attachments/504-trace.har',size:'2.1 MB',bin:true},
+  {p:'attachments/gateway-metrics.png',size:'96 KB',bin:true}
+ ],
+ t3:[
+  {p:'index.md',size:'1.1 KB',text:T3_BODY},
+  {p:'notes.md',size:'0.3 KB',text:'· 지표 정의는 2분기 보고서 3장 재사용\n· 그래프는 스크린샷 대신 표로'},
+  {p:'outline.md',size:'0.7 KB',text:'## 보고서 목차\n1. 분기 요약\n2. 업무 전환 비용\n   - 전환 1회당 평균 컨텍스트 복원 시간\n3. Vault 노드 증가 추이\n4. 다음 분기 제안\n\n> 인사팀 데이터 수령 후 2장부터 작성'},
+  {p:'data/q3_metrics.sql',size:'0.4 KB',text:"SELECT task_id, created_at, switch_count FROM tasks\nWHERE created_at >= '2026-07-01'\n  AND status <> 'archived'\nORDER BY created_at DESC;"},
+  {p:'data/switch-cost.csv',size:'6 KB',text:'week,switches,avg_restore_sec\n2026-W27,41,182\n2026-W28,38,171\n2026-W29,33,140\n2026-W30,29,118'},
+  {p:'attachments/q2-report-final.pdf',size:'1.4 MB',bin:true}
+ ],
+ t4:[
+  {p:'index.md',size:'1.0 KB',text:T4_BODY},
+  {p:'notes.md',size:'0.3 KB',text:'· 재색인 12분 → 5분 40초\n· 대표 노드 규칙: 최근 수정 + 링크 수 가중'},
+  {p:'src/cluster.ts',size:'0.5 KB',text:'const THRESHOLD = 0.85;\n\nexport function cluster(nodes: Node[]) {\n  const groups = agglomerative(nodes, THRESHOLD);\n  return groups.map(g => ({ ...g, primary: pickPrimary(g) }));\n}'},
+  {p:'experiments/threshold-sweep.csv',size:'8 KB',text:'threshold,precision,recall\n0.82,0.71,0.94\n0.85,0.86,0.89\n0.88,0.93,0.72'}
+ ],
+ t5:[
+  {p:'index.md',size:'0.6 KB',text:T5_BODY},
+  {p:'notes.md',size:'0.2 KB',text:'· robocopy /MIR + 7일 롤링'},
+  {p:'scripts/backup.ps1',size:'0.5 KB',text:'robocopy $Vault $Dest /MIR /R:2 /W:3\nGet-ChildItem $Dest -Directory |\n  Sort-Object CreationTime -Descending |\n  Select-Object -Skip 7 | Remove-Item -Recurse'}
+ ],
+ t6:[
+  {p:'index.md',size:'0.5 KB',text:T6_BODY},
+  {p:'notes.md',size:'0.2 KB',text:'· 하이라이트 3개로 압축'},
+  {p:'CHANGELOG.md',size:'0.6 KB',text:'## v0.3.0 — 2026-07-20\n- 유사 업무 클러스터링 (임계값 85%)\n- Run Log 누적 방식 도입\n- 컨텍스트 스냅샷 자동 복원\n\n## v0.2.4 — 2026-05-30\n- 탐색기 성능 개선'}
+ ]
+};
+
+function task(o){return Object.assign({notepad:'',runs:0,dirty:{},openTabs:[],activeTab:''},o,{
+  files:(FILES[o.id]||[]).reduce((m,f)=>{if(!f.bin)m[f.p]=f.text;return m;},{})});}
+
+const TASKS=[
+ task({id:'t1',title:'Tauri 2.0 마이그레이션',status:'in-progress',tags:['dev','tauri','rust'],updated:'08-03 15:30',created:'2026-08-03 10:00',folder:'MyVault/Tasks/[2026-08] Tauri 2.0 마이그레이션/',tagline:'capabilities 권한 정리 중',fmid:'task-2026-0803-01',template:'[[Templates/Tauri 마이그레이션 표준절차]]',runs:2,
+  notepad:'코드사이닝 인증서 만료 2026-11-02 — 미리 갱신 요청 넣을 것',
+  openTabs:[{path:'index.md',mode:'text'}],activeTab:'text|index.md',
+  recs:[
+   {id:'r1',sim:92,title:'Tauri 1.4 → 1.5 업그레이드',path:'MyVault/Tasks/[2026-05] Tauri 1.5 업그레이드/index.md',cluster:[{date:'2026-05-14',title:'Tauri 1.5 업그레이드 (대표)',sim:92},{date:'2026-03-02',title:'Tauri 1.4 패치 적용',sim:90},{date:'2025-12-11',title:'Tauri 1.3 보안 패치',sim:88},{date:'2025-10-05',title:'Tauri 1.2 초기 도입',sim:86}]},
+   {id:'r2',sim:88,title:'Rust 툴체인 / MSVC 빌드 환경 정비',path:'MyVault/Tasks/[2026-03] Rust 툴체인 정비/index.md',cluster:[{date:'2026-03-18',title:'Rust 툴체인 정비 (대표)',sim:88},{date:'2025-11-22',title:'MSVC 링커 오류 대응',sim:86}]},
+   {id:'r3',sim:71,title:'WebView2 런타임 배포 대응',path:'MyVault/Tasks/[2025-12] WebView2 런타임 대응/index.md',cluster:null}]}),
+ task({id:'t2',title:'API 연동 버그 수정',status:'in-progress',tags:['bug','llm-api'],updated:'08-02 17:40',created:'2026-08-01 09:30',folder:'MyVault/Tasks/[2026-08] API 연동 버그 수정/',tagline:'504 간헐 발생 · 배치 크기 의심',fmid:'task-2026-0801-02',template:'[[Templates/API 장애 대응 절차]]',runs:1,
+  notepad:'재현 조건: batch>=32, 동시 3요청 이상',
+  openTabs:[{path:'index.md',mode:'text'}],activeTab:'text|index.md',
+  recs:[
+   {id:'r4',sim:90,title:'사내 LLM 게이트웨이 타임아웃 대응',path:'MyVault/Tasks/[2026-04] LLM 게이트웨이 타임아웃/index.md',cluster:[{date:'2026-04-09',title:'게이트웨이 타임아웃 대응 (대표)',sim:90},{date:'2026-02-17',title:'429 레이트리밋 백오프 추가',sim:87}]},
+   {id:'r5',sim:64,title:'gRPC 스트리밍 재시도 정책',path:'MyVault/Tasks/[2026-01] gRPC 재시도 정책/index.md',cluster:null}]}),
+ task({id:'t3',title:'Q3 보고서 작성',status:'on-hold',tags:['report','q3'],updated:'07-30 09:20',created:'2026-07-28 13:00',folder:'MyVault/Tasks/[2026-07] Q3 보고서 작성/',tagline:'데이터 대기 중 · 보류',fmid:'task-2026-0728-03',template:'[[Templates/분기 보고서 표준양식]]',runs:1,
+  notepad:'인사팀 데이터 8/10 이후 수령 예정',
+  openTabs:[{path:'index.md',mode:'text'}],activeTab:'text|index.md',
+  recs:[
+   {id:'r6',sim:94,title:'Q2 보고서 작성',path:'MyVault/Tasks/[2026-04] Q2 보고서 작성/index.md',cluster:[{date:'2026-04-28',title:'Q2 보고서 작성 (대표)',sim:94},{date:'2026-01-26',title:'Q1 보고서 작성',sim:93},{date:'2025-10-24',title:'Q4 보고서 작성',sim:91}]},
+   {id:'r7',sim:69,title:'주간 업무 리포트 자동화',path:'MyVault/Tasks/[2026-02] 주간 리포트 자동화/index.md',cluster:null}]}),
+ task({id:'t4',title:'사내 LLM 임베딩 파이프라인 튜닝',status:'in-progress',tags:['ai','embedding'],updated:'08-01 14:05',created:'2026-07-27 11:00',folder:'MyVault/Tasks/[2026-07] 임베딩 파이프라인 튜닝/',tagline:'임계값 0.85 채택',fmid:'task-2026-0727-04',template:'null',runs:1,notepad:'',
+  openTabs:[{path:'index.md',mode:'text'}],activeTab:'text|index.md',
+  recs:[{id:'r8',sim:78,title:'검색 노이즈 클러스터링 실험',path:'MyVault/Tasks/[2026-06] 클러스터링 실험/index.md',cluster:null}]}),
+ task({id:'t5',title:'Vault 백업 스크립트 정비',status:'completed',completedAt:'2026-07-25',tags:['ops'],updated:'07-25 18:00',created:'2026-07-24 10:00',folder:'MyVault/Tasks/[2026-07] Vault 백업 스크립트 정비/',tagline:'스케줄러 등록 완료',fmid:'task-2026-0724-05',template:'[[Templates/운영 스크립트 표준절차]]',runs:1,notepad:'',
+  openTabs:[{path:'index.md',mode:'text'}],activeTab:'text|index.md',
+  recs:[{id:'r9',sim:73,title:'로그 로테이션 스크립트',path:'MyVault/Tasks/[2026-05] 로그 로테이션/index.md',cluster:null}]}),
+ task({id:'t6',title:'릴리스 노트 v0.3 정리',status:'completed',completedAt:'2026-07-20',tags:['release','docs'],updated:'07-20 16:30',created:'2026-07-19 14:00',folder:'MyVault/Tasks/[2026-07] 릴리스 노트 v0.3 정리/',tagline:'공지 발송 완료',fmid:'task-2026-0719-06',template:'[[Templates/릴리스 노트 양식]]',runs:1,notepad:'',
+  openTabs:[{path:'index.md',mode:'text'}],activeTab:'text|index.md',
+  recs:[{id:'r10',sim:81,title:'릴리스 노트 v0.2 정리',path:'MyVault/Tasks/[2026-04] 릴리스 노트 v0.2/index.md',cluster:[{date:'2026-04-11',title:'릴리스 노트 v0.2 (대표)',sim:81},{date:'2026-01-15',title:'릴리스 노트 v0.1',sim:79}]}]})
+];
+
+const TODAY=new Date('2026-08-04T12:00:00');
+function daysSince(d){if(!d)return 0;return Math.floor((TODAY-new Date(d+'T12:00:00'))/86400000);}
+function qLabel(d){const m=parseInt(d.slice(5,7),10);return d.slice(0,4)+'년 '+Math.ceil(m/3)+'분기';}
+
+const ARCHIVED=[
+ ['a1','Q2 보고서 작성','2026-04-28',['report','q2'],'분기 보고서 표준양식',1,'분기 성과 정리 후 제출. 지표 정의는 3장 재사용.'],
+ ['a2','Tauri 1.5 업그레이드','2026-05-14',['dev','tauri'],'Tauri 마이그레이션 표준절차',3,'플러그인 분리 적용 후 배포. capabilities 전환은 2.0에서.'],
+ ['a3','LLM 게이트웨이 타임아웃 대응','2026-04-09',['bug','llm-api'],'API 장애 대응 절차',2,'게이트웨이 타임아웃 30s → 60s 조정, 배치 청크 분할 보류.'],
+ ['a4','릴리스 노트 v0.2 정리','2026-04-11',['release','docs'],'릴리스 노트 양식',1,'하이라이트 3건으로 압축해 사내 공지 발송.'],
+ ['a5','Rust 툴체인 / MSVC 빌드 환경 정비','2026-03-18',['dev','rust'],'',2,'MSVC 링커 경로 정리, rustup 채널 고정.'],
+ ['a6','Q1 보고서 작성','2026-01-26',['report','q1'],'분기 보고서 표준양식',1,'제출 완료.'],
+ ['a7','429 레이트리밋 백오프 추가','2026-02-17',['bug','llm-api'],'API 장애 대응 절차',1,'지수 백오프 + 지터 도입으로 재시도 폭주 해소.'],
+ ['a8','로그 로테이션 스크립트','2026-05-08',['ops'],'운영 스크립트 표준절차',1,'7일 보관 정책으로 디스크 사용량 40% 감소.'],
+ ['a9','WebView2 런타임 배포 대응','2025-12-20',['dev','windows'],'',1,'설치 스크립트에 런타임 번들 포함.'],
+ ['a10','Tauri 1.3 보안 패치','2025-12-11',['dev','tauri'],'Tauri 마이그레이션 표준절차',1,'CVE 대응 패치 적용 및 회귀 테스트.'],
+ ['a11','Q4 보고서 작성','2025-10-24',['report','q4'],'분기 보고서 표준양식',1,'제출 완료.'],
+ ['a12','Tauri 1.2 초기 도입','2025-10-05',['dev','tauri'],'Tauri 마이그레이션 표준절차',1,'PoC 및 데스크톱 셸 구성.']
+];
+
+ARCHIVED.forEach(([id,title,done,tags,tpl,runs,summary])=>{
+  const body='## 개요\n'+summary+'\n\n## 실행 이력 (Run Log)\n- '+done+' 17:00 · 완료 처리';
+  FILES[id]=[{p:'index.md',size:'0.7 KB',text:body},{p:'notes.md',size:'0.2 KB',text:'· '+summary}];
+  TASKS.push(task({id,title,status:'completed',tags,updated:done.slice(5).replace('-','-'),
+    created:done+' 09:00',completedAt:done,archived:true,archivedAt:done,
+    folder:'MyVault/Tasks/['+done.slice(0,7)+'] '+title+'/',tagline:summary,
+    fmid:'task-'+done.replace(/-/g,'').slice(2)+'-'+id,
+    template:tpl?'[[Templates/'+tpl+']]':'null',runs,notepad:'',
+    openTabs:[{path:'index.md',mode:'md'}],activeTab:'md|index.md',recs:[]}));
+});
+
+const TEMPLATES=[
+ {id:'tp1',name:'Tauri 마이그레이션 표준절차',path:'MyVault/Templates/Tauri 마이그레이션 표준절차.md',uses:5,last:'2026-08-03 15:30',saved:4,runs:[{date:'2026-08-03 15:30',text:'Tauri 2.0 — capabilities 초안 작성'},{date:'2026-05-14 10:20',text:'Tauri 1.5 — 플러그인 분리 적용'},{date:'2026-03-02 16:45',text:'Tauri 1.4 — 패치 적용 및 회귀 테스트'},{date:'2025-12-11 09:10',text:'Tauri 1.3 — 보안 패치'},{date:'2025-10-05 13:00',text:'Tauri 1.2 — 초기 도입'}]},
+ {id:'tp2',name:'API 장애 대응 절차',path:'MyVault/Templates/API 장애 대응 절차.md',uses:3,last:'2026-08-02 17:40',saved:2,runs:[{date:'2026-08-02 17:40',text:'임베딩 504 — 배치 16 완화'},{date:'2026-04-09 11:05',text:'게이트웨이 타임아웃 30s 조정'},{date:'2026-02-17 15:20',text:'429 백오프 추가'}]},
+ {id:'tp3',name:'분기 보고서 표준양식',path:'MyVault/Templates/분기 보고서 표준양식.md',uses:4,last:'2026-07-30 09:20',saved:3,runs:[{date:'2026-07-30 09:20',text:'Q3 — 목차 확정 후 보류'},{date:'2026-04-28 17:00',text:'Q2 — 제출 완료'},{date:'2026-01-26 16:10',text:'Q1 — 제출 완료'},{date:'2025-10-24 15:40',text:'Q4 — 제출 완료'}]},
+ {id:'tp4',name:'운영 스크립트 표준절차',path:'MyVault/Templates/운영 스크립트 표준절차.md',uses:2,last:'2026-07-25 18:00',saved:1,runs:[{date:'2026-07-25 18:00',text:'Vault 백업 — 스케줄러 등록'},{date:'2026-05-08 14:30',text:'로그 로테이션 — 7일 보관'}]}
+];
+
+function buildTree(list){
+  const root={dirs:{},order:[],files:[]};
+  const ensure=(parts,n)=>{
+    let node=root;
+    for(let i=0;i<n;i++){
+      const d=parts[i];
+      if(!node.dirs[d]){node.dirs[d]={dirs:{},order:[],files:[]};node.order.push(d);}
+      node=node.dirs[d];
+    }
+    return node;
+  };
+  list.forEach(f=>{
+    const parts=f.p.replace(/\/$/,'').split('/');
+    if(f.dir){ensure(parts,parts.length);return;}
+    ensure(parts,parts.length-1).files.push(Object.assign({},f,{name:parts[parts.length-1]}));
+  });
+  return root;
+}
+function dirsOf(list){
+  const out={};
+  list.forEach(f=>{
+    const parts=f.p.replace(/\/$/,'').split('/');
+    const n=f.dir?parts.length:parts.length-1;
+    let pre='';
+    for(let i=0;i<n;i++){pre+=parts[i]+'/';out[pre]=true;}
+  });
+  return Object.keys(out).sort();
+}
+function walk(node,prefix,depth,openMap,out){
+  node.order.forEach(d=>{
+    const path=prefix+d+'/';
+    const open=openMap[path]!==false;
+    const kid=node.dirs[d];
+    out.push({kind:'dir',name:d,path,depth,open,count:kid.order.length+kid.files.length});
+    if(open) walk(kid,path,depth+1,openMap,out);
+  });
+  node.files.forEach(f=>out.push({kind:'file',name:f.name,path:f.p,depth,size:f.size,bin:!!f.bin,link:f.link||null}));
+}
+
+function mdSegs(text,key){
+  const out=[];const re=/(\[\[[^\]]+\]\]|`[^`]+`|\*\*[^*]+\*\*)/g;
+  let last=0,m,i=0;
+  const push=(t,kind)=>{out.push({key:key+'s'+(i++),text:t,isT:kind==='t',isB:kind==='b',isCode:kind==='c',isLink:kind==='l'});};
+  while((m=re.exec(text))!==null){
+    if(m.index>last) push(text.slice(last,m.index),'t');
+    const tk=m[0];
+    if(tk[0]==='[') push(tk.slice(2,-2),'l');
+    else if(tk[0]==='`') push(tk.slice(1,-1),'c');
+    else push(tk.slice(2,-2),'b');
+    last=m.index+tk.length;
+  }
+  if(last<text.length) push(text.slice(last),'t');
+  if(!out.length) push(text,'t');
+  return out;
+}
+function mdParse(src){
+  const out=[];
+  (src||'').split('\n').forEach((raw,i)=>{
+    const key='b'+i, line=raw.replace(/\s+$/,'');
+    if(!line.trim()) return;
+    const base={key,isH2:false,isH3:false,isHr:false,isBody:false,hasMark:false,mark:'',markFg:'#a09a8f',indent:0,fg:'#3a3630',segs:[],text:''};
+    if(/^---+$/.test(line.trim())) return out.push(Object.assign(base,{isHr:true}));
+    if(/^###\s+/.test(line)) return out.push(Object.assign(base,{isH3:true,text:line.replace(/^###\s+/,'')}));
+    if(/^##\s+/.test(line)) return out.push(Object.assign(base,{isH2:true,text:line.replace(/^##\s+/,'')}));
+    if(/^#\s+/.test(line)) return out.push(Object.assign(base,{isH2:true,text:line.replace(/^#\s+/,'')}));
+    let m=line.match(/^-\s+\[([ xX])\]\s+(.*)$/);
+    if(m){const done=m[1]!==' ';
+      return out.push(Object.assign(base,{isBody:true,hasMark:true,mark:done?'☑':'☐',markFg:done?GREEN:'#b5afa2',indent:2,
+        fg:done?'#8a857c':'#3a3630',segs:mdSegs(m[2],key)}));}
+    m=line.match(/^>\s?(.*)$/);
+    if(m) return out.push(Object.assign(base,{isBody:true,hasMark:true,mark:'│',markFg:'#cfcabf',indent:2,fg:'#6a665e',segs:mdSegs(m[1],key)}));
+    m=line.match(/^[-*]\s+(.*)$/);
+    if(m) return out.push(Object.assign(base,{isBody:true,hasMark:true,mark:'·',indent:2,segs:mdSegs(m[1],key)}));
+    m=line.match(/^(\d+)\.\s+(.*)$/);
+    if(m) return out.push(Object.assign(base,{isBody:true,hasMark:true,mark:m[1]+'.',indent:2,segs:mdSegs(m[2],key)}));
+    m=line.match(/^\s{2,}[-*]\s+(.*)$/);
+    if(m) return out.push(Object.assign(base,{isBody:true,hasMark:true,mark:'–',indent:18,fg:'#6a665e',segs:mdSegs(m[1],key)}));
+    out.push(Object.assign(base,{isBody:true,segs:mdSegs(line,key)}));
+  });
+  return out;
+}
+
+class Component extends DCLogic {
+  constructor(p){
+    super(p);
+    this.state={screen:'workspace',tasks:TASKS.map(t=>Object.assign({},t)),activeId:'t1',filter:'all',query:'',
+      sidebarW:250,colPct:64,rowPct:62,treeOpen:{},sel:'index.md',ctx:null,ow:null,extOpened:{},
+      sidebarMin:false,explorerMin:false,noteMin:false,mk:null,del:null,drop:null,dragOver:false,
+      templates:TEMPLATES.map(t=>Object.assign({},t)),tplNew:null,
+      archDays:14,archMode:'tag',archMoc:true,archQuery:'',archScope:'title',archYear:'all',
+      statusMenuOpen:false,expanded:{},recTag:{},openTpl:{},
+      newOpen:false,nt:{title:'',summary:'',tags:'',template:'(없음)'},ntRecs:[],ntLoading:false,
+      mergeOpen:false,mergeSrc:null,mergeSel:{},mergePrimary:null,
+      toasts:[],caret:{ln:1,col:1},snapAt:'15:32',
+      threshold:85,vault:'C:/Users/dev/MyVault',api:'https://llm.internal.corp/v1',
+      mdDefault:'markdown',autoSnap:true,restoreView:true,wikiIndex:true};
+    this.tid=0;
+  }
+  componentDidMount(){
+    if(typeof this.props.similarityThreshold==='number') this.setState({threshold:this.props.similarityThreshold});
+    if(this.props.mdDefaultOpen) this.setState({mdDefault:this.props.mdDefaultOpen});
+    if(this.props.autoSnapshot===false) this.setState({autoSnap:false});
+    if(typeof this.props.archiveAfterDays==='number') this.setState({archDays:this.props.archiveAfterDays});
+    this._mm=e=>this.onMove(e); this._mu=()=>{this.drag=null;document.body.style.cursor='';};
+    document.addEventListener('mousemove',this._mm); document.addEventListener('mouseup',this._mu);
+  }
+  componentWillUnmount(){document.removeEventListener('mousemove',this._mm);document.removeEventListener('mouseup',this._mu);}
+
+  now(){const d=new Date();return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');}
+  stamp(){return '2026-08-04 '+this.now();}
+  toast(title,sub,color){
+    const id=++this.tid;
+    this.setState(s=>({toasts:s.toasts.concat([{id,title,sub:sub||'',color:color||'#6a9ff0'}])}));
+    setTimeout(()=>this.setState(s=>({toasts:s.toasts.filter(t=>t.id!==id)})),2800);
+  }
+  active(){return this.state.tasks.find(t=>t.id===this.state.activeId)||this.state.tasks[0];}
+  isArch(t){
+    if(t.archived===true) return true;
+    if(t.archived===false) return false;
+    const d=this.state.archDays;
+    return d>0&&t.status==='completed'&&!!t.completedAt&&daysSince(t.completedAt)>=d;
+  }
+  archiveNow(id){
+    this.patch(id,()=>({archived:true,archivedAt:'2026-08-04'}));
+    const t=this.state.tasks.find(x=>x.id===id);
+    const rest=this.state.tasks.filter(x=>x.id!==id&&!this.isArch(x));
+    this.setState({statusMenuOpen:false,activeId:rest.length?rest[0].id:id,sel:'index.md'});
+    this.toast('보관함으로 이동',(t?t.title:'')+' · 파일은 그대로, frontmatter에 archived 표시','#a8a29a');
+  }
+  restoreTask(id){
+    const t=this.state.tasks.find(x=>x.id===id); if(!t) return;
+    const line='- '+this.stamp()+' · 보관함에서 재개';
+    const cur=t.files['index.md']||'';
+    const next=cur.indexOf('## 실행 이력 (Run Log)')>=0
+      ? cur.replace('## 실행 이력 (Run Log)\n','## 실행 이력 (Run Log)\n'+line+'\n')
+      : cur+'\n\n## 실행 이력 (Run Log)\n'+line;
+    this.patch(id,x=>({archived:false,status:'reopened',updated:'08-04 '+this.now(),runs:x.runs+1,
+      files:Object.assign({},x.files,{'index.md':next})}));
+    this.setState({activeId:id,screen:'workspace',sel:'index.md',archQuery:'',query:''});
+    this.toast('보관함에서 재개','새 노드를 만들지 않고 기존 노드에 회차를 추가했습니다','#a78bfa');
+  }
+  peekArchived(id){
+    this.setState({activeId:id,screen:'workspace',sel:'index.md'});
+    this.toast('보관된 업무를 열었습니다','읽기 참조용 · 이어서 작업하려면 [재개]를 누르세요','#a8a29a');
+  }
+  patch(id,fn){this.setState(s=>({tasks:s.tasks.map(t=>t.id===id?Object.assign({},t,fn(t)):t)}));}
+  fileList(){return FILES[this.active().id]||[];}
+  fileMeta(path){return this.fileList().find(f=>f.p===path)||{p:path,size:'—',name:path.split('/').pop()};}
+
+  onMove(e){
+    const d=this.drag; if(!d) return;
+    if(d.k==='sidebar'){const r=this.bodyEl.getBoundingClientRect();this.setState({sidebarW:Math.max(196,Math.min(430,e.clientX-r.left))});}
+    else if(d.k==='col'){const r=this.dockEl.getBoundingClientRect();this.setState({colPct:Math.max(28,Math.min(80,(e.clientX-r.left)/r.width*100))});}
+    else if(d.k==='rowL'){const r=this.leftEl.getBoundingClientRect();this.setState({rowPct:Math.max(18,Math.min(88,(e.clientY-r.top)/r.height*100))});}
+  }
+  down(k){return e=>{e.preventDefault();this.drag={k};document.body.style.cursor=k==='rowL'?'row-resize':'col-resize';};}
+
+  selectTask(id){
+    if(id===this.state.activeId) return;
+    const prev=this.active();
+    const nx=this.state.tasks.find(t=>t.id===id);
+    this.setState({activeId:id,statusMenuOpen:false,ctx:null,sel:(FILES[id]&&FILES[id][0]?FILES[id][0].p:''),snapAt:this.now()});
+    if(this.state.autoSnap) this.toast('컨텍스트 스냅샷 저장 · 복원','"'+prev.title+'" → "'+nx.title+'" · 열린 파일/탭 그대로 복원','#6a9ff0');
+  }
+  setStatus(st){
+    const a=this.active();
+    this.patch(a.id,()=>Object.assign({status:st,updated:'08-04 '+this.now(),archived:false},
+      st==='completed'?{completedAt:'2026-08-04'}:{}));
+    this.setState({statusMenuOpen:false,snapAt:this.now()});
+    if(st==='on-hold') this.toast('보류 처리 · 스냅샷 기록','탭 위치 / 스크롤 / 미저장 텍스트 보존됨','#e0a955');
+    else if(st==='completed') this.toast('완료 처리','Run Log가 템플릿 이력에 누적됩니다','#5fbf8d');
+    else if(st==='reopened') this.toast('업무 재개','새 노드를 만들지 않고 기존 노드에서 이어서 진행','#a78bfa');
+    else this.toast('진행 중으로 전환','','#6a9ff0');
+  }
+  appendRun(text){
+    const a=this.active(); const line='- '+this.stamp()+' · '+text;
+    const cur=a.files['index.md']||'';
+    const next=cur.indexOf('## 실행 이력 (Run Log)')>=0
+      ? cur.replace('## 실행 이력 (Run Log)\n','## 실행 이력 (Run Log)\n'+line+'\n')
+      : cur+'\n\n## 실행 이력 (Run Log)\n'+line;
+    this.patch(a.id,t=>({files:Object.assign({},t.files,{'index.md':next}),runs:t.runs+1,updated:'08-04 '+this.now()}));
+    this.openFile('index.md','text',true);
+  }
+
+  openFile(path,mode,quiet){
+    const a=this.active(), key=mode+'|'+path;
+    this.patch(a.id,t=>{
+      const has=t.openTabs.some(x=>x.mode+'|'+x.path===key);
+      return {openTabs:has?t.openTabs:t.openTabs.concat([{path,mode}]),activeTab:key};
+    });
+    this.setState({sel:path,ctx:null});
+    if(!quiet) this.toast(mode==='md'?'마크다운 뷰어로 열기':'텍스트 에디터로 열기',this.active().folder+path,mode==='md'?'#a78bfa':'#6a9ff0');
+  }
+  closeTab(key){
+    const a=this.active();
+    this.patch(a.id,t=>{
+      const tabs=t.openTabs.filter(x=>x.mode+'|'+x.path!==key);
+      const act=t.activeTab===key?(tabs.length?tabs[tabs.length-1].mode+'|'+tabs[tabs.length-1].path:''):t.activeTab;
+      return {openTabs:tabs,activeTab:act};
+    });
+  }
+  openWith(path){
+    const ext=extOf(path);
+    this.setState({ow:{path,ext,apps:appsFor(ext),pick:0,always:false},ctx:null,sel:path});
+  }
+  confirmOpenWith(){
+    const ow=this.state.ow; if(!ow) return;
+    const app=ow.apps[ow.pick]||ow.apps[0];
+    this.setState(s=>({ow:null,extOpened:Object.assign({},s.extOpened,{[ow.path]:app.n})}));
+    this.toast('연결 프로그램으로 열었습니다',app.n+' · '+ow.path,'#5fbf8d');
+    if(ow.always) setTimeout(()=>this.toast('.'+ow.ext+' 기본 앱 변경됨',app.n+'(으)로 항상 열기','#a8a29a'),260);
+  }
+  startMk(kind){
+    const s=this.state, dir=s.sel?s.sel.split('/').slice(0,-1).join('/'):'';
+    this._mkFocused=false;
+    this.setState({mk:{kind,parent:dir?dir+'/':'',name:''},explorerMin:false});
+  }
+  startMkIn(dir,kind){
+    this._mkFocused=false;
+    this.setState(x=>({mk:{kind,parent:dir,name:''},explorerMin:false,
+      treeOpen:Object.assign({},x.treeOpen,{[dir]:true})}));
+  }
+  copyPath(p){
+    const full='C:/Users/dev/'+this.active().folder+p;
+    if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(full).catch(()=>{});
+    this.setState({ctx:null});
+    this.toast('클립보드에 경로를 복사했습니다',full,'#5fbf8d');
+  }
+  askDelete(ctx){
+    const list=FILES[this.active().id]||[];
+    const inside=ctx.isDir?list.filter(f=>f.p.indexOf(ctx.path)===0&&f.p!==ctx.path):[];
+    this.setState({ctx:null,del:{path:ctx.path,name:ctx.name,isDir:!!ctx.isDir,
+      files:inside.filter(f=>!f.dir).length,dirs:inside.filter(f=>f.dir).length,confirm:''}});
+  }
+  commitDelete(){
+    const d=this.state.del; if(!d) return;
+    const a=this.active(), pre=d.path;
+    const gone=(FILES[a.id]||[]).filter(f=>d.isDir?(f.p===pre||f.p.indexOf(pre)===0):f.p===pre).map(f=>f.p);
+    FILES[a.id]=(FILES[a.id]||[]).filter(f=>gone.indexOf(f.p)<0);
+    this.patch(a.id,t=>{
+      const files=Object.assign({},t.files); gone.forEach(p=>delete files[p]);
+      const dirty=Object.assign({},t.dirty); gone.forEach(p=>delete dirty[p]);
+      const tabs=t.openTabs.filter(x=>gone.indexOf(x.path)<0);
+      const act=tabs.some(x=>x.mode+'|'+x.path===t.activeTab)?t.activeTab:(tabs.length?tabs[tabs.length-1].mode+'|'+tabs[tabs.length-1].path:'');
+      return {files,dirty,openTabs:tabs,activeTab:act};
+    });
+    const rest=(FILES[a.id]||[]).filter(f=>!f.dir);
+    this.setState({del:null,sel:rest.length?rest[0].p:''});
+    this.toast(d.isDir?'폴더를 완전히 삭제했습니다':'파일을 완전히 삭제했습니다',
+      a.folder+d.path+(d.isDir&&d.files?' · 파일 '+d.files+'개 포함':''),'#e0705a');
+  }
+  commitMk(){
+    const mk=this.state.mk; if(!mk) return;
+    let name=(mk.name||'').trim();
+    if(!name){this.setState({mk:null});return;}
+    const a=this.active();
+    if(mk.kind==='folder'){
+      const p=mk.parent+name.replace(/\/+$/,'')+'/';
+      if((FILES[a.id]||[]).some(f=>f.p===p)){this.toast('같은 이름의 폴더가 이미 있습니다',p,'#e0a955');return;}
+      FILES[a.id]=(FILES[a.id]||[]).concat([{p,dir:true}]);
+      this.setState({mk:null});
+      this.toast('폴더를 만들었습니다',a.folder+p,'#5fbf8d');
+    }else{
+      if(name.indexOf('.')<0) name+='.md';
+      const p=mk.parent+name;
+      if((FILES[a.id]||[]).some(f=>f.p===p)){this.toast('같은 이름의 파일이 이미 있습니다',p,'#e0a955');return;}
+      FILES[a.id]=(FILES[a.id]||[]).concat([{p,size:'0 KB',text:''}]);
+      this.patch(a.id,t=>({files:Object.assign({},t.files,{[p]:''})}));
+      this.setState({mk:null});
+      this.toast('파일을 만들었습니다',a.folder+p,'#5fbf8d');
+      setTimeout(()=>this.openFile(p,'text',true),0);
+    }
+  }
+  onDrop(e){
+    e.preventDefault();
+    const dt=e.dataTransfer;
+    let names=[];
+    if(dt&&dt.files&&dt.files.length) names=Array.prototype.slice.call(dt.files).map(f=>f.name);
+    if(!names.length) names=['외부-기획서.docx','참고-스크린샷.png'];
+    const s=this.state, dir=s.sel?s.sel.split('/').slice(0,-1).join('/'):'';
+    this.setState({dragOver:false,drop:{names,mode:'copy',target:dir?dir+'/':''}});
+  }
+  commitImport(){
+    const d=this.state.drop; if(!d) return;
+    const a=this.active(), TEXTY=['md','txt','csv','json','ts','sql','ps1','log'];
+    const added=[];
+    d.names.forEach(n=>{
+      const p=d.target+n, ext=extOf(n), isText=TEXTY.indexOf(ext)>=0;
+      const entry={p,size:'—',bin:!isText};
+      if(d.mode==='link') entry.link='C:/Users/dev/Desktop/'+n;
+      if(isText){entry.text='(외부에서 가져온 파일)\n';this.patch(a.id,t=>({files:Object.assign({},t.files,{[p]:entry.text})}));}
+      FILES[a.id]=(FILES[a.id]||[]).concat([entry]);
+      added.push(p);
+    });
+    this.setState({drop:null,sel:added[0]});
+    this.toast(d.mode==='copy'?added.length+'개 파일을 복사했습니다':added.length+'개 심볼릭 링크를 만들었습니다',
+      a.folder+d.target+' · '+(d.mode==='copy'?'Vault 내부 사본':'원본 위치 참조'),'#5fbf8d');
+  }
+  createTemplate(){
+    const t=this.state.tplNew, name=(t.name||'').trim();
+    if(!name) return;
+    const tpl={id:'tp'+Date.now().toString().slice(-6),name,desc:t.desc,
+      path:this.state.vault.split('/').pop()+'/Templates/'+name+'.md',
+      uses:0,last:'—',saved:0,runs:[{date:this.stamp(),text:'템플릿 등록 · 실행 이력 없음'}]};
+    this.setState(s=>({templates:s.templates.concat([tpl]),tplNew:null,
+      openTpl:Object.assign({},s.openTpl,{[tpl.id]:true})}));
+    this.toast('표준 패턴을 등록했습니다',tpl.path,'#5fbf8d');
+  }
+  defaultOpen(path,bin){
+    if(bin) return this.openWith(path);
+    if(extOf(path)==='md') return this.openFile(path,this.state.mdDefault==='text'?'text':'md');
+    this.openFile(path,'text');
+  }
+
+  renderVals(){
+    const s=this.state, self=this, a=this.active();
+    const stq=s.query.trim().toLowerCase();
+    const live=s.tasks.filter(t=>!this.isArch(t));
+    const archived=s.tasks.filter(t=>this.isArch(t));
+    const counts={all:live.length,'in-progress':0,'on-hold':0,completed:0};
+    live.forEach(t=>{const k=t.status==='reopened'?'in-progress':t.status;if(counts[k]!==undefined)counts[k]++;});
+    const visible=live.filter(t=>{
+      const st=t.status==='reopened'?'in-progress':t.status;
+      if(s.filter!=='all'&&st!==s.filter) return false;
+      if(!stq) return true;
+      return (t.title+' '+t.tags.join(' ')+' '+t.folder+' '+t.tagline).toLowerCase().indexOf(stq)>=0;
+    });
+    const sideArch=stq?archived.filter(t=>(t.title+' '+t.tags.join(' ')+' '+t.tagline).toLowerCase().indexOf(stq)>=0):[];
+    const F=[['all','전체'],['in-progress','진행중'],['on-hold','보류'],['completed','완료']];
+    const st=STATUS[a.status];
+    const list=FILES[a.id]||[];
+
+    const rows=[]; walk(buildTree(list),'',0,s.treeOpen,rows);
+    const openedModes={};
+    a.openTabs.forEach(t=>{openedModes[t.path]=Object.assign({},openedModes[t.path],{[t.mode]:true});});
+    const treeRows=rows.map((r,i)=>{
+      if(r.kind==='dir') return {key:'d'+r.path,isDir:true,isFile:false,name:r.name,count:r.count,
+        chevron:r.open?'▼':'▶',pad:6+r.depth*13,bg:'transparent',
+        onClick:()=>self.setState(x=>({treeOpen:Object.assign({},x.treeOpen,{[r.path]:x.treeOpen[r.path]===false})})),
+        onDbl:()=>{},
+        onCtx:e=>{e.preventDefault();
+          self.setState({sel:r.path,ctx:{path:r.path,name:r.name,ext:'',isDir:true,count:r.count,
+            x:e.clientX,y:e.clientY}});}};
+      const ext=extOf(r.name), es=extStyle(ext), on=s.sel===r.path;
+      const om=openedModes[r.path]||{};
+      return {key:'f'+r.path,isDir:false,isFile:true,name:r.name,ext:ext.toUpperCase(),isLink:!!r.link,
+        extFg:es.fg,extBg:es.bg,pad:6+r.depth*13,
+        bg:on?'#e6eefc':'transparent',fg:on?'#23211e':'#4e4a43',fw:on?600:400,
+        openedMd:!!om.md,openedTxt:!!om.text,openedExt:!!s.extOpened[r.path],
+        onClick:()=>self.setState({sel:r.path,ctx:null}),
+        onDbl:()=>self.defaultOpen(r.path,r.bin),
+        onCtx:e=>{e.preventDefault();
+          self.setState({sel:r.path,ctx:{path:r.path,name:r.name,ext:ext,bin:r.bin,isDir:false,
+            x:e.clientX,y:e.clientY}});}};
+    });
+
+    const selMeta=s.sel?this.fileMeta(s.sel):null;
+    const selExt=s.sel?extOf(s.sel):'';
+    const selEs=extStyle(selExt);
+    const selIsMd=selExt==='md';
+
+    const tab=a.openTabs.find(t=>t.mode+'|'+t.path===a.activeTab)||null;
+    const tabMeta=tab?this.fileMeta(tab.path):null;
+    const tabBin=!!(tabMeta&&tabMeta.bin);
+    const tabExt=tab?extOf(tab.path):'';
+    const body=tab?(a.files[tab.path]||''):'';
+
+    const ctx=s.ctx;
+    const ctxEs=ctx?extStyle(ctx.ext):{fg:'#8a857c',bg:'#f0ede7'};
+    const COPY={key:'ccopy',label:'경로 복사',hint:'클립보드',badge:'⧉',badgeFg:'#6a665e',badgeBg:'#f0ede7',cursor:'pointer',opacity:1,sep:false,danger:false,
+      onClick:()=>ctx&&self.copyPath(ctx.path)};
+    const DEL=ctx?{key:'cdel',label:(ctx.isDir?'폴더':'파일')+' 삭제',hint:'되돌릴 수 없음',badge:'✕',badgeFg:'#a83c3c',badgeBg:'#fceceb',cursor:'pointer',opacity:1,sep:true,danger:true,
+      onClick:()=>self.askDelete(ctx)}:null;
+    const ctxItems=ctx?(ctx.isDir?[
+      {key:'d1',label:'탐색기에서 열기',hint:'Windows',badge:'↗',badgeFg:'#6a665e',badgeBg:'#f0ede7',cursor:'pointer',opacity:1,sep:false,danger:false,
+        onClick:()=>{self.setState({ctx:null});self.toast('Windows 탐색기에서 열었습니다','C:/Users/dev/'+a.folder+ctx.path,'#5fbf8d');}},
+      {key:'d2',label:'하위 폴더 만들기',hint:'',badge:'＋',badgeFg:'#8f5d17',badgeBg:'#fbf3e6',cursor:'pointer',opacity:1,sep:true,danger:false,
+        onClick:()=>{self.setState({ctx:null},()=>self.startMkIn(ctx.path,'folder'));}},
+      {key:'d3',label:'이 폴더에 새 파일',hint:'',badge:'＋',badgeFg:'#2f5cbb',badgeBg:'#eef3fd',cursor:'pointer',opacity:1,sep:false,danger:false,
+        onClick:()=>{self.setState({ctx:null},()=>self.startMkIn(ctx.path,'file'));}},
+      Object.assign({},COPY,{sep:true}),DEL
+    ]:[
+      {key:'c1',label:'텍스트 에디터로 열기',hint:'편집',badge:'TXT',badgeFg:'#2f5cbb',badgeBg:'#eef3fd',cursor:'pointer',opacity:1,sep:false,danger:false,
+        onClick:()=>ctx.bin?self.setState({ctx:null},()=>self.openFile(ctx.path,'text')):self.openFile(ctx.path,'text')},
+      {key:'c2',label:'마크다운 뷰어로 열기',hint:ctx.ext==='md'?'읽기':'.md 전용',badge:'MD',badgeFg:'#5a44b4',badgeBg:'#f2eefc',
+        cursor:ctx.ext==='md'?'pointer':'not-allowed',opacity:ctx.ext==='md'?1:.42,sep:false,danger:false,
+        onClick:()=>{if(ctx.ext==='md')self.openFile(ctx.path,'md');}},
+      {key:'c3',label:'연결 프로그램으로 열기…',hint:(appsFor(ctx.ext)[0]||{}).n,badge:'↗',badgeFg:'#6a665e',badgeBg:'#f0ede7',cursor:'pointer',opacity:1,sep:false,danger:false,
+        onClick:()=>self.openWith(ctx.path)},
+      {key:'c4',label:'이 위치에 새 파일',hint:'',badge:'＋',badgeFg:'#2f5cbb',badgeBg:'#eef3fd',cursor:'pointer',opacity:1,sep:true,danger:false,
+        onClick:()=>{self.setState({ctx:null,sel:ctx.path},()=>self.startMk('file'));}},
+      {key:'c5',label:'이 위치에 새 폴더',hint:'',badge:'＋',badgeFg:'#8f5d17',badgeBg:'#fbf3e6',cursor:'pointer',opacity:1,sep:false,danger:false,
+        onClick:()=>{self.setState({ctx:null,sel:ctx.path},()=>self.startMk('folder'));}},
+      Object.assign({},COPY,{sep:true}),DEL
+    ]):[];
+
+    const ow=s.ow, owEs=ow?extStyle(ow.ext):{fg:'#8a857c',bg:'#f0ede7'};
+
+    const mkRec=(r,inModal)=>{
+      const isCluster=!!(r.cluster&&r.cluster.length>1&&r.sim>=s.threshold);
+      const tg=s.recTag[r.id];
+      return {key:r.id+(inModal?'m':''),id:r.id,sim:r.sim,title:r.title,path:r.path,
+        simColor:r.sim>=s.threshold?VIOLET:r.sim>=75?BLUE:'#8a857c',
+        bd:tg?'#dcd6f0':'#e6e2da',
+        isCluster,clusterCount:isCluster?r.cluster.length:0,
+        expanded:!!s.expanded[r.id],chevron:s.expanded[r.id]?'▼':'▶',
+        children:isCluster?r.cluster.map((c,i)=>Object.assign({key:r.id+'c'+i},c)):[],
+        tagged:!!tg,tagLabel:tg==='ref'?'참조 중':tg==='resume'?'이력 추가됨':tg==='merged'?'병합 완료':'',
+        tagFg:tg==='ref'?'#4e4a43':tg==='resume'?'#2f5cbb':'#5a44b4',
+        tagBg:tg==='ref'?'#f0ede7':tg==='resume'?'#eef3fd':'#f4f0fd',
+        onToggle:()=>self.setState(x=>({expanded:Object.assign({},x.expanded,{[r.id]:!x.expanded[r.id]})})),
+        onRef:()=>{self.setState(x=>({recTag:Object.assign({},x.recTag,{[r.id]:'ref'})}));self.toast('참조로 연결 (읽기 전용)',r.path,'#a8a29a');},
+        onResume:()=>{
+          self.setState(x=>({recTag:Object.assign({},x.recTag,{[r.id]:'resume'})}));
+          self.toast('기존 노드에 회차 로그 추가','"'+r.title+'" · 새 노트를 만들지 않았습니다','#6a9ff0');
+          self.setState({newOpen:false});
+        },
+        onMerge:()=>self.setState({mergeOpen:true,mergeSrc:r,mergePrimary:0,
+          mergeSel:r.cluster.reduce((o,c,i)=>{o[i]=true;return o;},{})})};
+    };
+    const ntRecs=s.ntRecs.map(r=>mkRec(r,true));
+
+    const mSrc=s.mergeSrc;
+    const mNodes=mSrc?mSrc.cluster.map((c,i)=>{
+      const on=!!s.mergeSel[i], pri=s.mergePrimary===i;
+      return {key:'m'+i,title:c.title,date:c.date,lines:38+i*11,
+        bd:pri?'#cfc0f4':on?'#e6e2da':'#efece6',bg:pri?'#faf7ff':'#fff',
+        check:on?'✓':'',boxBg:on?VIOLET:'#fff',boxBd:on?VIOLET:'#cfcabf',
+        radioBd:pri?VIOLET:'#cfcabf',radioFill:pri?VIOLET:'transparent',
+        radioFg:pri?'#5a44b4':'#8a857c',radioFw:pri?600:400,
+        onCheck:()=>self.setState(x=>({mergeSel:Object.assign({},x.mergeSel,{[i]:!x.mergeSel[i]})})),
+        onPrimary:()=>self.setState(x=>({mergePrimary:i,mergeSel:Object.assign({},x.mergeSel,{[i]:true})}))};
+    }):[];
+    const mSelected=mSrc?Object.keys(s.mergeSel).filter(k=>s.mergeSel[k]).length:0;
+    const mPreview=[];
+    if(mSrc){
+      const pri=mSrc.cluster[s.mergePrimary]||mSrc.cluster[0];
+      mPreview.push({key:'p0',text:'---',fg:'#b5afa2',bg:'transparent'});
+      mPreview.push({key:'p1',text:'title: '+pri.title.replace(' (대표)',''),fg:'#3a3630',bg:'transparent'});
+      mPreview.push({key:'p2',text:'status: in-progress',fg:'#3a3630',bg:'transparent'});
+      mPreview.push({key:'p3',text:'merged_from: '+mSelected+' nodes',fg:'#1f6b45',bg:'#eaf6ee'});
+      mPreview.push({key:'p4',text:'---',fg:'#b5afa2',bg:'transparent'});
+      mPreview.push({key:'p5',text:'',fg:'#3a3630',bg:'transparent'});
+      mPreview.push({key:'p6',text:'## 실행 이력 (Run Log)',fg:'#3a3630',bg:'transparent'});
+      mSrc.cluster.forEach((c,i)=>{ if(s.mergeSel[i]) mPreview.push({key:'pr'+i,text:'- '+c.date+' · '+c.title.replace(' (대표)',''),fg:'#1f6b45',bg:'#eaf6ee'}); });
+      mPreview.push({key:'pd',text:'',fg:'#3a3630',bg:'transparent'});
+      mSrc.cluster.forEach((c,i)=>{ if(s.mergeSel[i]&&i!==s.mergePrimary) mPreview.push({key:'pz'+i,text:'삭제됨: Tasks/…/'+c.title.replace(' (대표)','')+'/index.md',fg:'#a83c3c',bg:'#fceceb'}); });
+    }
+
+    const ntTitle=s.nt.title.trim();
+    return {
+      showChrome:this.props.showWindowChrome!==false,
+      chromeTitle:a.folder+(tab?tab.path:'')+' — ContextFlow',
+      menus:['파일','편집','보기','업무','도움말'],
+      vaultPath:s.vault,
+      sidebarW:s.sidebarMin?34:Math.round(s.sidebarW),taskCount:live.length+'개',query:s.query,
+      onQuery:e=>this.setState({query:e.target.value}),
+      filters:F.map(([k,label])=>({key:k,label,count:counts[k],
+        bg:s.filter===k?'#fff':'transparent',fg:s.filter===k?'#23211e':'#8a857c',
+        bd:s.filter===k?'#d9d4ca':'transparent',fw:s.filter===k?600:400,
+        onClick:()=>this.setState({filter:k})})),
+      visibleTasks:visible.map(t=>{
+        const cfg=STATUS[t.status], on=t.id===s.activeId;
+        return {key:t.id,title:t.title,updated:t.updated,tagline:t.tagline,dot:cfg.dot,
+          accent:on?cfg.dot:'transparent',rowBg:on?'#fff':'transparent',
+          rowShadow:on?'0 1px 2px rgba(35,33,30,.10)':'none',
+          titleColor:on?'#23211e':'#3a3630',fw:on?600:400,
+          hasRuns:t.runs>1,runs:t.runs,onSelect:()=>this.selectTask(t.id)};
+      }),
+      noResults:visible.length===0&&sideArch.length===0,
+      showArchHits:sideArch.length>0,
+      archHitCount:sideArch.length+'건',
+      archHits:sideArch.slice(0,4).map(t=>({key:'sa'+t.id,title:t.title,
+        date:(t.completedAt||'').slice(2),tagline:t.tagline,
+        onOpen:()=>this.peekArchived(t.id),
+        onRestore:e=>{e.stopPropagation();this.restoreTask(t.id);}})),
+      archMoreLabel:sideArch.length>4?'보관함에서 '+sideArch.length+'건 모두 보기 →':'보관함에서 열기 →',
+      archivedCount:archived.length+'개',
+      onGoArchive:()=>this.setState({screen:'archive',archQuery:s.query.trim()}),
+      onNewTask:()=>this.setState({newOpen:true,nt:{title:'',summary:'',tags:'',template:'(없음)'},ntRecs:[]}),
+      navItems:[['workspace','워크스페이스'],['templates','템플릿'],['archive','보관함'],['settings','설정']].map(([k,label])=>({key:k,label,
+        bg:s.screen===k?'#fff':'transparent',fg:s.screen===k?'#23211e':'#8a857c',
+        bd:s.screen===k?'#d9d4ca':'#e6e2da',fw:s.screen===k?600:400,
+        onClick:()=>this.setState({screen:k})})),
+      isWorkspace:s.screen==='workspace',isTemplates:s.screen==='templates',isSettings:s.screen==='settings',
+      isArchive:s.screen==='archive',
+      archBanner:this.isArch(a),
+      onRestoreActive:()=>this.restoreTask(a.id),
+      at:{title:a.title,tags:a.tags.map(x=>x),folder:a.folder,dot:st.dot,statusLabel:st.label,statusBg:st.bg,statusFg:st.fg,statusBd:st.bd},
+      snapAt:s.snapAt,
+      statusMenuOpen:s.statusMenuOpen,
+      onToggleStatusMenu:()=>this.setState({statusMenuOpen:!s.statusMenuOpen}),
+      statusOptions:[['in-progress','진행 중','작업 재개'],['on-hold','보류','스냅샷 저장'],['completed','완료','이력 확정'],['reopened','재개됨','기존 노드 유지']].map(([k,label,hint])=>({key:k,label,hint,dot:STATUS[k].dot,
+        bg:a.status===k?'#f4f2ee':'transparent',onClick:()=>this.setStatus(k)}))
+        .concat([{key:'arch',label:'지금 보관함으로',hint:'목록에서 숨김',dot:'#b5afa2',bg:'transparent',
+          onClick:()=>this.archiveNow(a.id)}]),
+      refBody:el=>this.bodyEl=el,refDock:el=>this.dockEl=el,refLeft:el=>this.leftEl=el,
+      onDragSidebar:this.down('sidebar'),onDragCol:this.down('col'),onDragRowL:this.down('rowL'),
+      sidebarMin:s.sidebarMin,sidebarFull:!s.sidebarMin,
+      onToggleSidebar:()=>this.setState({sidebarMin:!s.sidebarMin}),
+      explorerMin:s.explorerMin,explorerFull:!s.explorerMin,
+      onToggleExplorer:()=>this.setState({explorerMin:!s.explorerMin,mk:null}),
+      expFlex:s.explorerMin?'0 0 34px':'1 1 auto',
+      leftFlex:s.explorerMin?'1 1 auto':'0 0 auto',
+      leftW:s.explorerMin?'auto':(Math.round(s.colPct*10)/10)+'%',
+      noteMin:s.noteMin,noteFull:!s.noteMin,
+      onToggleNote:()=>this.setState({noteMin:!s.noteMin}),
+      noteToggleIcon:s.noteMin?'▲':'–',
+      noteFlex:s.noteMin?'0 0 26px':'1 1 auto',
+      editorFlex:s.noteMin?'1 1 auto':'0 0 auto',
+      editorH:s.noteMin?'auto':(Math.round(s.rowPct*10)/10)+'%',
+      notePeek:(a.notepad||'').split('\n')[0]||'비어 있음',
+
+      fileTabs:a.openTabs.map(t=>{
+        const key=t.mode+'|'+t.path, on=key===a.activeTab;
+        return {key,name:t.path.split('/').pop(),mode:t.mode==='md'?'MD':'TXT',
+          modeFg:t.mode==='md'?'#5a44b4':'#2f5cbb',modeBg:t.mode==='md'?'#f2eefc':'#eef3fd',
+          dirty:t.mode==='text'&&!!a.dirty[t.path],
+          bg:on?'#fff':'transparent',fg:on?'#23211e':'#8a857c',
+          line:on?'inset 0 -2px 0 '+(t.mode==='md'?VIOLET:BLUE):'none',
+          onClick:()=>this.patch(a.id,()=>({activeTab:key})),
+          onClose:e=>{e.stopPropagation();this.closeTab(key);}};
+      }),
+      activePath:tab?a.folder+tab.path:'',
+      showEmpty:!tab,
+      showBinary:!!tab&&tabBin,
+      showMarkdown:!!tab&&!tabBin&&tab.mode==='md',
+      showEditor:!!tab&&!tabBin&&tab.mode==='text',
+      showFm:!!tab&&tab.path==='index.md'&&tab.mode==='text',
+      binName:tabMeta?tabMeta.p.split('/').pop():'',binExt:tabExt.toUpperCase(),binSize:tabMeta?tabMeta.size:'',
+      onBinOpenWith:()=>tab&&this.openWith(tab.path),
+      onEditAsText:()=>tab&&this.openFile(tab.path,'text',true),
+      mdBlocks:tab&&!tabBin&&tab.mode==='md'?mdParse(body):[],
+      fm:{id:a.fmid,status:a.status,statusColor:st.dot,tags:'['+a.tags.join(', ')+']',updated:'2026-'+a.updated,template:a.template},
+      bodyText:body,
+      langLabel:LANG[tabExt]||'Plain Text',
+      onEditBody:e=>{const v=e.target.value;if(!tab)return;
+        this.patch(a.id,t=>({files:Object.assign({},t.files,{[tab.path]:v}),dirty:Object.assign({},t.dirty,{[tab.path]:true})}));},
+      onCaret:e=>{const el=e.target,pos=el.selectionStart||0,upto=el.value.slice(0,pos),ln=upto.split('\n').length;
+        this.setState({caret:{ln,col:pos-upto.lastIndexOf('\n')}});},
+      caretLn:s.caret.ln,caretCol:s.caret.col,
+      savedLabel:(tab&&a.dirty[tab.path])?'미저장 변경 · 스냅샷 대기':'저장됨 '+s.snapAt,
+      savedColor:(tab&&a.dirty[tab.path])?'#b07520':'#8a857c',
+      notepadText:a.notepad,
+      onEditNote:e=>{const v=e.target.value;this.patch(a.id,()=>({notepad:v}));},
+
+      rootName:a.folder,
+      treeCount:list.length+'개 파일',
+      collapseLabel:Object.keys(s.treeOpen).some(k=>s.treeOpen[k]===false)?'모두 펼치기':'모두 접기',
+      onCollapseAll:()=>{
+        const collapsed=Object.keys(s.treeOpen).some(k=>s.treeOpen[k]===false);
+        if(collapsed) return this.setState({treeOpen:{}});
+        const dirs={};
+        rows.forEach(r=>{if(r.kind==='dir')dirs[r.path]=false;});
+        list.forEach(f=>{const parts=f.p.split('/');let pre='';for(let i=0;i<parts.length-1;i++){pre+=parts[i]+'/';dirs[pre]=false;}});
+        this.setState({treeOpen:dirs});
+      },
+      treeRows,
+      hasSel:!!s.sel,
+      sel:{name:selMeta?s.sel.split('/').pop():'',size:selMeta?selMeta.size:'',
+        ext:selExt.toUpperCase(),extFg:selEs.fg,extBg:selEs.bg,
+        mdCursor:selIsMd?'pointer':'not-allowed',mdBd:selIsMd?'#ddd8cf':'#eae6de',
+        mdBg:selIsMd?'#fff':'#faf9f6',mdOpacity:selIsMd?1:.45,
+        mdHint:selIsMd?'읽기 전용':'.md 전용',
+        defaultApp:(appsFor(selExt)[0]||{}).n||'',
+        onText:()=>this.openFile(s.sel,'text'),
+        onMd:()=>{if(selIsMd)this.openFile(s.sel,'md');},
+        onExt:()=>this.openWith(s.sel)},
+
+      mkOpen:!!s.mk,
+      mk:s.mk?{name:s.mk.name,badge:s.mk.kind==='folder'?'DIR':'FILE',
+        badgeFg:s.mk.kind==='folder'?'#8f5d17':'#2f5cbb',badgeBg:s.mk.kind==='folder'?'#fbf3e6':'#eef3fd',
+        placeholder:s.mk.kind==='folder'?'새 폴더 이름':'새 파일 이름 (확장자 생략 시 .md)',
+        parentLabel:a.folder+(s.mk.parent||'')}:{name:'',badge:'',badgeFg:'',badgeBg:'',placeholder:'',parentLabel:''},
+      mkRef:el=>{if(el&&!this._mkFocused){this._mkFocused=true;el.focus();}},
+      onMkName:e=>{const v=e.target.value;this.setState(x=>({mk:Object.assign({},x.mk,{name:v})}));},
+      onMkKey:e=>{if(e.key==='Enter')this.commitMk();else if(e.key==='Escape')this.setState({mk:null});},
+      onMkCommit:()=>this.commitMk(),
+      onMkCancel:()=>this.setState({mk:null}),
+      onNewFile:()=>this.startMk('file'),
+      onNewFolder:()=>this.startMk('folder'),
+      onDragOver:e=>{e.preventDefault();if(!s.dragOver)this.setState({dragOver:true});},
+      onDragLeave:e=>{if(e.currentTarget.contains(e.relatedTarget))return;this.setState({dragOver:false});},
+      onDropFiles:e=>this.onDrop(e),
+      dzPaneBg:s.dragOver?'#f4f8fe':'transparent',
+      dzBd:s.dragOver?'#3a6fd8':'#ddd8cf',
+      dzBg:s.dragOver?'#eef3fd':'transparent',
+      dzFg:s.dragOver?'#2f5cbb':'#a09a8f',
+      dzText:s.dragOver?'놓으면 이 업무 폴더로 가져옵니다':'바탕화면에서 파일을 끌어다 놓기',
+      dropOpen:!!s.drop,
+      dp:s.drop?{countLabel:s.drop.names.length+'개 항목',target:s.drop.target,
+        previewPath:a.folder+s.drop.target,cta:s.drop.mode==='copy'?'복사해서 가져오기':'링크로 연결'}:{countLabel:'',target:'',previewPath:'',cta:''},
+      dropNames:s.drop?s.drop.names.map((n,i)=>{const es=extStyle(extOf(n));
+        return {key:'dn'+i,name:n,ext:extOf(n).toUpperCase(),extFg:es.fg,extBg:es.bg,src:'바탕화면'};}):[],
+      dropModes:s.drop?[['copy','Vault 안으로 복사','원본과 분리된 사본을 업무 폴더에 저장합니다. 원본을 옮기거나 지워도 안전합니다.'],
+        ['link','심볼릭 링크로 연결','원본 위치를 그대로 참조합니다. 대용량 파일이나 공용 자료에 적합합니다.']].map(([k,label,desc])=>({key:k,label,desc,
+        bd:s.drop.mode===k?'#cddcf8':'#eae6de',bg:s.drop.mode===k?'#f7fafe':'#fff',fw:s.drop.mode===k?600:500,
+        radioBd:s.drop.mode===k?BLUE:'#cfcabf',radioFill:s.drop.mode===k?BLUE:'transparent',
+        onClick:()=>this.setState(x=>({drop:Object.assign({},x.drop,{mode:k})}))})):[],
+      dropFolders:[{key:'root',value:'',label:'(루트) '+a.folder}].concat(dirsOf(list).map(d=>({key:'df'+d,value:d,label:d}))),
+      onDropTarget:e=>{const v=e.target.value;this.setState(x=>({drop:Object.assign({},x.drop,{target:v})}));},
+      onCloseDrop:()=>this.setState({drop:null}),
+      onConfirmDrop:()=>this.commitImport(),
+      ctxOpen:!!ctx,
+      ctxRef:el=>{
+        if(!el){this._ctxEl=null;return;}
+        this._ctxEl=el;
+        const c=this.state.ctx; if(!c) return;
+        const M=8, r=el.getBoundingClientRect();
+        const off={x:r.left-(c.px!==undefined?c.px:c.x),y:r.top-(c.py!==undefined?c.py:c.y)};
+        let x=c.x, y=c.y;
+        if(c.x+off.x+r.width>window.innerWidth-M) x=Math.max(M-off.x,window.innerWidth-M-r.width-off.x);
+        if(c.y+off.y+r.height>window.innerHeight-M) y=Math.max(M-off.y,c.y-r.height-off.y*2);
+        if(x!==c.x||y!==c.y) this.setState(st=>({ctx:Object.assign({},st.ctx,{x,y,px:c.x,py:c.y})}));
+      },
+      ctx:ctx?{x:ctx.x,y:ctx.y,name:ctx.name,
+        ext:ctx.isDir?'DIR':ctx.ext.toUpperCase(),
+        extFg:ctx.isDir?'#8f5d17':ctxEs.fg,extBg:ctx.isDir?'#fbf3e6':ctxEs.bg}:{x:0,y:0,name:'',ext:'',extFg:'',extBg:''},
+      delOpen:!!s.del,
+      del:s.del?{name:s.del.name,path:a.folder+s.del.path,
+        title:s.del.isDir?'폴더를 완전히 삭제할까요?':'파일을 완전히 삭제할까요?',isDir:s.del.isDir,
+        countLabel:s.del.isDir?('하위 파일 '+s.del.files+'개 · 하위 폴더 '+s.del.dirs+'개가 함께 삭제됩니다'):'이 파일이 삭제됩니다',
+        confirm:s.del.confirm,
+        ready:s.del.confirm.trim()===s.del.name,
+        btnBg:s.del.confirm.trim()===s.del.name?'#c04a4a':'#f0dcd9',
+        btnFg:s.del.confirm.trim()===s.del.name?'#fff':'#c9a7a2',
+        cursor:s.del.confirm.trim()===s.del.name?'pointer':'not-allowed'}
+        :{name:'',path:'',title:'',isDir:false,countLabel:'',confirm:'',ready:false,btnBg:'',btnFg:'',cursor:'default'},
+      onDelConfirm:e=>{const v=e.target.value;this.setState(x=>({del:Object.assign({},x.del,{confirm:v})}));},
+      onDelKey:e=>{if(e.key==='Enter'&&s.del&&s.del.confirm.trim()===s.del.name)this.commitDelete();
+        else if(e.key==='Escape')this.setState({del:null});},
+      onCloseDel:()=>this.setState({del:null}),
+      onCommitDel:()=>{if(s.del&&s.del.confirm.trim()===s.del.name)this.commitDelete();},
+      ctxItems,
+      onCloseCtx:()=>this.setState({ctx:null}),
+
+      owOpen:!!ow,
+      ow:ow?{path:a.folder+ow.path,ext:ow.ext.toUpperCase(),extFg:owEs.fg,extBg:owEs.bg,dotExt:'.'+ow.ext,
+        check:ow.always?'✓':'',boxBg:ow.always?BLUE:'#fff',boxBd:ow.always?BLUE:'#cfcabf'}:{path:'',ext:'',extFg:'',extBg:'',dotExt:'',check:'',boxBg:'',boxBd:''},
+      owApps:ow?ow.apps.map((p,i)=>({key:'ap'+i,name:p.n,desc:p.d,initial:p.n.slice(0,1),iconBg:p.c,
+        fw:i===ow.pick?600:500,bd:i===ow.pick?'#cddcf8':'#eae6de',bg:i===ow.pick?'#f7fafe':'#fff',
+        radioBd:i===ow.pick?BLUE:'#cfcabf',radioFill:i===ow.pick?BLUE:'transparent',
+        onClick:()=>this.setState(x=>({ow:Object.assign({},x.ow,{pick:i})}))})):[],
+      onToggleAlways:()=>this.setState(x=>({ow:Object.assign({},x.ow,{always:!x.ow.always})})),
+      onCloseOw:()=>this.setState({ow:null}),
+      onConfirmOw:()=>this.confirmOpenWith(),
+
+      templates:s.templates.map(t=>({key:t.id,name:t.name,path:t.path,uses:t.uses,last:t.last,saved:t.saved,
+        open:!!s.openTpl[t.id],chevron:s.openTpl[t.id]?'▼':'▶',bg:s.openTpl[t.id]?'#faf9f6':'#fff',
+        runs:t.runs.map((r,i)=>Object.assign({key:t.id+i},r)),
+        onToggle:()=>this.setState(x=>({openTpl:Object.assign({},x.openTpl,{[t.id]:!x.openTpl[t.id]})}))})),
+      tplStats:[{key:'a',value:s.templates.reduce((n,t)=>n+t.uses,0),label:'총 실행 회차',color:'#3a3630'},
+        {key:'b',value:s.templates.length,label:'등록된 표준 패턴',color:VIOLET},
+        {key:'c',value:s.templates.reduce((n,t)=>n+t.saved,0),label:'생성하지 않은 중복 노트',color:GREEN}],
+      tplOpen:!!s.tplNew,
+      tp:s.tplNew?{name:s.tplNew.name,desc:s.tplNew.desc,sections:s.tplNew.sections,
+        path:s.vault.split('/').pop()+'/Templates/'+((s.tplNew.name||'새 템플릿').trim())+'.md',
+        check:s.tplNew.fromTask?'✓':'',boxBg:s.tplNew.fromTask?BLUE:'#fff',boxBd:s.tplNew.fromTask?BLUE:'#cfcabf',
+        btnBg:(s.tplNew.name||'').trim()?BLUE:'#e6e2da',btnFg:(s.tplNew.name||'').trim()?'#fff':'#a09a8f',
+        cursor:(s.tplNew.name||'').trim()?'pointer':'not-allowed'}:{name:'',desc:'',sections:'',path:'',check:'',boxBg:'',boxBd:'',btnBg:'',btnFg:'',cursor:'default'},
+      tplPreview:s.tplNew?[{key:'l0',text:'---',fg:'#b5afa2'},
+        {key:'l1',text:'template: '+((s.tplNew.name||'(이름 없음)').trim()),fg:'#3a3630'},
+        {key:'l2',text:'purpose: '+(s.tplNew.desc||'—'),fg:'#3a3630'},
+        {key:'l3',text:'---',fg:'#b5afa2'},{key:'l4',text:'',fg:'#3a3630'}]
+        .concat((s.tplNew.sections||'').split('\n').filter(x=>x.trim()).map((x,i)=>({key:'ls'+i,text:'## '+x.trim(),fg:'#2f5cbb'}))):[],
+      onNewTemplate:()=>this.setState({tplNew:{name:'',desc:'',sections:'배경\n체크리스트\n실행 이력 (Run Log)',fromTask:false}}),
+      onCloseTpl:()=>this.setState({tplNew:null}),
+      onTplName:e=>{const v=e.target.value;this.setState(x=>({tplNew:Object.assign({},x.tplNew,{name:v})}));},
+      onTplDesc:e=>{const v=e.target.value;this.setState(x=>({tplNew:Object.assign({},x.tplNew,{desc:v})}));},
+      onTplSections:e=>{const v=e.target.value;this.setState(x=>({tplNew:Object.assign({},x.tplNew,{sections:v})}));},
+      onTplFromTask:()=>{
+        const on=!s.tplNew.fromTask;
+        const heads=(a.files['index.md']||'').split('\n').filter(l=>/^##\s+/.test(l)).map(l=>l.replace(/^##\s+/,'').trim());
+        this.setState(x=>({tplNew:Object.assign({},x.tplNew,{fromTask:on,
+          sections:on&&heads.length?heads.join('\n'):x.tplNew.sections})}));},
+      onCreateTpl:()=>this.createTemplate(),
+
+      archRule:s.archDays>0
+        ? '완료 후 '+s.archDays+'일이 지나면 목록에서 자동으로 접힙니다. 파일은 이동하지 않고 frontmatter에 archived 표시만 남기므로 Obsidian 링크와 그래프는 그대로 유지됩니다.'
+        : '자동 보관이 꺼져 있습니다. 완료 업무는 [지금 보관함으로]를 눌러 직접 접을 수 있습니다.',
+      archStats:[{key:'n',value:archived.length,label:'보관된 업무',color:'#3a3630'},
+        {key:'r',value:archived.reduce((n,t)=>n+t.runs,0),label:'누적 회차',color:VIOLET},
+        {key:'v',value:live.length,label:'목록에 남은 업무',color:GREEN}],
+      archQuery:s.archQuery,
+      onArchQuery:e=>this.setState({archQuery:e.target.value}),
+      archScopes:[['title','제목 · 태그'],['full','본문 전문']].map(([k,label])=>({key:k,label,
+        bd:s.archScope===k?'#cddcf8':'#ddd8cf',bg:s.archScope===k?'#eef3fd':'#fff',
+        fg:s.archScope===k?'#2f5cbb':'#6a665e',fw:s.archScope===k?600:400,
+        onClick:()=>this.setState({archScope:k})})),
+      archYears:['all'].concat(Object.keys(archived.reduce((o,t)=>{o[(t.completedAt||'').slice(0,4)]=1;return o;},{})).sort().reverse())
+        .map(y=>({key:y,label:y==='all'?'전체':y+'년',
+          bd:s.archYear===y?'#d9d4ca':'transparent',bg:s.archYear===y?'#fff':'transparent',
+          fg:s.archYear===y?'#23211e':'#8a857c',fw:s.archYear===y?600:400,
+          onClick:()=>this.setState({archYear:y})})),
+      archGroups:(function(){
+        const q=s.archQuery.trim().toLowerCase();
+        const hit=archived.filter(t=>{
+          if(s.archYear!=='all'&&(t.completedAt||'').slice(0,4)!==s.archYear) return false;
+          if(!q) return true;
+          if(s.archScope==='full'){
+            const blob=(t.title+' '+t.tags.join(' ')+' '+Object.keys(t.files).map(k=>t.files[k]).join(' ')).toLowerCase();
+            return blob.indexOf(q)>=0;
+          }
+          return (t.title+' '+t.tags.join(' ')+' '+t.folder).toLowerCase().indexOf(q)>=0;
+        }).sort((x,y)=>(y.completedAt||'').localeCompare(x.completedAt||''));
+        const groups=[];
+        hit.forEach(t=>{
+          const label=qLabel(t.completedAt||'2026-01-01');
+          let g=groups[groups.length-1];
+          if(!g||g.label!==label){g={key:label,label,count:0,items:[]};groups.push(g);}
+          let snippet='';
+          if(q&&s.archScope==='full'){
+            const src=Object.keys(t.files).map(k=>t.files[k]).join('\n');
+            const ln=src.split('\n').find(l=>l.toLowerCase().indexOf(q)>=0);
+            if(ln) snippet=ln.trim().slice(0,96);
+          }
+          g.items.push({key:t.id,title:t.title,date:t.completedAt,ago:daysSince(t.completedAt)+'일 전',
+            tagline:t.tagline,runs:'×'+t.runs,path:t.folder+'index.md',
+            tags:t.tags.map((x,i)=>({key:t.id+'g'+i,name:x})),
+            hasSnippet:!!snippet,snippet:snippet,
+            manual:t.archived===true&&t.archivedAt==='2026-08-04',
+            onOpen:()=>self.peekArchived(t.id),
+            onRestore:()=>self.restoreTask(t.id),
+            onObsidian:()=>self.toast('Obsidian에서 열기',t.folder+'index.md','#a78bfa')});
+          g.count=g.items.length;
+        });
+        return groups;
+      })(),
+      archEmpty:archived.length>0&&s.archQuery.trim().length>0,
+      archEmptyNone:archived.length===0,
+      archMocPath:s.vault.split('/').pop()+'/_index/Archive.md',
+      archModeLabel:s.archMode==='tag'?'frontmatter 태그 (파일 이동 없음)':'Archive 폴더로 이동',
+      archFm:[{key:'f1',text:'status: completed',fg:'#3a3630'},
+        {key:'f2',text:'archived: true',fg:'#1f6b45'},
+        {key:'f3',text:'archived_at: 2026-08-04',fg:'#1f6b45'},
+        {key:'f4',text:'tags: [..., archived]',fg:'#3a3630'}],
+      archDv:['```dataview','TABLE completed_at, runs','FROM "Tasks"','WHERE archived = true','SORT completed_at DESC','```']
+        .map((t,i)=>({key:'dv'+i,text:t,fg:i===0||i===5?'#b5afa2':'#3a3630'})),
+      onOpenMoc:()=>this.toast('Obsidian에서 열기',this.state.vault.split('/').pop()+'/_index/Archive.md · 보관 목록 MOC','#a78bfa'),
+
+      st:{vault:s.vault,api:s.api},
+      archDays:s.archDays,
+      archDayChoices:[[7,'7일'],[14,'14일'],[30,'30일'],[90,'90일'],[0,'끄기']].map(([v,label])=>({key:'ad'+v,label,
+        bd:s.archDays===v?'#cddcf8':'#ddd8cf',bg:s.archDays===v?'#eef3fd':'#fff',
+        fg:s.archDays===v?'#2f5cbb':'#6a665e',fw:s.archDays===v?600:400,
+        onClick:()=>this.setState({archDays:v})})),
+      archModeChoices:[['tag','frontmatter 태그','파일을 옮기지 않고 archived: true 만 기록합니다. 위키링크·그래프·심볼릭 링크가 모두 살아 있고, Obsidian 검색에도 그대로 잡힙니다.'],
+        ['move','Archive 폴더로 이동','Tasks/ → Archive/[연도]/ 로 실제 이동합니다. Vault 트리는 깔끔해지지만 외부 심볼릭 링크는 다시 걸어야 합니다.']]
+        .map(([k,label,desc])=>({key:k,label,desc,
+          bd:s.archMode===k?'#cddcf8':'#eae6de',bg:s.archMode===k?'#f7fafe':'#fff',fw:s.archMode===k?600:500,
+          radioBd:s.archMode===k?BLUE:'#cfcabf',radioFill:s.archMode===k?BLUE:'transparent',
+          onClick:()=>this.setState({archMode:k})})),
+      onVault:e=>this.setState({vault:e.target.value}),
+      onApi:e=>this.setState({api:e.target.value}),
+      onThreshold:e=>this.setState({threshold:parseInt(e.target.value,10)}),
+      threshold:s.threshold,
+      openPrefs:[{key:'md',label:'.md 파일 더블클릭',desc:'탐색기에서 마크다운 파일을 더블클릭했을 때의 기본 동작',
+        choices:[['markdown','마크다운 뷰어'],['text','텍스트 에디터']].map(([k,label])=>({key:k,label,
+          bd:s.mdDefault===k?'#cddcf8':'#ddd8cf',bg:s.mdDefault===k?'#eef3fd':'#fff',
+          fg:s.mdDefault===k?'#2f5cbb':'#6a665e',fw:s.mdDefault===k?600:400,
+          onClick:()=>this.setState({mdDefault:k})}))}],
+      toggles:[['archMoc','Archive MOC 노트 자동 갱신','보관 목록을 '+s.vault.split('/').pop()+'/_index/Archive.md 에 표로 유지해 Obsidian에서도 한눈에 조회'],
+        ['autoSnap','컨텍스트 스냅샷 자동 저장','업무 전환·보류 시 열린 탭/스크롤/미저장 텍스트를 .context_snapshot.json에 기록'],
+        ['restoreView','뷰 레이아웃 복원','업무별 분할 패널 구성과 탐색기에서 열어둔 파일을 그대로 되살림'],
+        ['wikiIndex','위키링크 실시간 색인','[[링크]] 변경 시 Vault 그래프를 즉시 갱신']].map(([k,label,desc])=>({key:k,label,desc,
+        trackBg:s[k]?VIOLET:'#d5d0c6',justify:s[k]?'flex-end':'flex-start',
+        onClick:()=>this.setState({[k]:!s[k]})})),
+
+      newOpen:s.newOpen,nt:s.nt,
+      onCloseNew:()=>this.setState({newOpen:false}),
+      onNtTitle:e=>{const v=e.target.value;this.setState(x=>({nt:Object.assign({},x.nt,{title:v}),ntLoading:v.trim().length>1}));
+        clearTimeout(this._nt);this._nt=setTimeout(()=>this.runRecommend(),650);},
+      onNtSummary:e=>{const v=e.target.value;this.setState(x=>({nt:Object.assign({},x.nt,{summary:v})}));},
+      onNtTags:e=>{const v=e.target.value;this.setState(x=>({nt:Object.assign({},x.nt,{tags:v})}));},
+      onNtTemplate:e=>{const v=e.target.value;this.setState(x=>({nt:Object.assign({},x.nt,{template:v})}));},
+      templateOptions:['(없음)'].concat(s.templates.map(t=>t.name)),
+      ntRecs,ntLoading:s.ntLoading,
+      ntEmpty:!s.ntLoading&&s.ntRecs.length===0,
+      ntStatus:s.ntLoading?'사내 LLM 분석 중':(s.ntRecs.length?s.ntRecs.length+'건 검색됨':'대기 중'),
+      ntFolder:s.vault.split('/').pop()+'/Tasks/[2026-08] '+(ntTitle||'새 업무')+'/',
+      ntHint:s.ntRecs.length?'추천 카드에서 [기반 재개]를 고르면 새 노트를 만들지 않고 기존 노드에 회차만 추가합니다.':'모든 분석은 사내 LLM API에서만 수행됩니다.',
+      createBg:ntTitle?BLUE:'#e6e2da',createFg:ntTitle?'#fff':'#a09a8f',createCursor:ntTitle?'pointer':'not-allowed',
+      onCreate:()=>this.createTask(),
+
+      mergeOpen:s.mergeOpen,mergeNodes:mNodes,mergeCount:mSelected+'/'+mNodes.length,
+      mergePreview:mPreview,mergeTargetPath:mSrc?mSrc.path:'',
+      mergeHint:mSelected>1?(mSelected-1)+'개 노드가 대표 노드의 Run Log로 접히고 원본 폴더는 아카이브됩니다.':'대표 노드 외 1개 이상을 선택하세요.',
+      onCloseMerge:()=>this.setState({mergeOpen:false}),
+      onDoMerge:()=>this.doMerge(),
+      toasts:s.toasts.map(t=>Object.assign({key:t.id,hasSub:!!t.sub},t))
+    };
+  }
+
+  runRecommend(){
+    const q=this.state.nt.title.trim().toLowerCase();
+    if(q.length<2){this.setState({ntRecs:[],ntLoading:false});return;}
+    const pool=[];
+    this.state.tasks.forEach(t=>(t.recs||[]).forEach(r=>pool.push(r)));
+    const kw=q.split(/\s+/);
+    const scored=pool.map(r=>{
+      const hay=(r.title+' '+r.path).toLowerCase();
+      let hit=0; kw.forEach(k=>{if(k&&hay.indexOf(k)>=0)hit++;});
+      return {r,hit};
+    }).filter(x=>x.hit>0).sort((a,b)=>b.r.sim-a.r.sim).slice(0,3).map(x=>x.r);
+    this.setState({ntRecs:scored.length?scored:pool.slice(0,2),ntLoading:false});
+  }
+  createTask(){
+    const nt=this.state.nt, title=nt.title.trim();
+    if(!title) return;
+    const id='t'+(this.state.tasks.length+1)+Date.now().toString().slice(-3);
+    const tags=nt.tags.split(',').map(x=>x.trim()).filter(Boolean);
+    const tpl=nt.template==='(없음)'?'null':'[[Templates/'+nt.template+']]';
+    const idx='## 개요\n'+(nt.summary.trim()||'(개요를 입력하세요)')+'\n\n## 체크리스트\n- [ ] \n\n## 실행 이력 (Run Log)\n- '+this.stamp()+' · 업무 생성';
+    FILES[id]=[{p:'index.md',size:'0.4 KB',text:idx},{p:'notes.md',size:'0 KB',text:''}];
+    const nx={id,title,status:'in-progress',tags:tags.length?tags:['new'],updated:'08-04 '+this.now(),
+      created:this.stamp(),folder:this.state.vault.split('/').pop()+'/Tasks/[2026-08] '+title+'/',
+      tagline:nt.summary.trim()||'방금 생성됨',fmid:'task-2026-0804-'+String(this.state.tasks.length+1).padStart(2,'0'),
+      template:tpl,runs:1,notepad:'',dirty:{},files:{'index.md':idx,'notes.md':''},
+      openTabs:[{path:'index.md',mode:'text'}],activeTab:'text|index.md',
+      recs:this.state.ntRecs.length?this.state.ntRecs:[]};
+    this.setState(s=>({tasks:[nx].concat(s.tasks),activeId:id,newOpen:false,screen:'workspace',sel:'index.md',treeOpen:{},snapAt:this.now()}));
+    this.toast('업무 폴더 생성됨',nx.folder+'index.md','#5fbf8d');
+  }
+  doMerge(){
+    const s=this.state, src=s.mergeSrc;
+    const sel=Object.keys(s.mergeSel).filter(k=>s.mergeSel[k]);
+    if(!src||sel.length<2){this.toast('대표 노드 외 1개 이상을 선택하세요','','#e0a955');return;}
+    const pri=src.cluster[s.mergePrimary]||src.cluster[0];
+    src.cluster=[Object.assign({},pri,{title:pri.title.indexOf('(대표)')>=0?pri.title:pri.title+' (대표)'})];
+    this.setState(x=>({mergeOpen:false,recTag:Object.assign({},x.recTag,{[src.id]:'merged'}),
+      expanded:Object.assign({},x.expanded,{[src.id]:false})}));
+    this.toast((sel.length-1)+'개 노드를 대표 노드로 병합','검색 노이즈 '+(sel.length-1)+'건 감소 · Run Log로 접힘','#a78bfa');
+  }
+}
+
+</script>
+</body>
+</html>

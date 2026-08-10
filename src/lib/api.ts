@@ -1,0 +1,200 @@
+/** Typed wrappers over the Rust commands in src-tauri/src/lib.rs. */
+import { invoke } from "@tauri-apps/api/core";
+import type { FileEntry } from "./tree";
+
+export interface TaskMeta {
+  id: string;
+  title: string;
+  status: string;
+  tags: string[];
+  created: string;
+  updated: string;
+  parentTask: string | null;
+  templateRef: string | null;
+  completedAt: string | null;
+  archived: boolean | null;
+  archivedAt: string | null;
+  runs: number;
+  folder: string;
+  relFolder: string;
+  indexPath: string;
+  tagline: string;
+}
+
+export interface TemplateRun {
+  date: string;
+  text: string;
+}
+
+export interface TemplateMeta {
+  id: string;
+  name: string;
+  desc: string;
+  path: string;
+  relPath: string;
+  uses: number;
+  last: string;
+  saved: number;
+  runs: TemplateRun[];
+}
+
+export interface DeletePreview {
+  files: number;
+  dirs: number;
+}
+
+export interface ImportResult {
+  added: string[];
+  fellBackToCopy: string[];
+}
+
+export interface OpenOutcome {
+  opened: "obsidian" | "explorer";
+  detail: string;
+}
+
+export interface RecCandidate {
+  id: string;
+  title: string;
+  tags: string[];
+  path: string;
+  date: string;
+  text: string;
+}
+
+export interface ClusterItem {
+  id: string;
+  date: string;
+  title: string;
+  path: string;
+  sim: number;
+}
+
+export interface Recommendation {
+  id: string;
+  sim: number;
+  title: string;
+  path: string;
+  cluster: ClusterItem[] | null;
+}
+
+export interface RecommendResult {
+  engine: "local" | "llm";
+  note: string;
+  items: Recommendation[];
+}
+
+export interface AppError {
+  kind: string;
+  message: string;
+}
+
+/** Commands reject with the serialised `AppError`; normalise it to a string. */
+export function errMessage(e: unknown): string {
+  if (typeof e === "string") return e;
+  if (e && typeof e === "object" && "message" in e) return String((e as AppError).message);
+  return String(e);
+}
+
+export function errKind(e: unknown): string {
+  if (e && typeof e === "object" && "kind" in e) return String((e as AppError).kind);
+  return "unknown";
+}
+
+// -- settings ---------------------------------------------------------------
+
+export const loadSettings = () => invoke<unknown>("load_settings");
+export const saveSettings = (value: unknown) => invoke<void>("save_settings", { value });
+export const defaultVaultRoot = () => invoke<string>("default_vault_root");
+
+// -- vault ------------------------------------------------------------------
+
+export const initVault = (root: string, seed: boolean) =>
+  invoke<void>("init_vault", { root, seed });
+export const scanVault = (root: string) => invoke<TaskMeta[]>("scan_vault", { root });
+export const createTask = (
+  root: string,
+  title: string,
+  summary: string,
+  tags: string[],
+  template: string | null,
+) => invoke<TaskMeta>("create_task", { root, title, summary, tags, template });
+export const setTaskStatus = (root: string, folder: string, status: string) =>
+  invoke<TaskMeta>("set_task_status", { root, folder, status });
+export const appendTaskRun = (root: string, folder: string, text: string) =>
+  invoke<TaskMeta>("append_task_run", { root, folder, text });
+export const setTaskArchived = (
+  root: string,
+  folder: string,
+  archived: boolean,
+  mode: string,
+  reopen: boolean,
+) => invoke<TaskMeta>("set_task_archived", { root, folder, archived, mode, reopen });
+export const mergeTasks = (root: string, primary: string, sources: string[], mode: string) =>
+  invoke<TaskMeta>("merge_tasks", { root, primary, sources, mode });
+
+// -- files ------------------------------------------------------------------
+
+export const readTextFile = (path: string) => invoke<string>("read_text_file", { path });
+export const writeTextFile = (path: string, content: string) =>
+  invoke<void>("write_text_file", { path, content });
+export const listTaskFiles = (folder: string) => invoke<FileEntry[]>("list_task_files", { folder });
+export const createTaskFile = (folder: string, rel: string) =>
+  invoke<string>("create_task_file", { folder, rel });
+export const createTaskDir = (folder: string, rel: string) =>
+  invoke<string>("create_task_dir", { folder, rel });
+export const previewDelete = (folder: string, rel: string) =>
+  invoke<DeletePreview>("preview_delete", { folder, rel });
+export const deleteTaskPath = (folder: string, rel: string) =>
+  invoke<void>("delete_task_path", { folder, rel });
+export const importIntoTask = (
+  folder: string,
+  target: string,
+  sources: string[],
+  mode: string,
+) => invoke<ImportResult>("import_into_task", { folder, target, sources, mode });
+
+// -- snapshots --------------------------------------------------------------
+
+export const loadSnapshot = (folder: string) =>
+  invoke<Record<string, unknown> | null>("load_snapshot", { folder });
+export const saveSnapshot = (folder: string, value: unknown) =>
+  invoke<void>("save_snapshot", { folder, value });
+
+// -- shell ------------------------------------------------------------------
+
+export const openPathDefault = (path: string) => invoke<void>("open_path_default", { path });
+export const openPathWithDialog = (path: string) => invoke<void>("open_path_with_dialog", { path });
+export const openPathWithApp = (exe: string, path: string) =>
+  invoke<void>("open_path_with_app", { exe, path });
+export const revealPath = (path: string) => invoke<void>("reveal_path", { path });
+export const obsidianAvailable = () => invoke<boolean>("obsidian_available");
+export const openInObsidian = (root: string, path: string) =>
+  invoke<OpenOutcome>("open_in_obsidian", { root, path });
+
+// -- templates & archive ----------------------------------------------------
+
+export const scanTemplates = (root: string) => invoke<TemplateMeta[]>("scan_templates", { root });
+export const createTemplate = (root: string, name: string, desc: string, sections: string) =>
+  invoke<string>("create_template", { root, name, desc, sections });
+export const writeArchiveMoc = (root: string, archiveDays: number) =>
+  invoke<string>("write_archive_moc", { root, archiveDays });
+
+// -- recommendation ---------------------------------------------------------
+
+export const recommendTasks = (
+  query: string,
+  candidates: RecCandidate[],
+  threshold: number,
+  llm: { endpoint: string; model?: string | null; apiKey?: string | null } | null,
+) => invoke<RecommendResult>("recommend_tasks", { query, candidates, threshold, llm });
+
+export interface SearchHit {
+  folder: string;
+  snippet: string;
+}
+
+export const searchFullText = (root: string, query: string) =>
+  invoke<SearchHit[]>("search_full_text", { root, query });
+
+export const pathExists = (path: string) => invoke<boolean>("path_exists", { path });
