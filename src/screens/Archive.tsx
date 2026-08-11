@@ -526,9 +526,9 @@ export default function Archive() {
                 try {
                   const path = await api.writeArchiveMoc(settings.vault, settings.archDays);
                   const res = await api.openInObsidian(settings.vault, path);
-                  if (res.opened === "obsidian")
-                    s.toast("Obsidian에서 열었습니다", res.detail, "#a78bfa");
-                  else s.toast("탐색기에서 열었습니다", res.detail, "#a8a29a");
+                  // Obsidian 이 떴으면 보인다. 알릴 것은 대신 탐색기로 열린 경우뿐이다.
+                  if (res.opened !== "obsidian")
+                    s.toast("탐색기에서 열었습니다", res.detail, "#a8a29a");
                 } catch (e) {
                   s.fail(e, "MOC 노트를 열지 못했습니다");
                 }

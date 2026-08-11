@@ -42,6 +42,8 @@ export interface TemplateMeta {
   id: string;
   name: string;
   desc: string;
+  /** `note` = `Templates/<id>.md` 한 장, `folder` = `Templates/<id>/` 폴더 통째. */
+  kind: "note" | "folder";
   path: string;
   relPath: string;
   uses: number;
@@ -132,6 +134,8 @@ export const createTask = (
   tags: string[],
   template: string | null,
 ) => invoke<TaskMeta>("create_task", { root, title, summary, tags, template });
+export const renameTask = (root: string, folder: string, title: string) =>
+  invoke<TaskMeta>("rename_task", { root, folder, title });
 export const setTaskStatus = (root: string, folder: string, status: string) =>
   invoke<TaskMeta>("set_task_status", { root, folder, status });
 export const appendTaskRun = (root: string, folder: string, text: string) =>
@@ -190,6 +194,13 @@ export const openInObsidian = (root: string, path: string) =>
 export const scanTemplates = (root: string) => invoke<TemplateMeta[]>("scan_templates", { root });
 export const createTemplate = (root: string, name: string, desc: string, sections: string) =>
   invoke<string>("create_template", { root, name, desc, sections });
+/** 폴더 하나를 통째로 표준 패턴으로 등록한다. 원본은 Vault 밖이어도 되며 복사해 온다. */
+export const createTemplateFromFolder = (
+  root: string,
+  name: string,
+  desc: string,
+  source: string,
+) => invoke<string>("create_template_from_folder", { root, name, desc, source });
 export const writeArchiveMoc = (root: string, archiveDays: number) =>
   invoke<string>("write_archive_moc", { root, archiveDays });
 

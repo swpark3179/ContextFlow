@@ -4,8 +4,12 @@ import type { TaskMeta, TemplateMeta, Recommendation } from "../lib/api";
 import type { FileEntry } from "../lib/tree";
 import { TOAST } from "../lib/design";
 import { daysSince, hhmm, joinPath } from "../lib/format";
+import { sanitizeFolderName } from "../lib/vaultPaths";
 import { aiRecommend } from "../lib/aiRecommend";
 import { activeRun, useAi } from "./aiStore";
+
+/** Mirrors `SNAPSHOT_FILE` in src-tauri/src/vault.rs. */
+const SNAPSHOT_FILE = ".context_snapshot.json";
 
 export type Screen = "workspace" | "templates" | "archive" | "settings";
 export type TabMode = "md" | "text";
@@ -126,6 +130,23 @@ export interface MergeState {
   primary: number;
 }
 
+export interface RenameState {
+  /** 이름을 바꿀 업무의 폴더 경로 — 확정되면 이 경로 자체가 바뀐다. */
+  folder: string;
+  title: string;
+}
+
+export interface TemplateDraft {
+  name: string;
+  desc: string;
+  sections: string;
+  fromTask: boolean;
+  /** `sections` = 헤딩만 있는 노트 한 장, `folder` = 고른 폴더를 통째로 복사해 등록. */
+  mode: "sections" | "folder";
+  /** 폴더 모드에서 고른 원본 폴더의 절대 경로. */
+  src: string;
+}
+
 function emptyUi(): TaskUi {
   return {
     openTabs: [],
@@ -191,9 +212,12 @@ interface State {
   ntEngine: string;
   ntNote: string;
   recTag: Record<string, string>;
+  /** [참고만 하기] 로 고른 업무들의 폴더 경로. `createTask` 가 이 파일들을 복사해 온다. */
+  ntRefs: string[];
   expanded: Record<string, boolean>;
   merge: MergeState | null;
-  tplNew: { name: string; desc: string; sections: string; fromTask: boolean } | null;
+  ren: RenameState | null;
+  tplNew: TemplateDraft | null;
   openTpl: Record<string, boolean>;
 }
 
@@ -207,7 +231,8 @@ interface Actions {
   chooseVault: () => Promise<void>;
   reloadVault: (keepActive?: boolean) => Promise<void>;
 
-  selectTask: (folder: string, quiet?: boolean) => Promise<void>;
+  selectTask: (folder: string) => Promise<void>;
+  renameTask: (folder: string, title: string) => Promise<void>;
   setStatus: (status: string) => Promise<void>;
   archiveNow: (folder: string) => Promise<void>;
   restoreTask: (folder: string) => Promise<void>;
@@ -219,7 +244,7 @@ interface Actions {
   set: <K extends keyof State>(patch: Pick<State, K> | Partial<State>) => void;
 
   refreshFiles: () => Promise<void>;
-  openFile: (path: string, mode: TabMode, quiet?: boolean) => Promise<void>;
+  openFile: (path: string, mode: TabMode) => Promise<void>;
   defaultOpen: (path: string, bin: boolean) => Promise<void>;
   closeTab: (key: string) => void;
   editDoc: (path: string, text: string) => void;
@@ -292,13 +317,23 @@ export const useStore = create<State & Actions>((set, get) => ({
   ntEngine: "local",
   ntNote: "",
   recTag: {},
+  ntRefs: [],
   expanded: {},
   merge: null,
+  ren: null,
   tplNew: null,
   openTpl: {},
 
   set: (patch) => set(patch as Partial<State>),
 
+  /**
+   * 토스트는 **결과가 화면에 드러나지 않거나 되돌릴 수 없을 때만** 띄운다.
+   *
+   * 파일 트리 · 탭 · 상태 배지가 즉시 바뀌어 보이는 일(파일 열기 · 업무 전환 · 상태 변경 ·
+   * 저장 · 폴더 생성)은 토스트로 중복해 알리지 않는다. 남은 것은 세 부류다:
+   * 실패(`fail`), 눈에 보이지 않는 부수효과(클립보드 복사 · Obsidian 대신 탐색기로 폴백),
+   * 그리고 되돌리기 어려운 조작(영구 삭제 · 병합 · Vault 교체 · 폴더 실제 이동).
+   */
   toast: (title, sub = "", color = TOAST.info) => {
     const id = ++toastSeq;
     set((s) => ({ toasts: [...s.toasts, { id, title, sub, color }] }));
@@ -365,7 +400,7 @@ export const useStore = create<State & Actions>((set, get) => ({
       if (keepActive && stillThere) return;
       const live = tasks.filter((t) => !isArchived(t, settings.archDays));
       const next = (live[0] ?? tasks[0])?.folder;
-      if (next) await get().selectTask(next, true);
+      if (next) await get().selectTask(next);
       else set({ activeFolder: "", files: [], ui: emptyUi() });
     } catch (e) {
       get().fail(e, "Vault를 읽지 못했습니다");
@@ -374,11 +409,10 @@ export const useStore = create<State & Actions>((set, get) => ({
 
   // -------------------------------------------------------------------------
 
-  selectTask: async (folder, quiet = false) => {
-    const { activeFolder, settings, tasks } = get();
+  selectTask: async (folder) => {
+    const { activeFolder, settings } = get();
     if (folder === activeFolder) return;
 
-    const prev = tasks.find((t) => t.folder === activeFolder);
     if (activeFolder) {
       await get().saveAll();
       await get().persistSnapshot(activeFolder);
@@ -413,23 +447,45 @@ export const useStore = create<State & Actions>((set, get) => ({
     const cur = get().ui;
     if (!cur.openTabs.length) {
       const hasIndex = get().files.some((f) => f.p === "index.md");
-      if (hasIndex) await get().openFile("index.md", "text", true);
+      if (hasIndex) await get().openFile("index.md", "text");
       else if (get().files.length) set({ ui: { ...get().ui, sel: get().files[0].p } });
     } else {
       // Re-read any file whose buffer was not carried in the snapshot.
       for (const tab of cur.openTabs) {
-        if (!get().ui.docs[tab.path]) await get().openFile(tab.path, tab.mode, true);
+        if (!get().ui.docs[tab.path]) await get().openFile(tab.path, tab.mode);
       }
       set({ ui: { ...get().ui, activeTab: cur.activeTab || get().ui.activeTab } });
     }
+  },
 
-    const next = get().tasks.find((t) => t.folder === folder);
-    if (!quiet && settings.autoSnap && prev && next) {
-      get().toast(
-        "컨텍스트 스냅샷 저장 · 복원",
-        `"${prev.title}" → "${next.title}" · 열린 파일/탭 그대로 복원`,
-        TOAST.info,
-      );
+  /**
+   * 업무명 변경. frontmatter 의 `title` 과 디스크 폴더 이름이 함께 바뀌므로, 앱 전역에서
+   * 업무의 기본키로 쓰이는 **폴더 경로가 달라진다**. 그래서 단순 재조회로는 부족하고
+   * `uiCache` 키까지 옮겨 줘야 열어 둔 탭과 미저장 버퍼가 살아남는다.
+   */
+  renameTask: async (folder, title) => {
+    try {
+      await get().saveAll();
+      await get().persistSnapshot(folder);
+      const updated = await api.renameTask(get().settings.vault, folder, title);
+      const wasActive = get().activeFolder === folder;
+      set((s) => {
+        const { [folder]: moved, ...rest } = s.uiCache;
+        return {
+          uiCache: moved ? { ...rest, [updated.folder]: moved } : rest,
+          activeFolder: wasActive ? updated.folder : s.activeFolder,
+          ren: null,
+        };
+      });
+      // 열린 탭 · 미저장 버퍼는 폴더 상대 경로라 그대로 살아 있다. 새 경로를 이미
+      // activeFolder 에 넣었으므로 재조회는 목록만 새로 읽고(keepActive) 파일 트리만 다시 센다.
+      await get().reloadVault(true);
+      if (wasActive) await get().refreshFiles();
+      await get().reloadTemplates();
+      await get().syncMoc();
+    } catch (e) {
+      set({ ren: null });
+      get().fail(e, "이름을 바꾸지 못했습니다");
     }
   },
 
@@ -445,13 +501,7 @@ export const useStore = create<State & Actions>((set, get) => ({
         snapAt: hhmm(),
       }));
       await get().persistSnapshot(activeFolder);
-      if (status === "on-hold")
-        get().toast("보류 처리 · 스냅샷 기록", "탭 위치 / 스크롤 / 미저장 텍스트 보존됨", TOAST.warn);
-      else if (status === "completed")
-        get().toast("완료 처리", "Run Log가 템플릿 이력에 누적됩니다", TOAST.ok);
-      else if (status === "reopened")
-        get().toast("업무 재개", "새 노드를 만들지 않고 기존 노드에서 이어서 진행", TOAST.violet);
-      else get().toast("진행 중으로 전환", "", TOAST.info);
+      // 바뀐 상태는 헤더의 상태 배지에 즉시 나타난다.
       await get().reloadTemplates();
       await get().syncMoc();
     } catch (e) {
@@ -474,15 +524,11 @@ export const useStore = create<State & Actions>((set, get) => ({
         tasks: s.tasks.map((t) => (t.folder === folder ? updated : t)),
         statusMenuOpen: false,
       }));
-      get().toast(
-        "보관함으로 이동",
-        `${target?.title ?? ""} · ${
-          settings.archMode === "move"
-            ? "Archive 폴더로 이동됨"
-            : "파일은 그대로, frontmatter에 archived 표시"
-        }`,
-        TOAST.muted,
-      );
+      // 'move' 는 디스크에서 폴더를 실제로 옮긴다 — 어디로 갔는지는 화면에 나오지 않는다.
+      // 'tag' 는 파일을 건드리지 않고 목록에서 사라지는 것으로 충분히 드러난다.
+      if (settings.archMode === "move") {
+        get().toast("Archive 폴더로 이동", target?.title ?? "", TOAST.muted);
+      }
       // The folder may have moved, so re-scan and land on a live task.
       await get().reloadVault(false);
       await get().syncMoc();
@@ -504,12 +550,7 @@ export const useStore = create<State & Actions>((set, get) => ({
       set((s) => ({ tasks: s.tasks.map((t) => (t.folder === folder ? updated : t)) }));
       set({ archQuery: "", query: "" });
       await get().reloadVault(false);
-      await get().selectTask(updated.folder, true);
-      get().toast(
-        "보관함에서 재개",
-        "새 노드를 만들지 않고 기존 노드에 회차를 추가했습니다",
-        TOAST.violet,
-      );
+      await get().selectTask(updated.folder);
       await get().reloadTemplates();
       await get().syncMoc();
     } catch (e) {
@@ -517,22 +558,19 @@ export const useStore = create<State & Actions>((set, get) => ({
     }
   },
 
+  // 보관 상태는 워크스페이스 상단 배너가 상시 표시하므로 여는 순간을 따로 알리지 않는다.
   peekArchived: async (folder) => {
-    await get().selectTask(folder, true);
-    get().toast(
-      "보관된 업무를 열었습니다",
-      "읽기 참조용 · 이어서 작업하려면 [재개]를 누르세요",
-      TOAST.muted,
-    );
+    await get().selectTask(folder);
   },
 
   openTaskInObsidian: async (folder) => {
     const { settings } = get();
     try {
       const res = await api.openInObsidian(settings.vault, joinPath(folder, "index.md"));
-      if (res.opened === "obsidian")
-        get().toast("Obsidian에서 열었습니다", res.detail, TOAST.violet);
-      else get().toast("탐색기에서 열었습니다", res.detail, TOAST.muted);
+      // Obsidian 이 떴으면 눈에 보인다. 알릴 값어치가 있는 것은 **떠야 할 것이 안 떴을 때**다
+      // — obsidian:// 프로토콜이 등록돼 있지 않아 탐색기로 대신 연 경우.
+      if (res.opened !== "obsidian")
+        get().toast("탐색기에서 열었습니다", res.detail, TOAST.muted);
     } catch (e) {
       get().fail(e, "Obsidian에서 열지 못했습니다");
     }
@@ -558,8 +596,8 @@ export const useStore = create<State & Actions>((set, get) => ({
     }
   },
 
-  openFile: async (path, mode, quiet = false) => {
-    const { activeFolder, ui, tasks } = get();
+  openFile: async (path, mode) => {
+    const { activeFolder, ui } = get();
     if (!activeFolder) return;
     const key = `${mode}|${path}`;
     try {
@@ -576,14 +614,6 @@ export const useStore = create<State & Actions>((set, get) => ({
         sel: path,
       });
       set({ ctx: null });
-      if (!quiet) {
-        const task = tasks.find((t) => t.folder === activeFolder);
-        get().toast(
-          mode === "md" ? "마크다운 뷰어로 열기" : "텍스트 에디터로 열기",
-          `${task?.relFolder ?? ""}${path}`,
-          mode === "md" ? TOAST.violet : TOAST.info,
-        );
-      }
     } catch (e) {
       get().fail(e, "파일을 열지 못했습니다");
     }
@@ -668,20 +698,18 @@ export const useStore = create<State & Actions>((set, get) => ({
     if (!mk) return;
     const name = mk.name.trim();
     if (!name) return set({ mk: null });
-    const task = get().tasks.find((t) => t.folder === activeFolder);
     try {
+      // 만들어진 파일·폴더는 트리에 곧바로 나타난다 — 성공은 알리지 않는다.
       if (mk.kind === "folder") {
         const rel = await api.createTaskDir(activeFolder, mk.parent + name);
         set({ mk: null });
         await get().refreshFiles();
         get().setUi({ treeOpen: { ...get().ui.treeOpen, [rel]: true } });
-        get().toast("폴더를 만들었습니다", `${task?.relFolder ?? ""}${rel}`, TOAST.ok);
       } else {
         const rel = await api.createTaskFile(activeFolder, mk.parent + name);
         set({ mk: null });
         await get().refreshFiles();
-        get().toast("파일을 만들었습니다", `${task?.relFolder ?? ""}${rel}`, TOAST.ok);
-        await get().openFile(rel, "text", true);
+        await get().openFile(rel, "text");
       }
     } catch (e) {
       get().toast(
@@ -761,21 +789,12 @@ export const useStore = create<State & Actions>((set, get) => ({
   commitImport: async () => {
     const { drop, activeFolder } = get();
     if (!drop) return;
-    const task = get().tasks.find((t) => t.folder === activeFolder);
     try {
       const res = await api.importIntoTask(activeFolder, drop.target, drop.paths, drop.mode);
       set({ drop: null });
       await get().refreshFiles();
       if (res.added.length) get().setUi({ sel: res.added[0] });
-      get().toast(
-        drop.mode === "copy"
-          ? `${res.added.length}개 파일을 복사했습니다`
-          : `${res.added.length}개 항목을 링크로 연결했습니다`,
-        `${task?.relFolder ?? ""}${drop.target} · ${
-          drop.mode === "copy" ? "Vault 내부 사본" : "원본 위치 참조"
-        }`,
-        TOAST.ok,
-      );
+      // 가져온 항목은 트리에 바로 보인다. 알려야 하는 것은 **요청과 다르게 처리된** 경우다.
       if (res.fellBackToCopy.length) {
         get().toast(
           "심볼릭 링크를 만들 수 없어 복사했습니다",
@@ -811,8 +830,8 @@ export const useStore = create<State & Actions>((set, get) => ({
           TOAST.muted,
         );
       } else {
+        // 앱이 떴으면 눈에 보인다.
         await api.openPathDefault(abs);
-        get().toast("연결 프로그램으로 열었습니다", ow.path, TOAST.ok);
       }
       get().setUi({ extOpened: { ...get().ui.extOpened, [ow.path]: "OS" } });
     } catch (e) {
@@ -878,7 +897,7 @@ export const useStore = create<State & Actions>((set, get) => ({
   },
 
   createTask: async () => {
-    const { nt, settings } = get();
+    const { nt, settings, ntRefs, tasks } = get();
     const title = nt.title.trim();
     if (!title) return;
     const tags = nt.tags
@@ -893,11 +912,39 @@ export const useStore = create<State & Actions>((set, get) => ({
         tags,
         nt.template === "(없음)" ? null : nt.template,
       );
-      set({ newOpen: false, ntRecs: [], recTag: {} });
+
+      set({ newOpen: false, ntRecs: [], recTag: {}, ntRefs: [] });
+
+      // [참고만 하기] 로 고른 업무들의 파일을 새 업무 안으로 복사한다. 추천 카드의 `id` 는
+      // 그 업무의 절대 폴더 경로이고(`runRecommend` 가 그렇게 만든다), `importIntoTask` 는
+      // 원본으로 절대 경로를 받으므로 새 백엔드 명령 없이 기존 경로를 그대로 쓴다.
+      // 실패해도 업무 생성 자체는 되돌리지 않는다 — 폴더는 이미 만들어졌다.
+      try {
+        for (const refFolder of ntRefs) {
+          const src = tasks.find((t) => t.folder === refFolder);
+          const entries = await api.listTaskFiles(refFolder);
+          // 최상위만 넘기면 하위 폴더는 재귀 복사로 따라온다. 원본의 index.md 는 일부러
+          // 포함한다 — 개요 · 체크리스트 · Run Log 가 참조의 알맹이다. 스냅샷 파일만 뺀다:
+          // 그 업무의 열린 탭과 미저장 버퍼라 새 업무에 들어가면 안 된다.
+          const top = entries
+            .filter((e) => !e.p.includes("/") && e.p !== SNAPSHOT_FILE)
+            .map((e) => joinPath(refFolder, e.p));
+          if (!top.length) continue;
+          await api.importIntoTask(
+            created.folder,
+            `reference/${sanitizeFolderName(src?.title ?? "참조")}`,
+            top,
+            "copy",
+          );
+        }
+      } catch (e) {
+        get().fail(e, "참조 파일을 복사하지 못했습니다");
+      }
+
       await get().reloadVault(false);
-      await get().selectTask(created.folder, true);
+      // selectTask 가 파일 트리까지 다시 읽으므로 복사된 reference/ 도 여기서 드러난다.
+      await get().selectTask(created.folder);
       await get().reloadTemplates();
-      get().toast("업무 폴더 생성됨", `${created.relFolder}index.md`, TOAST.ok);
     } catch (e) {
       get().fail(e, "업무를 만들지 못했습니다");
     }
@@ -951,16 +998,26 @@ export const useStore = create<State & Actions>((set, get) => ({
   createTemplate: async () => {
     const { tplNew, settings } = get();
     if (!tplNew?.name.trim()) return;
+    if (tplNew.mode === "folder" && !tplNew.src) return;
     try {
-      const path = await api.createTemplate(
-        settings.vault,
-        tplNew.name.trim(),
-        tplNew.desc,
-        tplNew.sections,
-      );
+      if (tplNew.mode === "folder") {
+        await api.createTemplateFromFolder(
+          settings.vault,
+          tplNew.name.trim(),
+          tplNew.desc,
+          tplNew.src,
+        );
+      } else {
+        await api.createTemplate(
+          settings.vault,
+          tplNew.name.trim(),
+          tplNew.desc,
+          tplNew.sections,
+        );
+      }
       set({ tplNew: null });
+      // 등록된 템플릿은 목록에 곧바로 나타난다.
       await get().reloadTemplates();
-      get().toast("표준 패턴을 등록했습니다", path, TOAST.ok);
     } catch (e) {
       get().toast(
         api.errKind(e) === "already_exists" ? "이미 있는 템플릿입니다" : "등록하지 못했습니다",

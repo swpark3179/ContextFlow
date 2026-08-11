@@ -433,6 +433,7 @@ export default function Sidebar() {
               nt: { title: "", summary: "", tags: "", template: "(없음)" },
               ntRecs: [],
               recTag: {},
+              ntRefs: [],
             })
           }
           style={{

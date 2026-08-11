@@ -38,7 +38,6 @@ export default function ContextMenu() {
 
   const es = ctx.isDir ? { fg: "#8f5d17", bg: "#fbf3e6" } : extStyle(ctx.ext);
   const abs = `${s.activeFolder}/${ctx.path}`.replace(/\/+$/, "");
-  const task = s.tasks.find((t) => t.folder === s.activeFolder);
 
   const copyPath: Item = {
     key: "copy",
@@ -76,13 +75,9 @@ export default function ContextMenu() {
           badgeFg: "#6a665e",
           badgeBg: "#f0ede7",
           run: () => {
+            // 탐색기 창이 뜨는 것이 곧 결과다 — 성공은 알리지 않는다.
             s.set({ ctx: null });
-            void api
-              .revealPath(abs)
-              .then(() =>
-                s.toast("Windows 탐색기에서 열었습니다", `${task?.relFolder ?? ""}${ctx.path}`, "#5fbf8d"),
-              )
-              .catch((e) => s.fail(e));
+            void api.revealPath(abs).catch((e) => s.fail(e));
           },
         },
         {

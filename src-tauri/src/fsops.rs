@@ -235,7 +235,8 @@ fn make_symlink(src: &Path, dest: &Path) -> std::io::Result<()> {
     std::os::unix::fs::symlink(src, dest)
 }
 
-fn copy_recursive(src: &Path, dest: &Path) -> Result<()> {
+/// 재귀 복사. `import_files` 외에 폴더 템플릿 등록과 업무 생성(`vault.rs`)도 쓴다.
+pub(crate) fn copy_recursive(src: &Path, dest: &Path) -> Result<()> {
     if src.is_dir() {
         fs::create_dir_all(dest)?;
         for entry in fs::read_dir(src)? {
