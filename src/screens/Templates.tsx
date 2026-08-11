@@ -52,6 +52,8 @@ export default function Templates() {
                 desc: "",
                 sections: "배경\n체크리스트\n실행 이력 (Run Log)",
                 fromTask: false,
+                mode: "sections",
+                src: "",
               },
             })
           }
@@ -167,14 +169,39 @@ export default function Templates() {
                   <div style={{ minWidth: 0 }}>
                     <div
                       style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
                         fontSize: 13,
                         fontWeight: 500,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
+                        minWidth: 0,
                       }}
                     >
-                      {tp.name}
+                      <span
+                        style={{
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {tp.name}
+                      </span>
+                      {tp.kind === "folder" && (
+                        <span
+                          style={{
+                            flex: "0 0 auto",
+                            fontSize: 10,
+                            fontWeight: 600,
+                            color: "#5a44b4",
+                            background: "#f4f0fd",
+                            border: "1px solid #e4dcf8",
+                            borderRadius: 3,
+                            padding: "0 4px",
+                          }}
+                        >
+                          폴더
+                        </span>
+                      )}
                     </div>
                     <div
                       style={{

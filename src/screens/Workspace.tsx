@@ -86,18 +86,52 @@ export default function Workspace() {
       >
         <div style={{ minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span
+            <Box
+              onDoubleClick={() => s.set({ ren: { folder: task.folder, title: task.title } })}
+              title="더블클릭하면 업무명을 바꿉니다"
               style={{
-                fontSize: 15.5,
-                fontWeight: 600,
-                letterSpacing: "-.2px",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                minWidth: 0,
+                borderRadius: 4,
+                padding: "0 4px",
+                margin: "0 -4px",
+                cursor: "default",
               }}
+              hover={{ background: "#f2efe9" }}
             >
-              {task.title}
-            </span>
+              <span
+                style={{
+                  fontSize: 15.5,
+                  fontWeight: 600,
+                  letterSpacing: "-.2px",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {task.title}
+              </span>
+              <Box
+                onClick={() => s.set({ ren: { folder: task.folder, title: task.title } })}
+                title="업무명 변경"
+                style={{
+                  flex: "0 0 18px",
+                  height: 18,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  borderRadius: 4,
+                  fontSize: 11,
+                  color: "#a09a8f",
+                  cursor: "pointer",
+                }}
+                hover={{ background: "#e6e2da", color: "#4e4a43" }}
+              >
+                ✎
+              </Box>
+            </Box>
             {task.tags.map((tag) => (
               <span
                 key={tag}

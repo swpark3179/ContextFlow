@@ -53,6 +53,9 @@ pub struct TemplateMeta {
     pub id: String,
     pub name: String,
     pub desc: String,
+    /// `note` = `Templates/<id>.md` 한 장, `folder` = `Templates/<id>/` 폴더 통째.
+    /// 폴더 템플릿은 업무 생성 시 파일이 실제로 복사된다.
+    pub kind: String,
     pub path: String,
     pub rel_path: String,
     pub uses: u32,
@@ -250,6 +253,67 @@ pub struct NewTask<'a> {
     pub template: Option<&'a str>,
 }
 
+/// 템플릿이 없을 때의 골격. 개요와 Run Log 는 `compose_body` 가 채운다.
+const DEFAULT_SKELETON: &str = "## 개요\n\n## 체크리스트\n- [ ] \n";
+
+/// 템플릿 하나가 가리키는 실체. 폴더 템플릿이 우선한다 — 같은 이름의 노트와 폴더가
+/// 동시에 있으면 `create_template*` 이 애초에 거부하므로 실제로는 한쪽만 존재한다.
+enum TemplateSource {
+    Note(PathBuf),
+    Folder(PathBuf),
+}
+
+fn resolve_template(root: &Path, template: Option<&str>) -> Option<TemplateSource> {
+    let id = template.filter(|t| !t.is_empty())?;
+    let dir = root.join(TEMPLATES_DIR);
+    let folder = dir.join(id);
+    if folder.is_dir() {
+        return Some(TemplateSource::Folder(folder));
+    }
+    let note = dir.join(format!("{}.md", id));
+    note.is_file().then_some(TemplateSource::Note(note))
+}
+
+/// 새 업무 본문의 골격을 템플릿에서 읽는다. 노트 템플릿은 그 파일의 body, 폴더 템플릿은
+/// 폴더 안 `index.md` 의 body 다. 비어 있으면 기본 골격으로 떨어진다.
+fn skeleton_of(src: &TemplateSource) -> Option<String> {
+    let path = match src {
+        TemplateSource::Note(p) => p.clone(),
+        TemplateSource::Folder(dir) => dir.join("index.md"),
+    };
+    let body = Doc::parse(&fs::read_to_string(path).ok()?).body;
+    (!body.trim().is_empty()).then_some(body)
+}
+
+/// 사용자가 적은 개요를 본문의 `## 개요` 아래에 넣는다. 템플릿에 그 섹션이 없으면 맨 앞에
+/// 만든다 — 개요 첫 줄은 `derive_tagline` 이 업무 목록에 뽑아 쓰므로 어디든 있어야 한다.
+fn insert_summary(body: &str, summary: &str) -> String {
+    let mut out = String::with_capacity(body.len() + summary.len() + 16);
+    let mut done = false;
+    for line in body.lines() {
+        out.push_str(line);
+        out.push('\n');
+        if !done && line.trim_end() == "## 개요" {
+            out.push_str(summary);
+            out.push('\n');
+            done = true;
+        }
+    }
+    if done {
+        out
+    } else {
+        format!("## 개요\n{}\n\n{}", summary, out.trim_start_matches('\n'))
+    }
+}
+
+/// 골격 · 개요 · Run Log 를 합쳐 최종 본문을 만든다. Run Log 섹션은 장식이 아니라
+/// `count_run_log` 와 `append_run` 이 찾는 앵커라, 템플릿이 빠뜨렸으면 반드시 붙여 준다
+/// (`append_run_log` 가 없을 때 만들어 주는 동작을 그대로 쓴다).
+fn compose_body(skeleton: Option<String>, summary: &str, stamp: &str) -> String {
+    let base = skeleton.unwrap_or_else(|| DEFAULT_SKELETON.to_string());
+    append_run_log(&insert_summary(&base, summary), stamp, "업무 생성")
+}
+
 pub fn create_task(root: &Path, spec: NewTask<'_>) -> Result<TaskMeta> {
     ensure_layout(root)?;
     let title = sanitize_name(spec.title);
@@ -275,10 +339,8 @@ pub fn create_task(root: &Path, spec: NewTask<'_>) -> Result<TaskMeta> {
     } else {
         spec.summary.trim()
     };
-    let body = format!(
-        "## 개요\n{}\n\n## 체크리스트\n- [ ] \n\n## 실행 이력 (Run Log)\n- {} · 업무 생성\n",
-        summary, stamp
-    );
+    let source = resolve_template(root, spec.template);
+    let body = compose_body(source.as_ref().and_then(skeleton_of), summary, &stamp);
 
     let mut doc = Doc::parse("");
     doc.set("id", &id);
@@ -301,7 +363,68 @@ pub fn create_task(root: &Path, spec: NewTask<'_>) -> Result<TaskMeta> {
     fs::write(folder.join("index.md"), doc.render())?;
     fs::write(folder.join("notes.md"), "")?;
 
+    // 폴더 템플릿의 파일을 실제로 가져온다. `index.md` 만 빼는데, 그 body 는 이미 위에서
+    // 본문 골격으로 썼고 frontmatter 는 이 업무의 것이어야 하기 때문이다. 나머지는 방금
+    // 쓴 빈 `notes.md` 를 포함해 템플릿 쪽이 이긴다 — 비어 있으므로 잃을 것이 없다.
+    if let Some(TemplateSource::Folder(dir)) = &source {
+        for entry in fs::read_dir(dir)? {
+            let entry = entry?;
+            if entry.file_name() == "index.md" {
+                continue;
+            }
+            crate::fsops::copy_recursive(&entry.path(), &folder.join(entry.file_name()))?;
+        }
+    }
+
     read_task(root, &folder.join("index.md"))
+}
+
+/// 업무명 변경. frontmatter 의 `title` 과 디스크 폴더 이름을 함께 바꾼다 — 둘이 갈라지면
+/// Obsidian 에서 보이는 것과 앱에서 보이는 것이 달라진다. 생성 월을 뜻하는 `[YYYY-MM]`
+/// 접두사는 이름이 바뀌어도 그대로 둔다.
+pub fn rename_task(root: &Path, folder: &Path, title: &str) -> Result<TaskMeta> {
+    // 빈 제목은 거절한다. `sanitize_name` 은 비면 "제목 없음" 으로 채우는데(:92), 새 업무를
+    // 만들 때와 달리 이름 변경에서는 그 대체가 멀쩡한 이름을 지우는 결과가 된다.
+    if title.trim().is_empty() {
+        return Err(AppError::new("invalid", "업무 제목이 비어 있습니다"));
+    }
+    let safe = sanitize_name(title);
+    let current = folder
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .ok_or_else(|| AppError::io("업무 폴더 이름을 읽을 수 없습니다"))?;
+    let parent = folder
+        .parent()
+        .ok_or_else(|| AppError::io("업무 폴더의 상위 경로를 찾을 수 없습니다"))?;
+
+    // "[2026-08] " 처럼 닫는 대괄호와 공백까지가 접두사다.
+    let prefix = match (current.starts_with('['), current.find("] ")) {
+        (true, Some(end)) => &current[..end + 2],
+        _ => "",
+    };
+
+    let mut dest = parent.join(format!("{}{}", prefix, safe));
+    // 대소문자만 바꾸는 이름 변경은 Windows 에서 `exists()` 가 참이라 충돌로 오인된다.
+    // 지금 폴더 자신이면 충돌 루프를 건너뛴다.
+    let same_folder = |p: &Path| {
+        p.file_name()
+            .zip(Some(current.as_str()))
+            .map(|(a, b)| a.to_string_lossy().eq_ignore_ascii_case(b))
+            .unwrap_or(false)
+    };
+    if !same_folder(&dest) {
+        let mut n = 2;
+        while dest.exists() {
+            dest = parent.join(format!("{}{} ({})", prefix, safe, n));
+            n += 1;
+        }
+    }
+    if dest != folder {
+        fs::rename(folder, &dest)?;
+    }
+    edit_index(root, &dest, |doc| {
+        doc.set("title", crate::frontmatter::quote_if_needed(&safe));
+    })
 }
 
 fn edit_index<F>(root: &Path, folder: &Path, mut f: F) -> Result<TaskMeta>
@@ -469,11 +592,28 @@ pub fn scan_templates(root: &Path, tasks: &[TaskMeta]) -> Result<Vec<TemplateMet
     for entry in fs::read_dir(&dir)? {
         let entry = entry?;
         let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("md") {
+
+        // 템플릿은 두 모양이다: 노트 한 장(`x.md`)이거나 폴더 통째(`x/`). 폴더 쪽은
+        // 안에 있는 `index.md` 의 frontmatter 를 이름·설명으로 쓰되, 없어도 폴더 이름만으로
+        // 성립한다 — 사용자가 탐색기에서 폴더를 툭 던져 넣어도 템플릿이 되어야 한다.
+        let is_dir = path.is_dir();
+        if !is_dir && path.extension().and_then(|e| e.to_str()) != Some("md") {
             continue;
         }
-        let stem = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
-        let text = fs::read_to_string(&path).unwrap_or_default();
+        // `.obsidian` 같은 숨김 항목은 템플릿이 아니다.
+        if path.file_name().is_some_and(|n| n.to_string_lossy().starts_with('.')) {
+            continue;
+        }
+        let (stem, meta_path, kind, rel_path) = if is_dir {
+            let stem = path.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+            let rel = format!("{}/{}/", TEMPLATES_DIR, stem);
+            (stem, path.join("index.md"), "folder", rel)
+        } else {
+            let stem = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+            let rel = format!("{}/{}.md", TEMPLATES_DIR, stem);
+            (stem, path.clone(), "note", rel)
+        };
+        let text = fs::read_to_string(&meta_path).unwrap_or_default();
         let doc = Doc::parse(&text);
         let name = doc.get_str("template").unwrap_or_else(|| stem.clone());
         let desc = doc.get_str("purpose").unwrap_or_default();
@@ -506,8 +646,9 @@ pub fn scan_templates(root: &Path, tasks: &[TaskMeta]) -> Result<Vec<TemplateMet
             id: stem.clone(),
             name,
             desc,
+            kind: kind.to_string(),
             path: path.to_string_lossy().to_string(),
-            rel_path: format!("{}/{}.md", TEMPLATES_DIR, stem),
+            rel_path,
             uses,
             last,
             saved,
@@ -518,13 +659,56 @@ pub fn scan_templates(root: &Path, tasks: &[TaskMeta]) -> Result<Vec<TemplateMet
     Ok(out)
 }
 
-pub fn create_template(root: &Path, name: &str, desc: &str, sections: &str) -> Result<PathBuf> {
+/// 노트와 폴더는 같은 id 네임스페이스를 쓴다(`template_ref` 위키링크가 하나뿐이므로).
+/// 그래서 어느 쪽을 만들든 두 모양 다 비어 있어야 한다.
+fn claim_template_name(root: &Path, name: &str) -> Result<(String, PathBuf)> {
     ensure_layout(root)?;
-    let safe = sanitize_name(name);
-    let path = root.join(TEMPLATES_DIR).join(format!("{}.md", safe));
-    if path.exists() {
-        return Err(AppError::new("already_exists", format!("같은 이름의 템플릿이 이미 있습니다: {}", safe)));
+    if name.trim().is_empty() {
+        return Err(AppError::new("invalid", "템플릿 이름이 비어 있습니다"));
     }
+    let safe = sanitize_name(name);
+    let dir = root.join(TEMPLATES_DIR);
+    if dir.join(format!("{}.md", safe)).exists() || dir.join(&safe).exists() {
+        return Err(AppError::new(
+            "already_exists",
+            format!("같은 이름의 템플릿이 이미 있습니다: {}", safe),
+        ));
+    }
+    Ok((safe, dir))
+}
+
+/// 폴더 하나를 통째로 표준 패턴으로 등록한다. 원본은 Vault 밖일 수 있으므로 복사해 온다 —
+/// 경로만 참조하면 원본이 옮겨지는 순간 템플릿이 깨지고 Obsidian 에서도 보이지 않는다.
+pub fn create_template_from_folder(
+    root: &Path,
+    name: &str,
+    desc: &str,
+    source: &Path,
+) -> Result<PathBuf> {
+    if !source.is_dir() {
+        return Err(AppError::new("not_found", format!("폴더를 찾을 수 없습니다: {}", source.display())));
+    }
+    let (safe, dir) = claim_template_name(root, name)?;
+    let path = dir.join(&safe);
+    crate::fsops::copy_recursive(source, &path)?;
+
+    // 이름·설명은 폴더 안 `index.md` 의 frontmatter 에 산다. 원본이 이미 `index.md` 를
+    // 갖고 있으면 본문은 그대로 두고 키만 얹는다 — 그 본문이 곧 새 업무의 골격이 된다.
+    let index = path.join("index.md");
+    let existing = fs::read_to_string(&index).unwrap_or_default();
+    let mut doc = Doc::parse(&existing);
+    doc.set("template", crate::frontmatter::quote_if_needed(&safe));
+    doc.set("purpose", crate::frontmatter::quote_if_needed(desc));
+    if doc.get_str("created").is_none() {
+        doc.set("created", now_stamp());
+    }
+    fs::write(&index, doc.render())?;
+    Ok(path)
+}
+
+pub fn create_template(root: &Path, name: &str, desc: &str, sections: &str) -> Result<PathBuf> {
+    let (safe, dir) = claim_template_name(root, name)?;
+    let path = dir.join(format!("{}.md", safe));
     let body: String = sections
         .lines()
         .map(|l| l.trim())
@@ -839,6 +1023,126 @@ mod tests {
         assert!(Path::new(&moved.folder).join("index.md").is_file());
         // Archived tasks must still be discoverable by a scan.
         assert_eq!(scan(v.path()).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn renaming_moves_the_folder_and_keeps_the_month_prefix() {
+        let v = TempVault::new("rename");
+        let t = make(v.path(), "옛 이름");
+        let old = PathBuf::from(&t.folder);
+        let prefix = old.file_name().unwrap().to_string_lossy()[..10].to_string();
+
+        let renamed = rename_task(v.path(), &old, "새 이름").unwrap();
+
+        assert!(!old.exists(), "old folder should be gone");
+        assert_eq!(renamed.title, "새 이름");
+        assert!(renamed.rel_folder.ends_with(&format!("{}새 이름/", prefix)));
+        assert!(Path::new(&renamed.folder).join("notes.md").is_file());
+        // frontmatter 와 폴더가 함께 움직였는지 스캔으로 되읽어 확인한다.
+        let tasks = scan(v.path()).unwrap();
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].title, "새 이름");
+    }
+
+    #[test]
+    fn renaming_onto_an_existing_name_never_overwrites_it() {
+        let v = TempVault::new("renamedup");
+        let a = make(v.path(), "첫 업무");
+        let b = make(v.path(), "둘째 업무");
+
+        let renamed = rename_task(v.path(), Path::new(&b.folder), "첫 업무").unwrap();
+
+        assert!(renamed.folder.ends_with("(2)"));
+        assert!(Path::new(&a.folder).exists(), "the original keeps its folder");
+        assert_eq!(scan(v.path()).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn renaming_to_a_blank_title_is_refused() {
+        let v = TempVault::new("renameblank");
+        let t = make(v.path(), "그대로");
+        let err = rename_task(v.path(), Path::new(&t.folder), "  ").unwrap_err();
+        assert_eq!(err.kind, "invalid");
+        assert!(Path::new(&t.folder).exists());
+    }
+
+    #[test]
+    fn a_note_template_supplies_the_body_of_the_task_it_creates() {
+        let v = TempVault::new("tplnote");
+        create_template(v.path(), "릴리스 절차", "배포용", "배경\n검증 항목").unwrap();
+
+        let t = create_task(
+            v.path(),
+            NewTask {
+                title: "v1.0 릴리스",
+                summary: "첫 배포",
+                tags: &[],
+                template: Some("릴리스 절차"),
+            },
+        )
+        .unwrap();
+
+        let body = fs::read_to_string(Path::new(&t.folder).join("index.md")).unwrap();
+        assert!(body.contains("## 배경"), "template sections reach the task");
+        assert!(body.contains("## 검증 항목"));
+        // 템플릿에 개요 섹션이 없어도 개요와 Run Log 는 항상 들어간다.
+        assert!(body.contains("## 개요\n첫 배포"));
+        assert_eq!(t.runs, 1);
+        assert!(body.contains("· 업무 생성"));
+    }
+
+    #[test]
+    fn a_folder_template_is_scanned_and_its_files_are_copied_into_the_task() {
+        let v = TempVault::new("tplfolder");
+        let src = v.path().join("원본 폴더");
+        fs::create_dir_all(src.join("자료")).unwrap();
+        fs::write(src.join("index.md"), "---\n---\n## 개요\n\n## 표준 절차\n- [ ] 준비\n").unwrap();
+        fs::write(src.join("notes.md"), "템플릿 메모").unwrap();
+        fs::write(src.join("자료/체크리스트.md"), "항목").unwrap();
+
+        create_template_from_folder(v.path(), "표준 패키지", "반복 업무용", &src).unwrap();
+
+        let tpls = scan_templates(v.path(), &[]).unwrap();
+        let tpl = tpls.iter().find(|t| t.id == "표준 패키지").unwrap();
+        assert_eq!(tpl.kind, "folder");
+        assert_eq!(tpl.desc, "반복 업무용");
+        assert_eq!(tpl.rel_path, "Templates/표준 패키지/");
+
+        let t = create_task(
+            v.path(),
+            NewTask {
+                title: "8월 정기 점검",
+                summary: "이번 회차",
+                tags: &[],
+                template: Some("표준 패키지"),
+            },
+        )
+        .unwrap();
+        let folder = PathBuf::from(&t.folder);
+
+        // 파일은 실제로 복사되고, 빈 notes.md 는 템플릿 것으로 덮인다.
+        assert_eq!(fs::read_to_string(folder.join("notes.md")).unwrap(), "템플릿 메모");
+        assert_eq!(fs::read_to_string(folder.join("자료/체크리스트.md")).unwrap(), "항목");
+
+        // 템플릿의 index.md 는 복사되지 않고 *본문 골격*으로만 쓰인다 — frontmatter 는
+        // 이 업무의 것이어야 한다.
+        let body = fs::read_to_string(folder.join("index.md")).unwrap();
+        assert!(body.contains("## 표준 절차"));
+        assert!(body.contains("## 개요\n이번 회차"));
+        assert!(body.contains("template_ref"));
+        assert!(!body.contains("template: 표준 패키지"), "template frontmatter must not leak");
+        assert!(body.contains("· 업무 생성"));
+    }
+
+    #[test]
+    fn a_template_name_cannot_be_claimed_twice_across_both_shapes() {
+        let v = TempVault::new("tplclash");
+        let src = v.path().join("src");
+        fs::create_dir_all(&src).unwrap();
+        create_template_from_folder(v.path(), "중복", "", &src).unwrap();
+
+        let err = create_template(v.path(), "중복", "", "배경").unwrap_err();
+        assert_eq!(err.kind, "already_exists");
     }
 
     #[test]

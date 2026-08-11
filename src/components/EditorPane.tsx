@@ -268,7 +268,7 @@ export default function EditorPane() {
             <span style={{ fontSize: 11, color: "#a09a8f" }}>읽기 전용 · 위키링크 활성</span>
             <div style={{ flex: 1 }} />
             <Box
-              onClick={() => void s.openFile(tab.path, "text", true)}
+              onClick={() => void s.openFile(tab.path, "text")}
               style={{ fontSize: 11, color: "#3a6fd8", cursor: "pointer" }}
               hover={{ textDecoration: "underline" }}
             >
@@ -350,20 +350,21 @@ export default function EditorPane() {
                           </span>
                         );
                       if (g.isLink)
+                        // 위키링크는 아직 이동을 지원하지 않는다. 눌렀을 때 링크 텍스트를
+                        // 그대로 되읽어 주는 토스트를 띄우느니, 누를 수 있는 것처럼
+                        // 보이지 않게 두는 편이 정직하다.
                         return (
-                          <Box
+                          <span
                             key={g.key}
-                            onClick={() => s.toast("위키링크", g.text, "#a78bfa")}
+                            title={g.text}
                             style={{
                               display: "inline",
                               color: "#3a6fd8",
                               borderBottom: "1px solid #cddcf8",
-                              cursor: "pointer",
                             }}
-                            hover={{ background: "#eef3fd" }}
                           >
                             {g.text}
-                          </Box>
+                          </span>
                         );
                       return <span key={g.key}>{g.text}</span>;
                     })}

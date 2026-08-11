@@ -17,7 +17,7 @@ export default function NewTaskModal() {
   const ai = useAi();
   if (!s.newOpen) return null;
 
-  const { nt, ntRecs, ntLoading, ntEngine, settings } = s;
+  const { nt, ntRecs, ntLoading, ntEngine, ntRefs, settings } = s;
   const title = nt.title.trim();
   const monthPrefix = new Date().toISOString().slice(0, 7);
   const folderPreview = `${settings.vault.split("/").pop()}/Tasks/[${monthPrefix}] ${
@@ -25,6 +25,9 @@ export default function NewTaskModal() {
   }/`;
 
   const agentName = (id: string) => ai.infos.find((i) => i.id === id)?.name ?? id;
+
+  // 폴더 템플릿을 고르면 그 안의 파일이 실제로 복사되므로 미리 알려 준다.
+  const tplFolder = s.templates.some((t) => t.id === nt.template && t.kind === "folder");
 
   // 실제로 점수를 낸 엔진. `ntEngine` 은 `"local"` 이거나 AI 에이전트 id 다.
   const engineName = ntEngine === "local" ? null : agentName(ntEngine);
@@ -203,6 +206,11 @@ export default function NewTaskModal() {
                     </option>
                   ))}
                 </select>
+                {tplFolder && (
+                  <div style={{ fontSize: 11, color: "#5a44b4", marginTop: 4, lineHeight: 1.5 }}>
+                    이 템플릿의 파일이 새 업무 폴더로 복사됩니다.
+                  </div>
+                )}
               </div>
             </div>
             <div
@@ -231,7 +239,20 @@ export default function NewTaskModal() {
                 <br />
                 &nbsp;&nbsp;├── notes.md
                 <br />
-                &nbsp;&nbsp;└── attachments/
+                &nbsp;&nbsp;{tplFolder || ntRefs.length ? "├" : "└"}── attachments/
+                {tplFolder && (
+                  <>
+                    <br />
+                    &nbsp;&nbsp;{ntRefs.length ? "├" : "└"}── ({nt.template} 템플릿 파일)
+                  </>
+                )}
+                {ntRefs.map((f, i) => (
+                  <span key={f}>
+                    <br />
+                    &nbsp;&nbsp;{i === ntRefs.length - 1 ? "└" : "├"}── reference/
+                    {sanitizeFolderName(s.tasks.find((t) => t.folder === f)?.title ?? "참조")}/
+                  </span>
+                ))}
               </div>
             </div>
           </div>
@@ -296,6 +317,7 @@ export default function NewTaskModal() {
 
               {ntRecs.map((r) => {
                 const isCluster = !!r.cluster && r.cluster.length > 1;
+                const refOn = ntRefs.includes(r.id);
                 const tg = s.recTag[r.id];
                 const tag = tg ? TAG_STYLE[tg] : null;
                 const simColor = r.sim >= settings.threshold ? VIOLET : r.sim >= 75 ? BLUE : "#8a857c";
@@ -423,21 +445,29 @@ export default function NewTaskModal() {
                     <div style={{ display: "flex", gap: 5, marginTop: 8, flexWrap: "wrap" }}>
                       <Box
                         onClick={() => {
-                          s.set({ recTag: { ...s.recTag, [r.id]: "ref" } });
-                          s.toast("참조로 연결 (읽기 전용)", r.path, "#a8a29a");
+                          // 토글. 고른 업무의 파일은 [업무 생성] 때 새 업무의
+                          // reference/<업무명>/ 아래로 복사된다(useStore.createTask).
+                          const on = ntRefs.includes(r.id);
+                          const rest = { ...s.recTag };
+                          if (on) delete rest[r.id];
+                          s.set({
+                            ntRefs: on ? ntRefs.filter((f) => f !== r.id) : [...ntRefs, r.id],
+                            recTag: on ? rest : { ...s.recTag, [r.id]: "ref" },
+                          });
                         }}
                         style={{
                           fontSize: 11.5,
+                          fontWeight: refOn ? 600 : 400,
                           padding: "3px 8px",
                           borderRadius: 4,
-                          border: "1px solid #ddd8cf",
-                          background: "#fff",
-                          color: "#4e4a43",
+                          border: `1px solid ${refOn ? "#cfc6ea" : "#ddd8cf"}`,
+                          background: refOn ? "#f2eefc" : "#fff",
+                          color: refOn ? "#5a44b4" : "#4e4a43",
                           cursor: "pointer",
                         }}
-                        hover={{ background: "#f2efe9" }}
+                        hover={{ background: refOn ? "#ece5fb" : "#f2efe9" }}
                       >
-                        참고만 하기
+                        {refOn ? "✓ 참조로 복사됨" : "참고만 하기"}
                       </Box>
                       <Box
                         onClick={() => {
@@ -449,7 +479,7 @@ export default function NewTaskModal() {
                               await appendTaskRun(settings.vault, r.id, note);
                               s.set({ newOpen: false });
                               await s.reloadVault(false);
-                              await s.selectTask(r.id, true);
+                              await s.selectTask(r.id);
                               await s.reloadTemplates();
                               s.toast(
                                 "기존 노드에 회차 로그 추가",
@@ -531,7 +561,9 @@ export default function NewTaskModal() {
               whiteSpace: "nowrap",
             }}
           >
-            {ntRecs.length
+            {ntRefs.length
+              ? `참조 ${ntRefs.length}건의 파일이 새 업무의 reference/ 아래로 복사됩니다.`
+              : ntRecs.length
               ? "추천 카드에서 [기반 재개]를 고르면 새 노트를 만들지 않고 기존 노드에 회차만 추가합니다."
               : s.ntNote ||
                 (activeName

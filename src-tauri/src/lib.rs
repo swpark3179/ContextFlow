@@ -142,6 +142,11 @@ fn create_task(
 }
 
 #[tauri::command]
+fn rename_task(root: String, folder: String, title: String) -> Result<vault::TaskMeta> {
+    vault::rename_task(&p(&root), &p(&folder), &title)
+}
+
+#[tauri::command]
 fn set_task_status(root: String, folder: String, status: String) -> Result<vault::TaskMeta> {
     vault::set_status(&p(&root), &p(&folder), &status)
 }
@@ -297,6 +302,17 @@ fn create_template(
     sections: String,
 ) -> Result<String> {
     let path = vault::create_template(&p(&root), &name, &desc, &sections)?;
+    Ok(path.to_string_lossy().replace('\\', "/"))
+}
+
+#[tauri::command]
+fn create_template_from_folder(
+    root: String,
+    name: String,
+    desc: String,
+    source: String,
+) -> Result<String> {
+    let path = vault::create_template_from_folder(&p(&root), &name, &desc, &p(&source))?;
     Ok(path.to_string_lossy().replace('\\', "/"))
 }
 
@@ -528,6 +544,7 @@ pub fn run() {
             init_vault,
             scan_vault,
             create_task,
+            rename_task,
             set_task_status,
             append_task_run,
             set_task_archived,
@@ -550,6 +567,7 @@ pub fn run() {
             open_in_obsidian,
             scan_templates,
             create_template,
+            create_template_from_folder,
             write_archive_moc,
             recommend_tasks,
             search_full_text,

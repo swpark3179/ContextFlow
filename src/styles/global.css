@@ -20,7 +20,9 @@ body {
   margin: 0;
   padding: 0;
   height: 100%;
-  background: #e7e4de;
+  /* 앱이 창을 가장자리까지 채우므로 바탕도 앱 표면과 같은 흰색이다. 회색이면 React 가
+     마운트되기 전 첫 프레임에서 회색 띠가 번쩍인다. */
+  background: #fff;
 }
 body {
   font-family: "Noto Sans KR", system-ui, sans-serif;
