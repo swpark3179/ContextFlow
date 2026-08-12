@@ -135,6 +135,7 @@ export default function App() {
         flexDirection: "column",
         background: "#fff",
         overflow: "hidden",
+        scrollbarGutter: "auto",
       }}
     >
       <TitleBar title={chromeTitle} />
