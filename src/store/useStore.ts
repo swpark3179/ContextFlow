@@ -12,11 +12,20 @@ import { activeRun, useAi } from "./aiStore";
 const SNAPSHOT_FILE = ".context_snapshot.json";
 
 export type Screen = "workspace" | "templates" | "archive" | "settings";
-export type TabMode = "md" | "text";
+/** `text` = 편집기, 나머지는 읽기 전용 뷰어. 같은 파일은 한 번에 한 모드로만 열린다. */
+export type TabMode = "md" | "text" | "html";
 
 export interface Tab {
   path: string;
   mode: TabMode;
+}
+
+/** 확장자별로 준비된 뷰어. 없으면 텍스트 편집기만 쓸 수 있다. */
+export function viewerFor(path: string): Exclude<TabMode, "text"> | null {
+  const ext = path.includes(".") ? (path.split(".").pop() as string).toLowerCase() : "";
+  if (ext === "md") return "md";
+  if (ext === "html" || ext === "htm") return "html";
+  return null;
 }
 
 export interface Doc {
@@ -117,6 +126,25 @@ export interface OwState {
   always: boolean;
 }
 
+/**
+ * 탐색기에서 길게 눌러 시작한 드래그. HTML5 드래그가 아니라 포인터 캡처를 쓴다 —
+ * WebView 밖으로 파일을 넘기는 API 가 Tauri 에 없어서, 창을 벗어난 드롭은 좌표로만
+ * 판정하고 바탕화면 반출로 처리하기 때문이다.
+ */
+export interface FileDrag {
+  path: string;
+  name: string;
+  isDir: boolean;
+  x: number;
+  y: number;
+  /** 드롭 대상 폴더의 상대 경로(루트는 `""`). 창 밖이면 `null`. */
+  over: string | null;
+  /** 포인터가 창 밖으로 나갔다 — 놓으면 바탕화면으로 간다. */
+  outside: boolean;
+  /** Alt 를 누르고 있다 — 복사 대신 심볼릭 링크. */
+  alt: boolean;
+}
+
 export interface NewTaskState {
   title: string;
   summary: string;
@@ -184,6 +212,8 @@ interface State {
   archQuery: string;
   archScope: "title" | "full";
   archYear: string;
+  /** `"all"` 또는 `"01"`..`"12"`. 연도를 고른 뒤에만 의미가 있다. */
+  archMonth: string;
 
   sidebarW: number;
   sidebarMin: boolean;
@@ -204,6 +234,7 @@ interface State {
   drop: DropState | null;
   dragOver: boolean;
   ow: OwState | null;
+  fileDrag: FileDrag | null;
 
   newOpen: boolean;
   nt: NewTaskState;
@@ -246,6 +277,7 @@ interface Actions {
   refreshFiles: () => Promise<void>;
   openFile: (path: string, mode: TabMode) => Promise<void>;
   defaultOpen: (path: string, bin: boolean) => Promise<void>;
+  setTabMode: (path: string, from: TabMode, to: TabMode) => Promise<void>;
   closeTab: (key: string) => void;
   editDoc: (path: string, text: string) => void;
   saveDoc: (path: string) => Promise<void>;
@@ -259,6 +291,8 @@ interface Actions {
   commitImport: () => Promise<void>;
   openWith: (path: string) => void;
   confirmOpenWith: () => Promise<void>;
+  moveFile: (rel: string, targetDir: string) => Promise<void>;
+  exportToDesktop: (rel: string, mode: "copy" | "link") => Promise<void>;
 
   runRecommend: () => Promise<void>;
   createTask: () => Promise<void>;
@@ -289,6 +323,7 @@ export const useStore = create<State & Actions>((set, get) => ({
   archQuery: "",
   archScope: "title",
   archYear: "all",
+  archMonth: "all",
 
   sidebarW: 250,
   sidebarMin: false,
@@ -309,6 +344,7 @@ export const useStore = create<State & Actions>((set, get) => ({
   drop: null,
   dragOver: false,
   ow: null,
+  fileDrag: null,
 
   newOpen: false,
   nt: { title: "", summary: "", tags: "", template: "(없음)" },
@@ -606,13 +642,17 @@ export const useStore = create<State & Actions>((set, get) => ({
         const text = await api.readTextFile(joinPath(activeFolder, path));
         docs = { ...docs, [path]: { text, saved: text } };
       }
+      // 한 파일은 한 탭이다. 이미 다른 모드로 열려 있으면 그 탭의 모드를 갈아 끼운다 —
+      // 뷰어와 편집기를 오갈 때 같은 파일의 탭이 둘로 늘어나는 것이 혼란의 원인이었다.
+      // 자리를 그대로 두는 것이 중요하다: 탭 순서가 바뀌면 옮겨 간 것처럼 보인다.
       const exists = ui.openTabs.some((t) => `${t.mode}|${t.path}` === key);
-      get().setUi({
-        docs,
-        openTabs: exists ? ui.openTabs : [...ui.openTabs, { path, mode }],
-        activeTab: key,
-        sel: path,
-      });
+      const same = exists ? -1 : ui.openTabs.findIndex((t) => t.path === path);
+      const openTabs = exists
+        ? ui.openTabs
+        : same >= 0
+          ? ui.openTabs.map((t, i) => (i === same ? { path, mode } : t))
+          : [...ui.openTabs, { path, mode }];
+      get().setUi({ docs, openTabs, activeTab: key, sel: path });
       set({ ctx: null });
     } catch (e) {
       get().fail(e, "파일을 열지 못했습니다");
@@ -622,9 +662,36 @@ export const useStore = create<State & Actions>((set, get) => ({
   defaultOpen: async (path, bin) => {
     if (bin) return get().openWith(path);
     const { settings } = get();
-    if (path.toLowerCase().endsWith(".md"))
-      return get().openFile(path, settings.mdDefault === "text" ? "text" : "md");
-    return get().openFile(path, "text");
+    const viewer = viewerFor(path);
+    // .md 만 사용자 설정을 탄다 — 나머지 뷰어는 그 설정이 만들어질 때 없던 것이고,
+    // 확장자마다 기본값을 하나씩 늘리는 것보다 뷰어 우선이 예측 가능하다.
+    if (viewer === "md") return get().openFile(path, settings.mdDefault === "text" ? "text" : "md");
+    return get().openFile(path, viewer ?? "text");
+  },
+
+  /**
+   * 뷰어 ↔ 편집기 전환. 탭을 새로 만들지 않고 **열려 있는 탭의 모드만 바꾼다**.
+   * `docs` 가 모드가 아니라 경로로 키잉돼 있어(openFile) 버퍼는 그대로 쓰면 된다.
+   *
+   * 편집기에서 나갈 때는 먼저 저장하고, 저장이 끝나지 않았으면 전환하지 않는다 —
+   * 뷰어는 디스크가 아니라 버퍼를 그리므로 화면은 같겠지만, 저장 실패를 눈치채지
+   * 못한 채 읽기 전용 화면으로 넘어가는 편이 더 나쁘다.
+   */
+  setTabMode: async (path, from, to) => {
+    if (from === to) return;
+    if (from === "text") {
+      await get().saveDoc(path);
+      const doc = get().ui.docs[path];
+      if (doc && doc.text !== doc.saved) return;
+    }
+    const ui = get().ui;
+    const fromKey = `${from}|${path}`;
+    const toKey = `${to}|${path}`;
+    const exists = ui.openTabs.some((t) => `${t.mode}|${t.path}` === toKey);
+    const openTabs = exists
+      ? ui.openTabs.filter((t) => `${t.mode}|${t.path}` !== fromKey)
+      : ui.openTabs.map((t) => (`${t.mode}|${t.path}` === fromKey ? { path, mode: to } : t));
+    get().setUi({ openTabs, activeTab: toKey, sel: path });
   },
 
   closeTab: (key) => {
@@ -836,6 +903,70 @@ export const useStore = create<State & Actions>((set, get) => ({
       get().setUi({ extOpened: { ...get().ui.extOpened, [ow.path]: "OS" } });
     } catch (e) {
       get().fail(e, "열지 못했습니다");
+    }
+  },
+
+  /**
+   * 업무 폴더 안에서 파일·폴더를 옮긴다(탐색기 드래그).
+   *
+   * 열린 탭 · 미저장 버퍼 · 트리 펼침 상태는 전부 **상대 경로를 키로** 들고 있어서,
+   * 디스크만 옮기면 그 전부가 사라진 파일을 가리키게 된다. 그래서 접두사를 새 위치로
+   * 갈아 끼운 뒤에야 파일 목록을 다시 읽는다.
+   */
+  moveFile: async (rel, targetDir) => {
+    const { activeFolder, ui } = get();
+    if (!activeFolder || !rel) return;
+    const isDir = rel.endsWith("/");
+    const src = rel.replace(/\/$/, "");
+    const parent = src.includes("/") ? src.slice(0, src.lastIndexOf("/") + 1) : "";
+    const dest = targetDir ? targetDir.replace(/\/?$/, "/") : "";
+    if (dest === parent) return; // 이미 그 폴더에 있다
+    if (isDir && dest.startsWith(rel)) return; // 자기 자신 아래로는 옮길 수 없다
+    try {
+      const next = await api.moveTaskPath(activeFolder, rel, dest);
+      const rewrite = (p: string) =>
+        p === rel ? next : isDir && p.startsWith(rel) ? next + p.slice(rel.length) : p;
+      const [mode, path] = ui.activeTab.split("|");
+      get().setUi({
+        openTabs: ui.openTabs.map((t) => ({ ...t, path: rewrite(t.path) })),
+        activeTab: path ? `${mode}|${rewrite(path)}` : ui.activeTab,
+        sel: rewrite(ui.sel),
+        docs: Object.fromEntries(Object.entries(ui.docs).map(([p, d]) => [rewrite(p), d])),
+        treeOpen: Object.fromEntries(Object.entries(ui.treeOpen).map(([p, v]) => [rewrite(p), v])),
+        extOpened: Object.fromEntries(
+          Object.entries(ui.extOpened).map(([p, v]) => [rewrite(p), v]),
+        ),
+      });
+      await get().refreshFiles();
+    } catch (e) {
+      get().fail(e, "옮기지 못했습니다");
+    }
+  },
+
+  /**
+   * 창 밖으로 끌어다 놓았을 때의 바탕화면 반출. 결과가 앱 화면에 전혀 드러나지 않으므로
+   * (파일은 다른 창에 생긴다) 성공도 토스트로 알린다.
+   */
+  exportToDesktop: async (rel, mode) => {
+    const { activeFolder } = get();
+    if (!activeFolder || !rel) return;
+    try {
+      const res = await api.exportToDesktop(activeFolder, rel, mode);
+      if (res.fellBackToCopy) {
+        get().toast(
+          "심볼릭 링크를 만들 수 없어 복사했습니다",
+          `${res.name} · Windows 개발자 모드 또는 관리자 권한이 필요합니다`,
+          TOAST.warn,
+        );
+      } else {
+        get().toast(
+          mode === "link" ? "바탕화면에 링크를 만들었습니다" : "바탕화면으로 복사했습니다",
+          res.name,
+          TOAST.ok,
+        );
+      }
+    } catch (e) {
+      get().fail(e, "바탕화면으로 보내지 못했습니다");
     }
   },
 

@@ -62,6 +62,13 @@ export interface ImportResult {
   fellBackToCopy: string[];
 }
 
+export interface ExportResult {
+  /** 바탕화면에 실제로 만들어진 이름 — 같은 이름이 있으면 `name (2).ext` 가 된다. */
+  name: string;
+  /** 심볼릭 링크를 요청했지만 권한이 없어 복사로 처리했다. */
+  fellBackToCopy: boolean;
+}
+
 export interface OpenOutcome {
   opened: "obsidian" | "explorer";
   detail: string;
@@ -170,6 +177,11 @@ export const importIntoTask = (
   sources: string[],
   mode: string,
 ) => invoke<ImportResult>("import_into_task", { folder, target, sources, mode });
+/** 업무 폴더 안에서 옮긴다. 새 상대 경로를 돌려주며, 폴더는 입력과 같이 `/` 로 끝난다. */
+export const moveTaskPath = (folder: string, rel: string, targetDir: string) =>
+  invoke<string>("move_task_path", { folder, rel, targetDir });
+export const exportToDesktop = (folder: string, rel: string, mode: string) =>
+  invoke<ExportResult>("export_to_desktop", { folder, rel, mode });
 
 // -- snapshots --------------------------------------------------------------
 

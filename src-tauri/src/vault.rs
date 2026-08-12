@@ -360,12 +360,14 @@ pub fn create_task(root: &Path, spec: NewTask<'_>) -> Result<TaskMeta> {
     doc.set("runs", "1");
     doc.set_body(body);
 
+    // 기본 노트는 `index.md` 하나뿐이다. 예전에는 빈 `notes.md` 도 함께 만들었지만
+    // 아무 데서도 읽지 않는 빈 파일이었고, 자유 메모 자리는 워크스페이스 하단의
+    // 메모장 패널이 갖고 있다. 폴더 템플릿이 `notes.md` 를 담고 있으면 아래에서
+    // 그대로 복사돼 온다 — 그 경우에만 생긴다.
     fs::write(folder.join("index.md"), doc.render())?;
-    fs::write(folder.join("notes.md"), "")?;
 
     // 폴더 템플릿의 파일을 실제로 가져온다. `index.md` 만 빼는데, 그 body 는 이미 위에서
-    // 본문 골격으로 썼고 frontmatter 는 이 업무의 것이어야 하기 때문이다. 나머지는 방금
-    // 쓴 빈 `notes.md` 를 포함해 템플릿 쪽이 이긴다 — 비어 있으므로 잃을 것이 없다.
+    // 본문 골격으로 썼고 frontmatter 는 이 업무의 것이어야 하기 때문이다.
     if let Some(TemplateSource::Folder(dir)) = &source {
         for entry in fs::read_dir(dir)? {
             let entry = entry?;
@@ -907,7 +909,8 @@ mod tests {
 
         let folder = Path::new(&t.folder);
         assert!(folder.join("index.md").is_file());
-        assert!(folder.join("notes.md").is_file());
+        // 기본 노트는 index.md 하나다 — 빈 notes.md 를 되살리지 않는다.
+        assert!(!folder.join("notes.md").exists());
         assert!(folder.join("attachments").is_dir());
         assert!(t.rel_folder.starts_with("Tasks/["));
         assert!(t.rel_folder.ends_with("Tauri 2.0 마이그레이션/"));
@@ -1037,7 +1040,7 @@ mod tests {
         assert!(!old.exists(), "old folder should be gone");
         assert_eq!(renamed.title, "새 이름");
         assert!(renamed.rel_folder.ends_with(&format!("{}새 이름/", prefix)));
-        assert!(Path::new(&renamed.folder).join("notes.md").is_file());
+        assert!(Path::new(&renamed.folder).join("attachments").is_dir());
         // frontmatter 와 폴더가 함께 움직였는지 스캔으로 되읽어 확인한다.
         let tasks = scan(v.path()).unwrap();
         assert_eq!(tasks.len(), 1);
@@ -1120,7 +1123,7 @@ mod tests {
         .unwrap();
         let folder = PathBuf::from(&t.folder);
 
-        // 파일은 실제로 복사되고, 빈 notes.md 는 템플릿 것으로 덮인다.
+        // 파일은 실제로 복사된다 — notes.md 는 이제 템플릿이 준 것만 생긴다.
         assert_eq!(fs::read_to_string(folder.join("notes.md")).unwrap(), "템플릿 메모");
         assert_eq!(fs::read_to_string(folder.join("자료/체크리스트.md")).unwrap(), "항목");
 

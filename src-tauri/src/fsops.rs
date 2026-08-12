@@ -44,6 +44,14 @@ pub struct ImportResult {
     pub fell_back_to_copy: Vec<String>,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportResult {
+    /// The name actually written, which may carry a ` (2)` suffix.
+    pub name: String,
+    pub fell_back_to_copy: bool,
+}
+
 pub fn ext_of(name: &str) -> String {
     match name.rsplit_once('.') {
         Some((head, ext)) if !head.is_empty() => ext.to_ascii_lowercase(),
@@ -252,6 +260,104 @@ pub(crate) fn copy_recursive(src: &Path, dest: &Path) -> Result<()> {
     Ok(())
 }
 
+/// First free `dir/name`, appending ` (2)`, ` (3)`… before the extension.
+/// Shared by every write that must not clobber an existing entry.
+fn unique_dest(dir: &Path, name: &str) -> PathBuf {
+    let mut dest = dir.join(name);
+    if !dest.exists() {
+        return dest;
+    }
+    let as_path = Path::new(name);
+    let stem = as_path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+    let ext = as_path
+        .extension()
+        .map(|s| format!(".{}", s.to_string_lossy()))
+        .unwrap_or_default();
+    let mut n = 2;
+    while dest.exists() {
+        dest = dir.join(format!("{} ({}){}", stem, n, ext));
+        n += 1;
+    }
+    dest
+}
+
+/// 업무 폴더 안에서 파일·폴더를 옮긴다. 돌려주는 새 상대 경로는 입력과 같은 규약을
+/// 따른다 — 폴더는 `/` 로 끝난다(`list_tree` 와 프론트의 트리가 그렇게 읽는다).
+pub fn move_path(folder: &Path, rel: &str, target_dir: &str) -> Result<String> {
+    let trimmed = rel.trim_end_matches('/');
+    let src = safe_join(folder, trimmed)?;
+    if !src.exists() {
+        return Err(AppError::new("not_found", format!("대상을 찾을 수 없습니다: {}", rel)));
+    }
+    // index.md 는 업무의 메타데이터 노트다. 하위 폴더로 내려가면 `scan_vault` 가
+    // 업무를 못 찾으므로 삭제와 같은 이유로 막는다.
+    if src.file_name().and_then(|n| n.to_str()) == Some("index.md") && src.parent() == Some(folder) {
+        return Err(AppError::new(
+            "protected",
+            "index.md 는 업무의 메타데이터 노트라 옮길 수 없습니다.",
+        ));
+    }
+
+    let dir = safe_join(folder, target_dir.trim_end_matches('/'))?;
+    if !dir.is_dir() {
+        return Err(AppError::new("not_found", format!("폴더를 찾을 수 없습니다: {}", target_dir)));
+    }
+    // 폴더를 자기 자신이나 자기 하위로 옮기면 트리가 사라진다.
+    if src.is_dir() && dir.starts_with(&src) {
+        return Err(AppError::new("invalid_path", "폴더를 자기 자신 아래로 옮길 수 없습니다."));
+    }
+    if dir == src.parent().map(|p| p.to_path_buf()).unwrap_or_default() {
+        return Ok(rel.to_string()); // 이미 그 폴더에 있다
+    }
+
+    let name = src
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .ok_or_else(|| AppError::io(format!("이름을 읽을 수 없습니다: {}", rel)))?;
+    let dest = unique_dest(&dir, &name);
+    fs::rename(&src, &dest)?;
+
+    let mut out = dest
+        .strip_prefix(folder)
+        .unwrap_or(&dest)
+        .to_string_lossy()
+        .replace('\\', "/");
+    if dest.is_dir() {
+        out.push('/');
+    }
+    Ok(out)
+}
+
+/// 업무 폴더 밖(바탕화면)으로 복사하거나 심볼릭 링크를 건다. 링크를 만들 수 없으면
+/// `import_files` 와 같은 이유로 복사로 떨어지고, 그 사실을 함께 돌려준다.
+pub fn export_path(folder: &Path, rel: &str, dest_dir: &Path, mode: &str) -> Result<ExportResult> {
+    let src = safe_join(folder, rel.trim_end_matches('/'))?;
+    if !src.exists() {
+        return Err(AppError::new("not_found", format!("대상을 찾을 수 없습니다: {}", rel)));
+    }
+    fs::create_dir_all(dest_dir)?;
+    let name = src
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .ok_or_else(|| AppError::io(format!("이름을 읽을 수 없습니다: {}", rel)))?;
+    let dest = unique_dest(dest_dir, &name);
+
+    let mut fell_back = false;
+    if mode == "link" {
+        if make_symlink(&src, &dest).is_err() {
+            copy_recursive(&src, &dest)?;
+            fell_back = true;
+        }
+    } else {
+        copy_recursive(&src, &dest)?;
+    }
+
+    Ok(ExportResult {
+        name: dest.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or(name),
+        fell_back_to_copy: fell_back,
+    })
+}
+
 /// `mode` is `copy` or `link`. Creating a symlink on Windows needs Developer
 /// Mode or elevation; rather than failing the whole import we copy instead and
 /// report which items fell back so the UI can say so plainly.
@@ -274,14 +380,7 @@ pub fn import_files(
             .map(|n| n.to_string_lossy().to_string())
             .ok_or_else(|| AppError::io(format!("파일 이름을 읽을 수 없습니다: {}", src)))?;
 
-        let mut dest = target.join(&name);
-        let mut n = 2;
-        while dest.exists() {
-            let stem = src_path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
-            let ext = src_path.extension().map(|s| format!(".{}", s.to_string_lossy())).unwrap_or_default();
-            dest = target.join(format!("{} ({}){}", stem, n, ext));
-            n += 1;
-        }
+        let dest = unique_dest(&target, &name);
 
         if mode == "link" {
             match make_symlink(&src_path, &dest) {
@@ -432,6 +531,89 @@ mod tests {
         let err = delete_path(d.path(), "index.md").unwrap_err();
         assert_eq!(err.kind, "protected");
         assert!(d.path().join("index.md").is_file());
+    }
+
+    #[test]
+    fn move_relocates_into_a_folder_and_disambiguates_clashes() {
+        let d = TempDir::new("move");
+        fs::create_dir_all(d.path().join("refs")).unwrap();
+        fs::write(d.path().join("a.md"), "새 내용").unwrap();
+        fs::write(d.path().join("refs/a.md"), "이미 있는 내용").unwrap();
+
+        assert_eq!(move_path(d.path(), "a.md", "refs/").unwrap(), "refs/a (2).md");
+        assert!(!d.path().join("a.md").exists());
+        assert_eq!(fs::read_to_string(d.path().join("refs/a.md")).unwrap(), "이미 있는 내용");
+        assert_eq!(fs::read_to_string(d.path().join("refs/a (2).md")).unwrap(), "새 내용");
+    }
+
+    #[test]
+    fn move_reports_folders_with_a_trailing_slash_and_carries_children() {
+        let d = TempDir::new("movedir");
+        fs::create_dir_all(d.path().join("refs/deep")).unwrap();
+        fs::create_dir_all(d.path().join("attachments")).unwrap();
+        fs::write(d.path().join("refs/deep/b.md"), "b").unwrap();
+
+        assert_eq!(move_path(d.path(), "refs/", "attachments/").unwrap(), "attachments/refs/");
+        assert!(d.path().join("attachments/refs/deep/b.md").is_file());
+    }
+
+    #[test]
+    fn move_refuses_the_index_note_and_self_nesting() {
+        let d = TempDir::new("moveguard");
+        fs::create_dir_all(d.path().join("refs/deep")).unwrap();
+        fs::write(d.path().join("index.md"), "메타데이터").unwrap();
+
+        assert_eq!(move_path(d.path(), "index.md", "refs/").unwrap_err().kind, "protected");
+        assert!(d.path().join("index.md").is_file());
+
+        assert_eq!(move_path(d.path(), "refs/", "refs/deep/").unwrap_err().kind, "invalid_path");
+        assert!(d.path().join("refs/deep").is_dir());
+    }
+
+    #[test]
+    fn move_to_an_empty_target_lands_at_the_task_root() {
+        let d = TempDir::new("moveroot");
+        fs::create_dir_all(d.path().join("refs")).unwrap();
+        fs::write(d.path().join("refs/a.md"), "내용").unwrap();
+
+        assert_eq!(move_path(d.path(), "refs/a.md", "").unwrap(), "a.md");
+        assert!(d.path().join("a.md").is_file());
+        assert!(!d.path().join("refs/a.md").exists());
+    }
+
+    #[test]
+    fn move_into_the_current_folder_is_a_no_op() {
+        let d = TempDir::new("movesame");
+        fs::create_dir_all(d.path().join("refs")).unwrap();
+        fs::write(d.path().join("refs/a.md"), "내용").unwrap();
+
+        assert_eq!(move_path(d.path(), "refs/a.md", "refs/").unwrap(), "refs/a.md");
+        assert_eq!(fs::read_to_string(d.path().join("refs/a.md")).unwrap(), "내용");
+    }
+
+    #[test]
+    fn export_copies_out_of_the_task_without_touching_the_original() {
+        let task = TempDir::new("exp");
+        let desk = TempDir::new("desk");
+        fs::write(task.path().join("보고서.md"), "본문").unwrap();
+        fs::write(desk.path().join("보고서.md"), "바탕화면에 이미 있던 것").unwrap();
+
+        let res = export_path(task.path(), "보고서.md", desk.path(), "copy").unwrap();
+        assert_eq!(res.name, "보고서 (2).md");
+        assert!(!res.fell_back_to_copy);
+        assert!(task.path().join("보고서.md").is_file());
+        assert_eq!(fs::read_to_string(desk.path().join("보고서 (2).md")).unwrap(), "본문");
+    }
+
+    #[test]
+    fn export_link_mode_lands_the_file_even_without_symlink_privilege() {
+        let task = TempDir::new("explink");
+        let desk = TempDir::new("desklink");
+        fs::write(task.path().join("a.md"), "본문").unwrap();
+
+        let res = export_path(task.path(), "a.md", desk.path(), "link").unwrap();
+        // 링크가 만들어졌든 복사로 떨어졌든, 바탕화면에서 내용이 읽혀야 한다.
+        assert_eq!(fs::read_to_string(desk.path().join(&res.name)).unwrap(), "본문");
     }
 
     #[test]

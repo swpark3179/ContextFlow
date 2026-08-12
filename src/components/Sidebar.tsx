@@ -21,6 +21,13 @@ const NAV: [Screen, string][] = [
 export default function Sidebar() {
   const s = useStore();
   const { tasks, settings, query, filter } = s;
+  /**
+   * 업무 목록은 워크스페이스 전용이다. 템플릿 · 보관함 · 설정 화면에서는 목록의
+   * 선택 표시가 "지금 이 업무를 보고 있다"는 거짓말이 되므로, 목록을 흐리게 죽이고
+   * 선택도 지운다. 아래 도크(새 업무 · 보관함 · 화면 전환)는 그대로 살려 둔다 —
+   * 워크스페이스로 돌아오는 길이 여기에 있다.
+   */
+  const listActive = s.screen === "workspace";
 
   const { live, archived, visible, sideArch, counts } = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -166,9 +173,19 @@ export default function Sidebar() {
         </Box>
       </div>
 
-      <div style={{ padding: "8px 9px 6px 9px", display: "flex", flexDirection: "column", gap: 7 }}>
+      <div
+        style={{
+          padding: "8px 9px 6px 9px",
+          display: "flex",
+          flexDirection: "column",
+          gap: 7,
+          opacity: listActive ? 1 : 0.42,
+          pointerEvents: listActive ? "auto" : "none",
+        }}
+      >
         <Input
           value={query}
+          disabled={!listActive}
           onChange={(e) => s.set({ query: e.target.value })}
           placeholder="업무 · 태그 · 경로 검색"
           style={{
@@ -212,10 +229,31 @@ export default function Sidebar() {
         </div>
       </div>
 
-      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "2px 6px 8px 6px" }}>
+      <div
+        style={{
+          flex: 1,
+          minHeight: 0,
+          overflowY: "auto",
+          padding: "2px 6px 8px 6px",
+          opacity: listActive ? 1 : 0.42,
+          pointerEvents: listActive ? "auto" : "none",
+        }}
+      >
+        {!listActive && (
+          <div
+            style={{
+              padding: "5px 7px 8px 7px",
+              fontSize: 11.5,
+              color: "#8a857c",
+              lineHeight: 1.6,
+            }}
+          >
+            워크스페이스에서 업무를 선택할 수 있습니다
+          </div>
+        )}
         {visible.map((t) => {
           const cfg = statusOf(t.status);
-          const on = t.folder === s.activeFolder;
+          const on = listActive && t.folder === s.activeFolder;
           return (
             <Box
               key={t.folder}

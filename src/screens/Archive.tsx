@@ -4,10 +4,11 @@ import { GREEN, VIOLET } from "../lib/design";
 import { daysSince, qLabel } from "../lib/format";
 import * as api from "../lib/api";
 import { isArchived, useStore } from "../store/useStore";
+import { useVirtual } from "../lib/virtual";
 
 export default function Archive() {
   const s = useStore();
-  const { tasks, settings, archQuery, archScope, archYear } = s;
+  const { tasks, settings, archQuery, archScope, archYear, archMonth } = s;
   const [hits, setHits] = useState<Record<string, string>>({});
 
   const archived = useMemo(
@@ -49,11 +50,26 @@ export default function Archive() {
     [archived],
   );
 
+  /** 고른 연도 안에서 실제로 완료된 달만. 빈 달은 칩으로 만들지 않는다. */
+  const months = useMemo(() => {
+    if (archYear === "all") return [];
+    return Array.from(
+      new Set(
+        archived
+          .filter((t) => (t.completedAt ?? "").slice(0, 4) === archYear)
+          .map((t) => (t.completedAt ?? "").slice(5, 7))
+          .filter(Boolean),
+      ),
+    ).sort();
+  }, [archived, archYear]);
+
   const groups = useMemo(() => {
     const q = archQuery.trim().toLowerCase();
     const hit = archived
       .filter((t) => {
-        if (archYear !== "all" && (t.completedAt ?? "").slice(0, 4) !== archYear) return false;
+        const done = t.completedAt ?? "";
+        if (archYear !== "all" && done.slice(0, 4) !== archYear) return false;
+        if (archMonth !== "all" && done.slice(5, 7) !== archMonth) return false;
         if (!q) return true;
         if (archScope === "full") return !!hits[t.folder];
         return `${t.title} ${t.tags.join(" ")} ${t.relFolder}`.toLowerCase().includes(q);
@@ -72,7 +88,31 @@ export default function Archive() {
       g.count = g.items.length;
     });
     return out;
-  }, [archived, archQuery, archScope, archYear, hits]);
+  }, [archived, archQuery, archScope, archYear, archMonth, hits]);
+
+  /**
+   * 가상 스크롤은 한 줄짜리 목록만 다룰 수 있으므로, 분기 헤더와 카드를 한 배열로 편다.
+   * 화면에 보이는 구간만 그리려면 렌더 순서가 곧 인덱스여야 한다.
+   */
+  const rows = useMemo(() => {
+    const out: (
+      | { kind: "header"; key: string; label: string; count: number }
+      | { kind: "card"; key: string; task: (typeof archived)[number] }
+    )[] = [];
+    groups.forEach((g) => {
+      out.push({ kind: "header", key: `h:${g.label}`, label: g.label, count: g.count });
+      g.items.forEach((t) => out.push({ kind: "card", key: t.folder, task: t }));
+    });
+    return out;
+  }, [groups]);
+
+  const v = useVirtual({
+    count: rows.length,
+    // 헤더는 한 줄, 카드는 태그 한 줄 기준. 재기 전까지만 쓰는 값이다.
+    estimate: (i) => (rows[i]?.kind === "header" ? 28 : 62),
+    // 필터가 바뀌면 같은 인덱스가 다른 업무를 가리키므로 재어 둔 높이를 버린다.
+    resetKey: `${archYear}|${archMonth}|${archScope}|${archQuery.trim()}|${rows.length}`,
+  });
 
   const rule =
     settings.archDays > 0
@@ -196,7 +236,9 @@ export default function Archive() {
             return (
               <div
                 key={y}
-                onClick={() => s.set({ archYear: y })}
+                // 연도를 바꾸면 월은 무조건 처음으로 — 새 연도에 없는 달이 남아 있으면
+                // 목록이 비어 버리고, 사용자는 왜 비었는지 알 길이 없다.
+                onClick={() => s.set({ archYear: y, archMonth: "all" })}
                 style={{
                   height: 22,
                   padding: "0 10px",
@@ -216,28 +258,111 @@ export default function Archive() {
             );
           })}
         </div>
+
+        {months.length > 0 && (
+          <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 5 }}>
+            <span
+              style={{ fontSize: 10.5, color: "#b5afa2", flex: "0 0 auto", padding: "0 4px 0 10px" }}
+            >
+              ↳
+            </span>
+            {["all", ...months].map((m) => {
+              const on = archMonth === m;
+              return (
+                <div
+                  key={m}
+                  onClick={() => s.set({ archMonth: m })}
+                  style={{
+                    height: 20,
+                    padding: "0 9px",
+                    display: "flex",
+                    alignItems: "center",
+                    borderRadius: 4,
+                    fontSize: 11,
+                    cursor: "pointer",
+                    border: `1px solid ${on ? "#cddcf8" : "transparent"}`,
+                    background: on ? "#eef3fd" : "transparent",
+                    color: on ? "#2f5cbb" : "#8a857c",
+                    fontWeight: on ? 600 : 400,
+                  }}
+                >
+                  {m === "all" ? "12개월" : `${parseInt(m, 10)}월`}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
-        <div style={{ flex: 1, minWidth: 0, overflow: "auto", padding: "12px 22px 20px 22px" }}>
-          {groups.map((g) => (
-            <div key={g.label} style={{ marginBottom: 16 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                <span
-                  style={{ fontSize: 12, fontWeight: 600, letterSpacing: ".3px", color: "#6a665e" }}
+        {/*
+          가상 스크롤. 보이는 구간만 그리되, 스크롤바가 흔들리지 않도록 안쪽 스페이서가
+          전체 높이를 유지한다. 카드 높이는 태그 줄 수와 스니펫 유무로 달라지므로
+          그려진 것만 실제로 재어(`v.measure`) 다음 배치에 반영한다.
+        */}
+        <div
+          ref={v.scrollRef}
+          style={{ flex: 1, minWidth: 0, overflow: "auto", padding: "12px 22px 20px 22px" }}
+        >
+          <div style={{ position: "relative", height: v.total }}>
+            {rows.slice(v.start, v.end).map((row, n) => {
+              const i = v.start + n;
+              if (row.kind === "header") {
+                return (
+                  <div
+                    key={row.key}
+                    ref={v.measure(i)}
+                    style={{
+                      position: "absolute",
+                      top: v.offsetOf(i),
+                      left: 0,
+                      right: 0,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      paddingTop: i === 0 ? 0 : 12,
+                      paddingBottom: 6,
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: 12,
+                        fontWeight: 600,
+                        letterSpacing: ".3px",
+                        color: "#6a665e",
+                      }}
+                    >
+                      {row.label}
+                    </span>
+                    <span
+                      style={{
+                        fontFamily: "'Roboto Mono',monospace",
+                        fontSize: 10.5,
+                        color: "#b5afa2",
+                      }}
+                    >
+                      {row.count}
+                    </span>
+                    <div style={{ flex: 1, height: 1, background: "#eae6de" }} />
+                  </div>
+                );
+              }
+              const t = row.task;
+              return (
+                <div
+                  key={row.key}
+                  ref={v.measure(i)}
+                  // 카드 사이 간격은 래퍼의 padding 이다 — margin 이면 재는 높이에
+                  // 잡히지 않아 카드가 서로 붙는다.
+                  style={{
+                    position: "absolute",
+                    top: v.offsetOf(i),
+                    left: 0,
+                    right: 0,
+                    paddingBottom: 4,
+                  }}
                 >
-                  {g.label}
-                </span>
-                <span
-                  style={{ fontFamily: "'Roboto Mono',monospace", fontSize: 10.5, color: "#b5afa2" }}
-                >
-                  {g.count}
-                </span>
-                <div style={{ flex: 1, height: 1, background: "#eae6de" }} />
-              </div>
-              {g.items.map((t) => (
                 <Box
-                  key={t.folder}
                   onClick={() => void s.peekArchived(t.folder)}
                   style={{
                     display: "flex",
@@ -247,7 +372,6 @@ export default function Archive() {
                     border: "1px solid #eae6de",
                     borderRadius: 6,
                     background: "#fff",
-                    marginBottom: 4,
                     cursor: "pointer",
                   }}
                   hover={{ borderColor: "#d9d4ca", background: "#fffdf9" }}
@@ -397,9 +521,10 @@ export default function Archive() {
                     </Box>
                   </div>
                 </Box>
-              ))}
-            </div>
-          ))}
+                </div>
+              );
+            })}
+          </div>
 
           {archived.length > 0 && groups.length === 0 && archQuery.trim() && (
             <div style={{ padding: "8px 2px", fontSize: 12, color: "#b5afa2", lineHeight: 1.7 }}>

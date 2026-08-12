@@ -72,8 +72,19 @@ export default function App() {
           ntRefs: [],
         });
       } else if (e.key === "Escape") {
-        if (st.ctx) st.set({ ctx: null });
+        // 겹쳐 있는 레이어 중 **맨 위 하나만** 닫는다. 순서는 화면에 쌓인 순서
+        // (각 모달의 zIndex)와 같아야 하고, 진행 중인 드래그가 가장 위다.
+        if (e.defaultPrevented) return; // 네이티브 <select> 등이 이미 소비했다
+        if (st.fileDrag) st.set({ fileDrag: null });
+        else if (st.ctx) st.set({ ctx: null });
         else if (st.mk) st.set({ mk: null });
+        else if (st.del) st.set({ del: null });
+        else if (st.ow) st.set({ ow: null });
+        else if (st.ren) st.set({ ren: null });
+        else if (st.drop) st.set({ drop: null });
+        else if (st.tplNew) st.set({ tplNew: null });
+        else if (st.merge) st.set({ merge: null });
+        else if (st.newOpen) st.set({ newOpen: false });
       }
     };
     const onBeforeUnload = () => {
