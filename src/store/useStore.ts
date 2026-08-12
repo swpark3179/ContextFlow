@@ -214,6 +214,11 @@ interface State {
   archYear: string;
   /** `"all"` 또는 `"01"`..`"12"`. 연도를 고른 뒤에만 의미가 있다. */
   archMonth: string;
+  /**
+   * 보관함에서 상세로 들어간 업무의 폴더 경로. 값이 있으면 보관함 화면이 목록 대신
+   * 그 업무의 작업공간을 그린다 — **화면은 여전히 보관함**이다.
+   */
+  archOpen: string;
 
   sidebarW: number;
   sidebarMin: boolean;
@@ -262,12 +267,13 @@ interface Actions {
   chooseVault: () => Promise<void>;
   reloadVault: (keepActive?: boolean) => Promise<void>;
 
-  selectTask: (folder: string) => Promise<void>;
+  selectTask: (folder: string, opts?: { keepScreen?: boolean }) => Promise<void>;
   renameTask: (folder: string, title: string) => Promise<void>;
   setStatus: (status: string) => Promise<void>;
   archiveNow: (folder: string) => Promise<void>;
   restoreTask: (folder: string) => Promise<void>;
   peekArchived: (folder: string) => Promise<void>;
+  closeArchived: () => void;
   openTaskInObsidian: (folder: string) => Promise<void>;
 
   setScreen: (s: Screen) => void;
@@ -324,6 +330,7 @@ export const useStore = create<State & Actions>((set, get) => ({
   archScope: "title",
   archYear: "all",
   archMonth: "all",
+  archOpen: "",
 
   sidebarW: 250,
   sidebarMin: false,
@@ -437,7 +444,7 @@ export const useStore = create<State & Actions>((set, get) => ({
       const live = tasks.filter((t) => !isArchived(t, settings.archDays));
       const next = (live[0] ?? tasks[0])?.folder;
       if (next) await get().selectTask(next);
-      else set({ activeFolder: "", files: [], ui: emptyUi() });
+      else set({ activeFolder: "", files: [], ui: emptyUi(), archOpen: "" });
     } catch (e) {
       get().fail(e, "Vault를 읽지 못했습니다");
     }
@@ -445,9 +452,19 @@ export const useStore = create<State & Actions>((set, get) => ({
 
   // -------------------------------------------------------------------------
 
-  selectTask: async (folder) => {
+  /**
+   * 업무를 연다. 기본은 워크스페이스로 넘어가는 것이지만, 보관함에서 상세를 열 때는
+   * `keepScreen` 으로 화면을 그대로 둔다 — 보관된 업무는 왼쪽 업무 리스트에 없어서
+   * 워크스페이스로 넘기면 아무것도 고르지 않은 것처럼 보인다(`peekArchived`).
+   */
+  selectTask: async (folder, opts) => {
     const { activeFolder, settings } = get();
-    if (folder === activeFolder) return;
+    // 이미 열려 있어도 화면은 맞춰 준다 — 보관함 상세에서 [재개] 한 업무가 그 자리에
+    // 남아 버리면, 목록에 다시 나타난 업무를 상세 화면에서 보고 있게 된다.
+    if (folder === activeFolder) {
+      if (!opts?.keepScreen) set({ screen: "workspace", archOpen: "" });
+      return;
+    }
 
     if (activeFolder) {
       await get().saveAll();
@@ -474,7 +491,7 @@ export const useStore = create<State & Actions>((set, get) => ({
       statusMenuOpen: false,
       ctx: null,
       mk: null,
-      screen: "workspace",
+      ...(opts?.keepScreen ? {} : { screen: "workspace" as Screen, archOpen: "" }),
       snapAt: hhmm(),
     });
     await get().refreshFiles();
@@ -594,10 +611,24 @@ export const useStore = create<State & Actions>((set, get) => ({
     }
   },
 
-  // 보관 상태는 워크스페이스 상단 배너가 상시 표시하므로 여는 순간을 따로 알리지 않는다.
+  /**
+   * 보관된 업무를 연다. **화면은 보관함에 머문다.**
+   *
+   * 예전에는 워크스페이스로 넘겼는데, 보관된 업무는 왼쪽 업무 리스트에 없으므로 넘어간
+   * 화면에서는 아무것도 선택되지 않은 것처럼 보였다. 게다가 목록으로 돌아와 같은 항목을
+   * 다시 눌러도 이미 활성 업무라 아무 일도 일어나지 않았다 — 한 번 열면 다시 열 수 없는
+   * 항목이 되는 셈이다. 이제 보관함 화면이 `archOpen` 을 보고 목록 대신 상세를 그리고,
+   * 상세 위쪽의 [보관함 목록] 버튼이 돌아가는 길이 된다.
+   *
+   * 보관 상태 자체는 상세 상단 바가 상시 표시하므로 여는 순간을 토스트로 알리지 않는다.
+   */
   peekArchived: async (folder) => {
-    await get().selectTask(folder);
+    set({ screen: "archive", archOpen: folder, ctx: null, statusMenuOpen: false });
+    await get().selectTask(folder, { keepScreen: true });
   },
+
+  /** 상세에서 보관함 목록으로. 연 업무는 그대로 두므로 다시 누르면 즉시 열린다. */
+  closeArchived: () => set({ archOpen: "", ctx: null, statusMenuOpen: false }),
 
   openTaskInObsidian: async (folder) => {
     const { settings } = get();
@@ -612,7 +643,8 @@ export const useStore = create<State & Actions>((set, get) => ({
     }
   },
 
-  setScreen: (s) => set({ screen: s, ctx: null, statusMenuOpen: false }),
+  // 화면을 직접 고르면 보관함은 언제나 목록에서 다시 시작한다.
+  setScreen: (s) => set({ screen: s, ctx: null, statusMenuOpen: false, archOpen: "" }),
 
   setUi: (patch) => {
     const ui = { ...get().ui, ...patch };

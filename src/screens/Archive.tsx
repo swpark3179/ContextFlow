@@ -3,8 +3,98 @@ import { Box, Input } from "../lib/ui";
 import { GREEN, VIOLET } from "../lib/design";
 import { daysSince, qLabel } from "../lib/format";
 import * as api from "../lib/api";
+import type { TaskMeta } from "../lib/api";
 import { isArchived, useStore } from "../store/useStore";
 import { useVirtual } from "../lib/virtual";
+import Workspace from "./Workspace";
+
+/**
+ * 보관함 안에서 연 업무의 작업공간.
+ *
+ * 워크스페이스 화면으로 넘기지 않는 이유는 그쪽 업무 리스트에 보관된 업무가 없기
+ * 때문이다 — 넘어가면 아무것도 고르지 않은 것처럼 보이고, 돌아와도 이미 활성 업무라
+ * 같은 항목을 다시 열 수 없었다. 화면(모드)은 보관함에 두고, 목록으로 돌아가는 길을
+ * 이 바가 제공한다.
+ */
+function ArchiveDetail({ task }: { task: TaskMeta }) {
+  const s = useStore();
+  const btn: React.CSSProperties = {
+    flex: "0 0 auto",
+    height: 24,
+    padding: "0 10px",
+    display: "flex",
+    alignItems: "center",
+    borderRadius: 4,
+    border: "1px solid #e0dcd4",
+    background: "#fff",
+    color: "#6a665e",
+    fontSize: 11.5,
+    cursor: "pointer",
+  };
+  return (
+    <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+      <div
+        style={{
+          flex: "0 0 auto",
+          display: "flex",
+          alignItems: "center",
+          gap: 9,
+          padding: "7px 12px",
+          background: "#f4f2ee",
+          borderBottom: "1px solid #e6e2da",
+        }}
+      >
+        <Box
+          onClick={() => s.closeArchived()}
+          style={{
+            flex: "0 0 auto",
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            height: 24,
+            padding: "0 10px 0 8px",
+            borderRadius: 4,
+            border: "1px solid #d9d4ca",
+            background: "#fff",
+            color: "#3a3630",
+            fontSize: 12,
+            fontWeight: 600,
+            cursor: "pointer",
+          }}
+          hover={{ borderColor: "#3a6fd8", color: "#2f5cbb" }}
+        >
+          <span style={{ fontSize: 11 }}>←</span> 보관함 목록
+        </Box>
+        <span style={{ fontSize: 12, color: "#6a665e", flex: 1, minWidth: 0 }}>
+          보관된 업무입니다 · 읽기 참조용으로 열려 있으며 업무 리스트에는 표시되지 않습니다
+        </span>
+        <Box
+          onClick={() => void s.openTaskInObsidian(task.folder)}
+          style={btn}
+          hover={{ borderColor: "#a78bfa", color: "#5a44b4" }}
+        >
+          Obsidian
+        </Box>
+        <Box
+          onClick={() => void s.restoreTask(task.folder)}
+          style={{
+            ...btn,
+            padding: "0 11px",
+            border: "1px solid #e0d6f8",
+            background: "#f4f0fd",
+            color: "#5a44b4",
+            fontSize: 12,
+            fontWeight: 600,
+          }}
+          hover={{ background: "#ece5fb" }}
+        >
+          여기서 재개
+        </Box>
+      </div>
+      <Workspace />
+    </div>
+  );
+}
 
 export default function Archive() {
   const s = useStore();
@@ -129,6 +219,12 @@ export default function Archive() {
     { key: "v", value: live, label: "목록에 남은 업무", color: GREEN },
   ];
 
+  /**
+   * 상세로 들어간 업무. 사라진 업무(외부에서 삭제 · 재개)를 가리키고 있으면 목록을
+   * 그린다 — 빈 상세보다 목록이 낫다.
+   */
+  const opened = s.archOpen ? tasks.find((t) => t.folder === s.archOpen) : undefined;
+
   const chip = (on: boolean) => ({
     height: 30,
     padding: "0 11px",
@@ -143,6 +239,8 @@ export default function Archive() {
     color: on ? "#2f5cbb" : "#6a665e",
     fontWeight: on ? 600 : 400,
   });
+
+  if (opened) return <ArchiveDetail task={opened} />;
 
   return (
     <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", background: "#fdfcfa" }}>

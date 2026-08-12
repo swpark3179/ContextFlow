@@ -442,7 +442,7 @@ export default function Sidebar() {
               </Box>
             ))}
             <Box
-              onClick={() => s.set({ screen: "archive", archQuery: query.trim() })}
+              onClick={() => s.set({ screen: "archive", archQuery: query.trim(), archOpen: "" })}
               style={{ fontSize: 11.5, color: "#3a6fd8", cursor: "pointer", padding: "5px 7px" }}
               hover={{ textDecoration: "underline" }}
             >
