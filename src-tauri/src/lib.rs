@@ -107,12 +107,21 @@ fn default_vault_root(app: tauri::AppHandle) -> Result<String> {
 // Vault
 // ---------------------------------------------------------------------------
 
+/// Vault 를 쓸 수 있는 상태로 만든다. 부팅과 Vault 변경 때 모두 지나가는 길목이라
+/// HTML 뷰어가 쓰는 `asset:` 스코프도 여기서 연다.
 #[tauri::command]
-fn init_vault(root: String, seed: bool) -> Result<()> {
+fn init_vault(app: tauri::AppHandle, root: String, seed: bool) -> Result<()> {
     let root = p(&root);
     vault::ensure_layout(&root)?;
     if seed {
         vault::seed_sample(&root)?;
+    }
+    // 스코프는 정적 설정으로 적을 수 없다 — Vault 경로는 사용자가 고르는 값이다.
+    // 실패해도 Vault 자체는 멀쩡하므로 부팅을 막지 않는다. 이 등록이 빠지면 HTML
+    // 뷰어의 스크립트 모드만 빈 화면이 되고, 그 자리에서 스크립트를 끄면 srcdoc 으로
+    // 그대로 읽을 수 있다.
+    if let Err(e) = app.asset_protocol_scope().allow_directory(&root, true) {
+        eprintln!("asset 스코프에 Vault 를 등록하지 못했습니다: {e}");
     }
     Ok(())
 }

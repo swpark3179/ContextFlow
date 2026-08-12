@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { Box } from "../lib/ui";
 import { extOf, extStyle } from "../lib/design";
+import { dragCursor, dragKind } from "../lib/dragCursor";
 import { flatten } from "../lib/tree";
 import { dirname } from "../lib/format";
 import { useStore } from "../store/useStore";
@@ -9,6 +10,8 @@ import { useStore } from "../store/useStore";
 const LONG_PRESS_MS = 1000;
 /** 누른 채 이 이상 움직이면 옮길 뜻이 아니라 스크롤·드래그선택으로 본다. */
 const SLOP_PX = 5;
+/** 고스트의 최대 폭(아래 `maxWidth`). 창 가장자리에 붙일 때 쓴다. */
+const GHOST_W = 300;
 
 export default function Explorer() {
   const s = useStore();
@@ -820,15 +823,31 @@ export default function Explorer() {
       )}
 
       {/*
-        커서를 따라다니는 고스트. 창 밖에서는 OS 가 드래그 커서를 그려 주지 않으므로
-        (Tauri 에 웹뷰 밖으로 파일을 넘기는 API 가 없다) 이것이 유일한 시각 피드백이다.
+        드래그 중의 커서. 창 밖에서는 고스트가 따라갈 수 없으므로(웹뷰 안에만 그릴 수
+        있다) 커서 자체에 배지를 붙여 무엇을 쥐고 있는지 알린다 — 바탕화면으로 복사면 ＋,
+        Alt 로 링크만이면 ↗. 포인터를 캡처하고 있는 동안은 창 밖에서도 이 커서가 유지된다.
+
+        `*` 에 !important 로 거는 이유는 캡처 중 커서를 정하는 것이 캡처 대상 요소이고,
+        그 요소(행)와 지나치는 요소들이 저마다 cursor 를 들고 있기 때문이다.
+      */}
+      {drag && (
+        <style>
+          {`html, body, body * { cursor: ${dragCursor(
+            dragKind(drag.outside, drag.alt),
+          )} !important; }`}
+        </style>
+      )}
+
+      {/*
+        커서를 따라다니는 고스트. 창 밖으로 나가면 좌표가 화면 밖이라 그대로는 보이지
+        않으므로 가장자리에 붙여 둔다 — 어떤 파일을 쥐고 있는지는 이름으로만 알 수 있다.
       */}
       {drag && (
         <div
           style={{
             position: "fixed",
-            left: drag.x + 12,
-            top: drag.y + 12,
+            left: Math.min(Math.max(6, drag.x + 12), window.innerWidth - GHOST_W - 6),
+            top: Math.min(Math.max(6, drag.y + 12), window.innerHeight - 34),
             zIndex: 95,
             pointerEvents: "none",
             display: "flex",

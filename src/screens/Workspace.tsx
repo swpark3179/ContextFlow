@@ -68,7 +68,9 @@ export default function Workspace() {
   }
 
   const st = statusOf(task.status);
-  const archived = isArchived(task, s.settings.archDays);
+  // 보관함 화면 안에서 열린 경우(Archive.tsx 의 상세)에는 위쪽 [보관함 목록] 바가
+  // 이미 같은 말을 하고 [여기서 재개]도 거기에 있다 — 배너를 한 번 더 쌓지 않는다.
+  const archived = isArchived(task, s.settings.archDays) && s.screen !== "archive";
 
   return (
     <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>

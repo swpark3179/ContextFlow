@@ -1,8 +1,9 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { Box } from "../lib/ui";
 import { extOf, LANG, statusOf } from "../lib/design";
 import { fmValue, mdParse, splitFrontmatter } from "../lib/markdown";
-import { basename } from "../lib/format";
+import { basename, joinPath } from "../lib/format";
 import { useStore, viewerFor, type TabMode } from "../store/useStore";
 
 const MODE_BADGE: Record<TabMode, { label: string; fg: string; bg: string; bar: string }> = {
@@ -20,11 +21,14 @@ function PaneHeader({
   hint,
   action,
   onAction,
+  children,
 }: {
   label: string;
   hint: string;
   action?: string;
   onAction?: () => void;
+  /** 전환 링크 왼쪽에 붙는 뷰어별 스위치. */
+  children?: ReactNode;
 }) {
   return (
     <div
@@ -43,6 +47,7 @@ function PaneHeader({
       </span>
       <span style={{ fontSize: 11, color: "#a09a8f" }}>{hint}</span>
       <div style={{ flex: 1 }} />
+      {children}
       {action && onAction && (
         <Box
           onClick={onAction}
@@ -56,11 +61,20 @@ function PaneHeader({
   );
 }
 
+/** 파일 내용이 바뀌면 값이 바뀌는 짧은 키. asset: URL 의 캐시를 무르는 데만 쓴다. */
+function contentKey(text: string): string {
+  let h = 5381;
+  for (let i = 0; i < text.length; i++) h = (h * 33) ^ text.charCodeAt(i);
+  return `${(h >>> 0).toString(36)}${text.length.toString(36)}`;
+}
+
 /** Tab strip + one of: empty state / binary card / markdown viewer / HTML viewer / editor. */
 export default function EditorPane() {
   const s = useStore();
   const { ui, files, activeFolder } = s;
   const [caret, setCaret] = useState({ ln: 1, col: 1 });
+  /** 스크립트를 끈 HTML 탭. 기본은 실행이고, 여기 들어온 경로만 srcdoc 으로 되돌아간다. */
+  const [noScript, setNoScript] = useState<Record<string, boolean>>({});
 
   const task = s.tasks.find((t) => t.folder === activeFolder);
   const tab = ui.openTabs.find((t) => `${t.mode}|${t.path}` === ui.activeTab) ?? null;
@@ -72,6 +86,25 @@ export default function EditorPane() {
   const ext = tab ? extOf(tab.path) : "";
   /** 이 파일에 준비된 뷰어. 편집기 머리띠의 [뷰어로 열기] 는 이게 있을 때만 뜬다. */
   const viewer = tab && !isBinary ? viewerFor(tab.path) : null;
+
+  const scripts = !!tab && !noScript[tab.path];
+  /**
+   * HTML 뷰어가 읽을 파일의 `asset:` URL.
+   *
+   * srcdoc 을 쓰지 않는 이유는 그 문서가 **부모 창의 CSP 를 물려받기** 때문이다 —
+   * `script-src 'self'` 아래에서는 문서 안의 `<script>` 가 한 줄도 돌지 않는다.
+   * asset: 로 읽으면 별도 출처의 평범한 문서라 CSP 를 물려받지 않고, 옆에 있는 CSS ·
+   * 이미지 · 스크립트 파일도 상대 경로 그대로 따라온다.
+   *
+   * 쿼리는 캐시를 무르기 위한 것이다(백엔드는 경로만 본다). 편집기에서 고친 뒤
+   * 뷰어로 돌아왔을 때 예전 내용이 남아 있으면 고친 것이 반영되지 않은 것처럼 보인다.
+   */
+  const htmlSrc = useMemo(() => {
+    if (!tab || isBinary || tab.mode !== "html" || !scripts) return "";
+    return `${convertFileSrc(joinPath(activeFolder, tab.path))}?v=${contentKey(
+      doc?.saved ?? "",
+    )}`;
+  }, [tab, isBinary, scripts, activeFolder, doc?.saved]);
 
   const split = useMemo(() => splitFrontmatter(body), [body]);
   const blocks = useMemo(
@@ -414,21 +447,49 @@ export default function EditorPane() {
         <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", background: "#fff" }}>
           <PaneHeader
             label="HTML 뷰어"
-            hint="읽기 전용 · 스크립트와 외부 리소스 차단"
+            hint={
+              scripts ? "스크립트 실행 · 앱 창과 격리됨" : "읽기 전용 · 스크립트와 외부 리소스 차단"
+            }
             action="텍스트로 편집"
             onAction={() => void s.setTabMode(tab.path, "html", "text")}
-          />
+          >
+            <Box
+              onClick={() => setNoScript((m) => ({ ...m, [tab.path]: scripts }))}
+              title={
+                scripts
+                  ? "문서 안의 스크립트를 멈추고 전부 차단된 화면으로 봅니다"
+                  : "문서 안의 스크립트를 실행합니다"
+              }
+              style={{
+                fontSize: 11,
+                color: scripts ? "#8f5d17" : "#a09a8f",
+                cursor: "pointer",
+                marginRight: 4,
+              }}
+              hover={{ textDecoration: "underline" }}
+            >
+              {scripts ? "스크립트 끄기" : "스크립트 켜기"}
+            </Box>
+          </PaneHeader>
           {/*
-            sandbox 에 아무 토큰도 주지 않았다 — 스크립트 · 폼 · 팝업 · 상위 창 접근이
-            전부 막힌다. srcdoc 문서는 부모 창의 CSP 도 물려받으므로(tauri.conf.json)
-            외부 이미지나 CDN 스타일도 나가지 못한다. 업무 폴더에서 주운 HTML 을
-            여는 자리라 이 정도로 잠가 둔다.
+            두 모드가 있고, 갈리는 지점은 **문서를 어디서 읽는가** 다.
+
+            기본(scripts)은 asset: 로 파일을 직접 읽는다. 별도 출처의 평범한 문서라
+            앱 창의 CSP 를 물려받지 않으므로 안의 <script> 가 실제로 돌고, 옆에 있는
+            CSS · 이미지도 상대 경로 그대로 따라온다. 대신 sandbox 는 `allow-scripts`
+            하나뿐이다 — allow-same-origin 을 함께 주면 샌드박스가 무의미해지므로 절대
+            같이 쓰지 않는다. 불투명 출처라 앱 창 · IPC · 로컬 저장소에 닿지 못한다.
+
+            [스크립트 끄기] 는 예전 방식인 srcdoc 으로 되돌아간다. sandbox 에 아무
+            토큰도 없고 부모 CSP 까지 물려받아 스크립트 · 외부 리소스가 전부 막히며,
+            디스크가 아니라 편집 중인 버퍼를 그린다.
           */}
           <iframe
-            key={tab.path}
+            key={scripts ? htmlSrc : `srcdoc|${tab.path}`}
             title="HTML 미리보기"
-            sandbox=""
-            srcDoc={body}
+            sandbox={scripts ? "allow-scripts" : ""}
+            src={scripts ? htmlSrc : undefined}
+            srcDoc={scripts ? undefined : body}
             style={{ flex: 1, minHeight: 0, width: "100%", border: 0, background: "#fff" }}
           />
         </div>
