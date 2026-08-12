@@ -665,10 +665,15 @@ export const useStore = create<State & Actions>((set, get) => ({
   },
 
   openFile: async (path, mode) => {
-    const { activeFolder, ui } = get();
+    const { activeFolder } = get();
     if (!activeFolder) return;
     const key = `${mode}|${path}`;
     try {
+      // 뷰어는 저장된 내용을 보여 준다 — HTML 뷰어는 디스크의 파일을 그대로 읽는다.
+      // 편집 중이던 버퍼가 있으면 `setTabMode` 와 같은 규칙으로 먼저 저장한다.
+      const buf = get().ui.docs[path];
+      if (mode !== "text" && buf && buf.text !== buf.saved) await get().saveDoc(path);
+      const ui = get().ui;
       let docs = ui.docs;
       if (!docs[path]) {
         const text = await api.readTextFile(joinPath(activeFolder, path));

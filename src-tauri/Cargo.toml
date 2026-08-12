@@ -14,7 +14,9 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# `protocol-asset` 은 HTML 뷰어가 파일을 asset: 로 직접 읽기 위한 것이다. srcdoc 과 달리
+# 별도 출처로 뜨므로 앱 창의 CSP 를 물려받지 않고, 그래서 문서 안의 <script> 가 실제로 돈다.
+tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }

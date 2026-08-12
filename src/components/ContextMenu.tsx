@@ -171,7 +171,7 @@ export default function ContextMenu() {
               {
                 key: "c2h",
                 label: "HTML 뷰어로 열기",
-                hint: "스크립트 차단",
+                hint: "스크립트 실행",
                 badge: "HTML",
                 badgeFg: "#8f5d17",
                 badgeBg: "#fbf3e6",
