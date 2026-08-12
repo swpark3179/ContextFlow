@@ -63,6 +63,18 @@ textarea {
 * {
   scrollbar-gutter: stable;
 }
+/*
+ * body never scrolls (it's just the outer overflow:hidden wrapper for the
+ * whole app), but it still counts as a scroll container per spec, so the
+ * universal rule above reserves a permanent scrollbar-width strip on its
+ * right edge — showing up as blank space to the right of the title bar's
+ * close button. Nothing here ever produces a scrollbar, so there's nothing
+ * to reserve a gutter for.
+ */
+html,
+body {
+  scrollbar-gutter: auto;
+}
 ::-webkit-scrollbar {
   width: 11px;
   height: 11px;
