@@ -1,18 +1,32 @@
 import { useEffect, useMemo, useRef } from "react";
 import { Box } from "../lib/ui";
-import { appsFor, extOf, extStyle } from "../lib/design";
+import { extOf, extStyle } from "../lib/design";
 import { flatten } from "../lib/tree";
+import { dirname } from "../lib/format";
 import { useStore } from "../store/useStore";
+
+/** 이만큼 누르고 있어야 드래그가 시작된다 — 그 전에는 평범한 클릭이다. */
+const LONG_PRESS_MS = 1000;
+/** 누른 채 이 이상 움직이면 옮길 뜻이 아니라 스크롤·드래그선택으로 본다. */
+const SLOP_PX = 5;
 
 export default function Explorer() {
   const s = useStore();
   const { ui, files, activeFolder } = s;
   const mkInput = useRef<HTMLInputElement | null>(null);
   const task = s.tasks.find((t) => t.folder === activeFolder);
+  /** 롱프레스 타이머와 시작 좌표. 드래그가 시작되면 상태는 스토어(`fileDrag`)로 넘어간다. */
+  const press = useRef<{ timer: number; detach: () => void } | null>(null);
+  /**
+   * 드래그를 끝낸 시각. pointerup 뒤에 click 이 한 번 더 오는데, 그걸 선택이나
+   * 폴더 접기로 받으면 방금 옮긴 행이 엉뚱하게 반응한다.
+   */
+  const droppedAt = useRef(0);
+  const justDropped = () => Date.now() - droppedAt.current < 300;
 
   const rows = useMemo(() => flatten(files, ui.treeOpen), [files, ui.treeOpen]);
   const openedModes = useMemo(() => {
-    const m: Record<string, { md?: boolean; text?: boolean }> = {};
+    const m: Record<string, { md?: boolean; text?: boolean; html?: boolean }> = {};
     ui.openTabs.forEach((t) => {
       m[t.path] = { ...m[t.path], [t.mode]: true };
     });
@@ -23,11 +37,130 @@ export default function Explorer() {
     if (s.mk) mkInput.current?.focus();
   }, [s.mk]);
 
+  /**
+   * 드래그가 살아 있는 동안만 붙는 리스너. 스토어에서 상태를 직접 읽어 최신 값을 쓴다
+   * — 리렌더마다 리스너를 갈아 끼우면 포인터 캡처가 끊긴다.
+   */
+  useEffect(() => {
+    if (!s.fileDrag) return;
+    const move = (e: PointerEvent) => {
+      const d = useStore.getState().fileDrag;
+      if (!d) return;
+      const outside =
+        e.clientX < 0 ||
+        e.clientY < 0 ||
+        e.clientX > window.innerWidth ||
+        e.clientY > window.innerHeight;
+      useStore.getState().set({
+        fileDrag: {
+          ...d,
+          x: e.clientX,
+          y: e.clientY,
+          outside,
+          alt: e.altKey,
+          over: outside ? null : folderAt(e.clientX, e.clientY),
+        },
+      });
+    };
+    const up = (e: PointerEvent) => {
+      const st = useStore.getState();
+      const d = st.fileDrag;
+      st.set({ fileDrag: null });
+      droppedAt.current = Date.now();
+      if (!d) return;
+      if (d.outside) void st.exportToDesktop(d.path, e.altKey ? "link" : "copy");
+      else if (d.over !== null) void st.moveFile(d.path, d.over);
+    };
+    // Alt 는 놓기 전에도 눌렀다 뗐다 할 수 있으므로 키 이벤트로 고스트를 갱신한다.
+    const key = (e: KeyboardEvent) => {
+      const d = useStore.getState().fileDrag;
+      if (d && d.alt !== e.altKey) useStore.getState().set({ fileDrag: { ...d, alt: e.altKey } });
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+    window.addEventListener("keydown", key);
+    window.addEventListener("keyup", key);
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      window.removeEventListener("keydown", key);
+      window.removeEventListener("keyup", key);
+    };
+    // 드래그의 시작/끝에만 반응하면 된다 — 좌표가 바뀔 때마다 다시 붙이면 그 사이
+    // 이벤트가 새고, 잡아 둔 포인터도 놓친다.
+  }, [!!s.fileDrag]);
+
   const selMeta = ui.sel ? files.find((f) => f.p === ui.sel) : undefined;
   const selExt = ui.sel ? extOf(ui.sel) : "";
   const selEs = extStyle(selExt);
-  const selIsMd = selExt === "md";
   const anyCollapsed = Object.values(ui.treeOpen).some((v) => v === false);
+
+  // -- 롱프레스 드래그 ------------------------------------------------------
+  //
+  // HTML5 드래그를 쓰지 않는 이유는 두 가지다. (1) 1초 누르고 있어야 시작한다는
+  // 조건을 native drag 로는 표현할 수 없고, (2) Tauri 에는 웹뷰 밖으로 파일을
+  // 넘기는 API 가 없어서 창 밖 드롭은 어차피 좌표로 판정해야 한다.
+
+  const cancelPress = () => {
+    if (press.current) {
+      window.clearTimeout(press.current.timer);
+      press.current.detach();
+      press.current = null;
+    }
+  };
+
+  /** 드롭 지점 아래의 행을 찾아 **넣을 폴더**의 상대 경로로 바꾼다. */
+  const folderAt = (x: number, y: number): string | null => {
+    const hit = document.elementFromPoint(x, y)?.closest("[data-tree-path]");
+    const path = hit?.getAttribute("data-tree-path");
+    if (path === null || path === undefined) return null;
+    // 폴더 위면 그 안으로, 파일 위면 그 파일과 같은 폴더로.
+    return path.endsWith("/") ? path : dirname(path);
+  };
+
+  const startPress = (e: React.PointerEvent, path: string, name: string, isDir: boolean) => {
+    if (e.button !== 0) return;
+    // 타이머 안에서 쓸 값은 지금 꺼내 둔다 — 그때는 이벤트의 currentTarget 이 이미 비어 있다.
+    const target = e.currentTarget as HTMLElement;
+    const pointerId = e.pointerId;
+    const { clientX: x, clientY: y } = e;
+    cancelPress();
+
+    // 감시는 window 에 건다. 행에만 걸면 누른 채 이웃 행으로 넘어갔을 때 이벤트가
+    // 끊겨서, 옮길 뜻이 없었는데도 1초 뒤에 드래그가 시작된다.
+    const onMove = (ev: PointerEvent) => {
+      if (Math.abs(ev.clientX - x) > SLOP_PX || Math.abs(ev.clientY - y) > SLOP_PX) cancelPress();
+    };
+    const detach = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", cancelPress);
+      window.removeEventListener("pointercancel", cancelPress);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", cancelPress);
+    window.addEventListener("pointercancel", cancelPress);
+
+    press.current = {
+      detach,
+      timer: window.setTimeout(() => {
+        detach();
+        press.current = null;
+        // 포인터를 잡아 둬야 커서가 창 밖으로 나가도 move/up 이 계속 온다.
+        try {
+          target.setPointerCapture(pointerId);
+        } catch {
+          /* 캡처는 최적화일 뿐 — 실패해도 window 리스너로 따라간다 */
+        }
+        s.set({
+          fileDrag: { path, name, isDir, x, y, over: null, outside: false, alt: false },
+        });
+      }, LONG_PRESS_MS),
+    };
+  };
+
+  const drag = s.fileDrag;
 
   const startMk = (kind: "file" | "folder", dir?: string) => {
     const parent =
@@ -249,6 +382,9 @@ export default function Explorer() {
       </div>
 
       <div
+        // 행 바깥의 빈 자리는 업무 폴더 최상위를 뜻한다 — `closest` 가 행을 먼저 찾으므로
+        // 행 위에서는 이 값이 쓰이지 않는다.
+        data-tree-path=""
         onDragOver={(e) => {
           e.preventDefault();
           if (!s.dragOver) s.set({ dragOver: true });
@@ -354,15 +490,19 @@ export default function Explorer() {
 
         {rows.map((r) => {
           const pad = 6 + r.depth * 13;
+          const dropInto = drag && (drag.over ?? "") === (r.kind === "dir" ? r.path : dirname(r.path));
           if (r.kind === "dir") {
             return (
               <Box
                 key={`d${r.path}`}
-                onClick={() =>
+                data-tree-path={r.path}
+                onPointerDown={(e) => startPress(e, r.path, r.name, true)}
+                onClick={() => {
+                  if (justDropped()) return;
                   s.setUi({
                     treeOpen: { ...ui.treeOpen, [r.path]: ui.treeOpen[r.path] === false },
-                  })
-                }
+                  });
+                }}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   s.setUi({ sel: r.path });
@@ -389,7 +529,8 @@ export default function Explorer() {
                   userSelect: "none",
                   paddingRight: 6,
                   paddingLeft: pad,
-                  background: "transparent",
+                  background: dropInto ? "#e6eefc" : "transparent",
+                  outline: dropInto ? "1px solid #3a6fd8" : "none",
                 }}
                 hover={{ background: "#efece6" }}
               >
@@ -441,7 +582,10 @@ export default function Explorer() {
           return (
             <Box
               key={`f${r.path}`}
+              data-tree-path={r.path}
+              onPointerDown={(e) => startPress(e, r.path, r.name, false)}
               onClick={() => {
+                if (justDropped()) return;
                 s.setUi({ sel: r.path });
                 s.set({ ctx: null });
               }}
@@ -472,7 +616,8 @@ export default function Explorer() {
                 userSelect: "none",
                 paddingRight: 6,
                 paddingLeft: pad,
-                background: on ? "#e6eefc" : "transparent",
+                background: on || dropInto ? "#e6eefc" : "transparent",
+                opacity: drag?.path === r.path ? 0.4 : 1,
               }}
               hover={{ background: on ? "#e6eefc" : "#efece6" }}
             >
@@ -519,6 +664,21 @@ export default function Explorer() {
                   }}
                 >
                   MD
+                </span>
+              )}
+              {om.html && (
+                <span
+                  style={{
+                    flex: "0 0 auto",
+                    fontFamily: "'Roboto Mono',monospace",
+                    fontSize: 8.5,
+                    color: "#8f5d17",
+                    background: "#fbf3e6",
+                    borderRadius: 2,
+                    padding: "1px 3px",
+                  }}
+                >
+                  HTML
                 </span>
               )}
               {om.text && (
@@ -651,130 +811,68 @@ export default function Explorer() {
               {selMeta?.size ?? "—"}
             </span>
           </div>
-          <div
+          <div style={{ fontSize: 10.5, color: "#b5afa2", marginTop: -1, lineHeight: 1.6 }}>
+            더블클릭 = 기본 열기 · 우클릭 = 열기 방식 메뉴
+            <br />
+            길게 누르면 = 옮기기 · 창 밖으로 = 바탕화면 (Alt = 링크)
+          </div>
+        </div>
+      )}
+
+      {/*
+        커서를 따라다니는 고스트. 창 밖에서는 OS 가 드래그 커서를 그려 주지 않으므로
+        (Tauri 에 웹뷰 밖으로 파일을 넘기는 API 가 없다) 이것이 유일한 시각 피드백이다.
+      */}
+      {drag && (
+        <div
+          style={{
+            position: "fixed",
+            left: drag.x + 12,
+            top: drag.y + 12,
+            zIndex: 95,
+            pointerEvents: "none",
+            display: "flex",
+            alignItems: "center",
+            gap: 7,
+            maxWidth: 300,
+            padding: "5px 9px",
+            borderRadius: 5,
+            border: `1px solid ${drag.outside ? "#cddcf8" : "#d9d4ca"}`,
+            background: drag.outside ? "#eef3fd" : "#fff",
+            boxShadow: "0 8px 20px rgba(35,33,30,.22)",
+          }}
+        >
+          <span
             style={{
-              fontSize: 10.5,
-              fontWeight: 600,
-              letterSpacing: ".4px",
-              color: "#a09a8f",
-              marginBottom: 5,
+              fontFamily: "'Roboto Mono',monospace",
+              fontSize: 11,
+              color: drag.alt && drag.outside ? "#5a44b4" : "#6a665e",
             }}
           >
-            열기 방식
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <Box
-              onClick={() => void s.openFile(ui.sel, "text")}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                height: 27,
-                padding: "0 8px",
-                borderRadius: 5,
-                border: "1px solid #ddd8cf",
-                background: "#fff",
-                cursor: "pointer",
-              }}
-              hover={{ borderColor: "#3a6fd8", background: "#f7fafe" }}
-            >
-              <span
-                style={{
-                  fontFamily: "'Roboto Mono',monospace",
-                  fontSize: 9,
-                  fontWeight: 600,
-                  color: "#2f5cbb",
-                  background: "#eef3fd",
-                  borderRadius: 2,
-                  padding: "1px 4px",
-                }}
-              >
-                TXT
-              </span>
-              <span style={{ fontSize: 12, color: "#3a3630", flex: 1 }}>텍스트 에디터로 열기</span>
-              <span
-                style={{ fontFamily: "'Roboto Mono',monospace", fontSize: 10, color: "#b5afa2" }}
-              >
-                편집 가능
-              </span>
-            </Box>
-            <Box
-              onClick={() => {
-                if (selIsMd) void s.openFile(ui.sel, "md");
-              }}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                height: 27,
-                padding: "0 8px",
-                borderRadius: 5,
-                cursor: selIsMd ? "pointer" : "not-allowed",
-                border: `1px solid ${selIsMd ? "#ddd8cf" : "#eae6de"}`,
-                background: selIsMd ? "#fff" : "#faf9f6",
-                opacity: selIsMd ? 1 : 0.45,
-              }}
-              hover={selIsMd ? { borderColor: "#6a54c6" } : undefined}
-            >
-              <span
-                style={{
-                  fontFamily: "'Roboto Mono',monospace",
-                  fontSize: 9,
-                  fontWeight: 600,
-                  color: "#5a44b4",
-                  background: "#f2eefc",
-                  borderRadius: 2,
-                  padding: "1px 4px",
-                }}
-              >
-                MD
-              </span>
-              <span style={{ fontSize: 12, color: "#3a3630", flex: 1 }}>마크다운 뷰어로 열기</span>
-              <span
-                style={{ fontFamily: "'Roboto Mono',monospace", fontSize: 10, color: "#b5afa2" }}
-              >
-                {selIsMd ? "읽기 전용" : ".md 전용"}
-              </span>
-            </Box>
-            <Box
-              onClick={() => s.openWith(ui.sel)}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                height: 27,
-                padding: "0 8px",
-                borderRadius: 5,
-                border: "1px solid #ddd8cf",
-                background: "#fff",
-                cursor: "pointer",
-              }}
-              hover={{ borderColor: "#8a857c", background: "#faf9f6" }}
-            >
-              <span
-                style={{
-                  fontFamily: "'Roboto Mono',monospace",
-                  fontSize: 9,
-                  fontWeight: 600,
-                  color: "#6a665e",
-                  background: "#f0ede7",
-                  borderRadius: 2,
-                  padding: "1px 4px",
-                }}
-              >
-                ↗
-              </span>
-              <span style={{ fontSize: 12, color: "#3a3630", flex: 1 }}>연결 프로그램으로 열기</span>
-              <span
-                style={{ fontFamily: "'Roboto Mono',monospace", fontSize: 10, color: "#b5afa2" }}
-              >
-                {appsFor(selExt)[0]?.n ?? ""}
-              </span>
-            </Box>
-          </div>
-          <div style={{ fontSize: 10.5, color: "#b5afa2", marginTop: 7, lineHeight: 1.6 }}>
-            더블클릭 = 기본 열기 · 우클릭 = 열기 방식 메뉴
-          </div>
+            {drag.outside ? (drag.alt ? "⇢" : "⧉") : "↳"}
+          </span>
+          <span
+            style={{
+              fontSize: 12,
+              color: "#3a3630",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {drag.name}
+          </span>
+          <span style={{ fontSize: 10.5, color: "#8a857c", flex: "0 0 auto" }}>
+            {drag.outside
+              ? drag.alt
+                ? "바탕화면에 링크"
+                : "바탕화면으로 복사"
+              : drag.over === null
+                ? "여기엔 놓을 수 없음"
+                : drag.over === dirname(drag.path)
+                  ? "이미 이 폴더에 있음"
+                  : `${drag.over || "업무 폴더 최상위"} 로 이동`}
+          </span>
         </div>
       )}
     </div>

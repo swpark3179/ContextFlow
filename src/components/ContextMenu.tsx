@@ -12,7 +12,6 @@ interface Item {
   badgeFg: string;
   badgeBg: string;
   sep?: boolean;
-  disabled?: boolean;
   run: () => void;
 }
 
@@ -65,6 +64,35 @@ export default function ContextMenu() {
     run: () => void s.askDelete(ctx),
   };
 
+  // 드래그로 창 밖에 놓아도 같은 일을 하지만, 그쪽은 놓은 위치를 OS 에 물을 수 없어
+  // 언제나 바탕화면으로 간다. 여기가 그 동작의 분명한 이름표다.
+  const toDesktop: Item[] = [
+    {
+      key: "dk1",
+      label: "바탕화면으로 복사",
+      hint: "사본",
+      badge: "⧉",
+      badgeFg: "#6a665e",
+      badgeBg: "#f0ede7",
+      run: () => {
+        s.set({ ctx: null });
+        void s.exportToDesktop(ctx.path, "copy");
+      },
+    },
+    {
+      key: "dk2",
+      label: "바탕화면에 링크 만들기",
+      hint: "심볼릭 링크",
+      badge: "⇢",
+      badgeFg: "#5a44b4",
+      badgeBg: "#f2eefc",
+      run: () => {
+        s.set({ ctx: null });
+        void s.exportToDesktop(ctx.path, "link");
+      },
+    },
+  ];
+
   const items: Item[] = ctx.isDir
     ? [
         {
@@ -106,30 +134,51 @@ export default function ContextMenu() {
           },
         },
         copyPath,
+        ...toDesktop,
         del,
       ]
     : [
-        {
-          key: "c1",
-          label: "텍스트 에디터로 열기",
-          hint: "편집",
-          badge: "TXT",
-          badgeFg: "#2f5cbb",
-          badgeBg: "#eef3fd",
-          run: () => void s.openFile(ctx.path, "text"),
-        },
-        {
-          key: "c2",
-          label: "마크다운 뷰어로 열기",
-          hint: ctx.ext === "md" ? "읽기" : ".md 전용",
-          badge: "MD",
-          badgeFg: "#5a44b4",
-          badgeBg: "#f2eefc",
-          disabled: ctx.ext !== "md",
-          run: () => {
-            if (ctx.ext === "md") void s.openFile(ctx.path, "md");
-          },
-        },
+        // 쓸 수 없는 열기 방식은 회색으로 남기지 않고 **아예 빼 둔다** — 목록이 짧을수록
+        // 이 파일로 무엇을 할 수 있는지가 한눈에 들어온다.
+        ...(ctx.bin
+          ? []
+          : [
+              {
+                key: "c1",
+                label: "텍스트 에디터로 열기",
+                hint: "편집",
+                badge: "TXT",
+                badgeFg: "#2f5cbb",
+                badgeBg: "#eef3fd",
+                run: () => void s.openFile(ctx.path, "text"),
+              },
+            ]),
+        ...(!ctx.bin && ctx.ext === "md"
+          ? [
+              {
+                key: "c2",
+                label: "마크다운 뷰어로 열기",
+                hint: "읽기",
+                badge: "MD",
+                badgeFg: "#5a44b4",
+                badgeBg: "#f2eefc",
+                run: () => void s.openFile(ctx.path, "md"),
+              },
+            ]
+          : []),
+        ...(!ctx.bin && (ctx.ext === "html" || ctx.ext === "htm")
+          ? [
+              {
+                key: "c2h",
+                label: "HTML 뷰어로 열기",
+                hint: "스크립트 차단",
+                badge: "HTML",
+                badgeFg: "#8f5d17",
+                badgeBg: "#fbf3e6",
+                run: () => void s.openFile(ctx.path, "html"),
+              },
+            ]
+          : []),
         {
           key: "c3",
           label: "연결 프로그램으로 열기…",
@@ -171,6 +220,7 @@ export default function ContextMenu() {
           },
         },
         copyPath,
+        ...toDesktop,
         del,
       ];
 
@@ -240,17 +290,16 @@ export default function ContextMenu() {
           <div key={i.key} style={{ display: "flex", flexDirection: "column" }}>
             {i.sep && <div style={{ height: 1, background: "#f0ede7", margin: "3px 0" }} />}
             <Box
-              onClick={() => !i.disabled && i.run()}
+              onClick={() => i.run()}
               style={{
                 display: "flex",
                 alignItems: "center",
                 gap: 8,
                 padding: "6px 8px",
                 borderRadius: 4,
-                cursor: i.disabled ? "not-allowed" : "pointer",
-                opacity: i.disabled ? 0.42 : 1,
+                cursor: "pointer",
               }}
-              hover={i.disabled ? undefined : { background: "#f2efe9" }}
+              hover={{ background: "#f2efe9" }}
             >
               <span
                 style={{

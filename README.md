@@ -35,8 +35,7 @@ frontmatter에 있다. Obsidian에서 보이는 것이 곧 ContextFlow에서 보
 %USERPROFILE%\Documents\ContextFlow Vault\   ← 설정에서 변경 가능
 ├── Tasks/
 │   └── [2026-08] Tauri 2.0 마이그레이션/
-│       ├── index.md                 # frontmatter = 업무 메타데이터
-│       ├── notes.md
+│       ├── index.md                 # frontmatter = 업무 메타데이터 · 기본 노트는 이것 하나
 │       ├── attachments/
 │       ├── reference/[참조한 업무명]/  # [참고만 하기]로 가져온 과거 업무 사본
 │       └── .context_snapshot.json   # 열린 탭 · 선택 파일 · 미저장 텍스트 · 메모

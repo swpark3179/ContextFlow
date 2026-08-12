@@ -237,8 +237,6 @@ export default function NewTaskModal() {
                 <br />
                 &nbsp;&nbsp;├── index.md
                 <br />
-                &nbsp;&nbsp;├── notes.md
-                <br />
                 &nbsp;&nbsp;{tplFolder || ntRefs.length ? "├" : "└"}── attachments/
                 {tplFolder && (
                   <>

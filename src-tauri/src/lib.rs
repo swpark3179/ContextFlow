@@ -235,6 +235,28 @@ fn import_into_task(
     fsops::import_files(&p(&folder), &target, &sources, &mode)
 }
 
+#[tauri::command]
+fn move_task_path(folder: String, rel: String, target_dir: String) -> Result<String> {
+    fsops::move_path(&p(&folder), &rel, &target_dir)
+}
+
+#[tauri::command]
+fn export_to_desktop(
+    app: tauri::AppHandle,
+    folder: String,
+    rel: String,
+    mode: String,
+) -> Result<fsops::ExportResult> {
+    // 바탕화면은 OS 마다 다른 곳에 있고 리다이렉트(OneDrive 등)되기도 한다 —
+    // 경로를 추측하지 말고 Tauri 의 리졸버에 묻는다. 없으면 홈 아래를 쓴다.
+    let desktop = app
+        .path()
+        .desktop_dir()
+        .or_else(|_| app.path().home_dir().map(|h| h.join("Desktop")))
+        .map_err(|e| AppError::io(format!("바탕화면 폴더를 찾을 수 없습니다: {}", e)))?;
+    fsops::export_path(&p(&folder), &rel, &desktop, &mode)
+}
+
 // ---------------------------------------------------------------------------
 // Snapshots
 // ---------------------------------------------------------------------------
@@ -557,6 +579,8 @@ pub fn run() {
             preview_delete,
             delete_task_path,
             import_into_task,
+            move_task_path,
+            export_to_desktop,
             load_snapshot,
             save_snapshot,
             open_path_default,

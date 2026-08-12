@@ -99,6 +99,16 @@ export const APPS: Record<string, AppChoice[]> = {
     { n: "웹 브라우저", d: "기본 앱 · 네트워크 로그 분석", c: BLUE },
     NOTEPAD,
   ],
+  html: [
+    { n: "웹 브라우저", d: "기본 앱 · 스크립트까지 실행", c: BLUE },
+    VSCODE,
+    NOTEPAD,
+  ],
+  htm: [
+    { n: "웹 브라우저", d: "기본 앱 · 스크립트까지 실행", c: BLUE },
+    VSCODE,
+    NOTEPAD,
+  ],
   txt: [{ ...NOTEPAD, d: "기본 앱 · Windows 기본 텍스트 편집기" }, VSCODE],
   log: [{ ...NOTEPAD, d: "기본 앱 · Windows 기본 텍스트 편집기" }, VSCODE],
 };
@@ -114,6 +124,8 @@ export function extOf(name: string): string {
 
 export function extStyle(ext: string): { fg: string; bg: string } {
   if (ext === "md") return { fg: "#5a44b4", bg: "#f2eefc" };
+  // 내장 뷰어가 있는 나머지 한 종류 — 마크다운과 구분되는 색을 준다.
+  if (ext === "html" || ext === "htm") return { fg: "#8f5d17", bg: "#fbf3e6" };
   if (["json", "ts", "tsx", "js", "sql", "ps1", "rs", "py"].includes(ext))
     return { fg: "#2f5cbb", bg: "#eef3fd" };
   if (["csv", "xlsx", "tsv"].includes(ext)) return { fg: "#256b47", bg: "#e9f4ee" };
