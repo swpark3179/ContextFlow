@@ -189,6 +189,28 @@ function emptyUi(): TaskUi {
   };
 }
 
+/**
+ * [Obsidian] 계열 버튼의 결과를 토스트로 옮긴다.
+ *
+ * Obsidian 이 떴으면 아무것도 띄우지 않는다 — 창이 뜨는 것 자체가 결과다. 알릴 값어치가
+ * 있는 것은 떠야 할 것이 안 떴을 때뿐이고, 그중 `unregistered` 는 사용자가 손쓸 수 있는
+ * 유일한 경우라 무엇을 하면 되는지까지 적어 준다. 업무 노트와 Archive MOC 두 호출 지점이
+ * 같은 문구를 쓰도록 여기 한 곳에 둔다.
+ */
+export function reportObsidianOpen(res: api.OpenOutcome): void {
+  const { toast } = useStore.getState();
+  if (res.opened === "obsidian") return;
+  if (res.opened === "unregistered") {
+    toast(
+      "Obsidian에 등록되지 않은 Vault입니다",
+      `탐색기에서 열었습니다 · Obsidian에서 [폴더를 vault로 열기]로 ${res.detail} 를 한 번 등록하세요`,
+      TOAST.warn,
+    );
+    return;
+  }
+  toast("탐색기에서 열었습니다", res.detail, TOAST.muted);
+}
+
 /** Mirrors `is_archived` in src-tauri/src/lib.rs so both agree on the rule. */
 export function isArchived(t: TaskMeta, archDays: number): boolean {
   if (t.archived !== null) return t.archived;
@@ -250,6 +272,11 @@ interface State {
   recTag: Record<string, string>;
   /** [참고만 하기] 로 고른 업무들의 폴더 경로. `createTask` 가 이 파일들을 복사해 온다. */
   ntRefs: string[];
+  /**
+   * 업무 생성이 도는 중. 모달은 생성이 **끝난 뒤에야** 닫히므로, 그 사이에 Enter 나
+   * [업무 생성] 이 한 번 더 들어오면 같은 업무가 두 개 만들어진다(이름만 `(2)` 로 갈린다).
+   */
+  ntBusy: boolean;
   expanded: Record<string, boolean>;
   merge: MergeState | null;
   ren: RenameState | null;
@@ -361,6 +388,7 @@ export const useStore = create<State & Actions>((set, get) => ({
   ntNote: "",
   recTag: {},
   ntRefs: [],
+  ntBusy: false,
   expanded: {},
   merge: null,
   ren: null,
@@ -633,11 +661,7 @@ export const useStore = create<State & Actions>((set, get) => ({
   openTaskInObsidian: async (folder) => {
     const { settings } = get();
     try {
-      const res = await api.openInObsidian(settings.vault, joinPath(folder, "index.md"));
-      // Obsidian 이 떴으면 눈에 보인다. 알릴 값어치가 있는 것은 **떠야 할 것이 안 떴을 때**다
-      // — obsidian:// 프로토콜이 등록돼 있지 않아 탐색기로 대신 연 경우.
-      if (res.opened !== "obsidian")
-        get().toast("탐색기에서 열었습니다", res.detail, TOAST.muted);
+      reportObsidianOpen(await api.openInObsidian(settings.vault, joinPath(folder, "index.md")));
     } catch (e) {
       get().fail(e, "Obsidian에서 열지 못했습니다");
     }
@@ -1065,9 +1089,10 @@ export const useStore = create<State & Actions>((set, get) => ({
   },
 
   createTask: async () => {
-    const { nt, settings, ntRefs, tasks } = get();
+    const { nt, settings, ntRefs, tasks, ntBusy } = get();
     const title = nt.title.trim();
-    if (!title) return;
+    if (!title || ntBusy) return;
+    set({ ntBusy: true });
     const tags = nt.tags
       .split(",")
       .map((x) => x.trim())
@@ -1115,6 +1140,8 @@ export const useStore = create<State & Actions>((set, get) => ({
       await get().reloadTemplates();
     } catch (e) {
       get().fail(e, "업무를 만들지 못했습니다");
+    } finally {
+      set({ ntBusy: false });
     }
   },
 

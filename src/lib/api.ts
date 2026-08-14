@@ -70,8 +70,19 @@ export interface ExportResult {
 }
 
 export interface OpenOutcome {
-  opened: "obsidian" | "explorer";
+  /**
+   * `unregistered` = 노트가 Obsidian 에 등록된 어느 vault 에도 들어 있지 않아 URL 을
+   * 쏘지 않고 탐색기로 열었다. 이때 `detail` 은 등록해야 할 Vault 루트 경로다.
+   */
+  opened: "obsidian" | "explorer" | "unregistered";
   detail: string;
+}
+
+export interface VaultStatus {
+  /** Obsidian 의 vault 목록 자체를 읽었는지. false 면 `registered` 는 판단하지 않은 값이다. */
+  registryFound: boolean;
+  registered: boolean;
+  vaultName: string | null;
 }
 
 export interface RecCandidate {
@@ -200,6 +211,8 @@ export const revealPath = (path: string) => invoke<void>("reveal_path", { path }
 export const obsidianAvailable = () => invoke<boolean>("obsidian_available");
 export const openInObsidian = (root: string, path: string) =>
   invoke<OpenOutcome>("open_in_obsidian", { root, path });
+export const obsidianVaultStatus = (root: string) =>
+  invoke<VaultStatus>("obsidian_vault_status", { root });
 
 // -- templates & archive ----------------------------------------------------
 

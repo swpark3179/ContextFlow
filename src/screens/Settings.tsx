@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Box, Input } from "../lib/ui";
 import { VIOLET } from "../lib/design";
 import { OptionCard } from "../modals/Modal";
@@ -25,6 +25,61 @@ const TOGGLES: [keyof S, string, string][] = [
   ["restoreView", "뷰 레이아웃 복원", "업무별 분할 패널 구성과 열어둔 파일을 그대로 되살림"],
   ["wikiIndex", "위키링크 실시간 색인", "[[링크]] 변경 시 Vault 그래프를 즉시 갱신"],
 ];
+
+/**
+ * Vault 가 Obsidian 에 등록돼 있는지 보여 준다.
+ *
+ * [Obsidian에서 열기] 는 등록된 vault 안의 노트만 열 수 있다. 등록돼 있지 않으면 예전에는
+ * Obsidian 이 "Vault not found" 대화상자를 띄웠고, 그 이유가 어디에도 드러나지 않았다.
+ * 특히 Vault 루트가 아니라 그 하위 폴더만 vault 로 등록한 경우(업무 노트는 열리는데
+ * `_index/Archive.md` 만 안 열린다)가 여기서 드러난다.
+ */
+function ObsidianRegistration({ vault }: { vault: string }) {
+  const [st, setSt] = useState<api.VaultStatus | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    setSt(null);
+    if (!vault) return;
+    void api
+      .obsidianVaultStatus(vault)
+      .then((r) => alive && setSt(r))
+      .catch(() => alive && setSt(null));
+    return () => {
+      alive = false;
+    };
+  }, [vault]);
+
+  if (!st) return null;
+
+  // 목록을 못 읽었을 때는 "등록 안 됨" 이 아니라 "알 수 없음" 이다 — 포터블 설치이거나
+  // Obsidian 을 아직 한 번도 실행하지 않았을 수 있고, 그 경우에도 열기는 잘 된다.
+  const [text, color] = !st.registryFound
+    ? ["Obsidian vault 목록을 찾지 못했습니다 · 열기는 절대 경로로 시도합니다", "#a09a8f"]
+    : st.registered
+      ? [`Obsidian에 등록됨 · vault "${st.vaultName}"`, "#2f7f57"]
+      : [
+          "Obsidian에 등록되지 않았습니다 · Obsidian에서 [폴더를 vault로 열기]로 이 경로를 한 번 등록하세요",
+          "#b07520",
+        ];
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "flex-start",
+        gap: 6,
+        marginTop: 8,
+        fontSize: 11.5,
+        lineHeight: 1.6,
+        color,
+      }}
+    >
+      <span style={{ flex: "0 0 auto" }}>●</span>
+      <span style={{ minWidth: 0 }}>{text}</span>
+    </div>
+  );
+}
 
 export default function Settings() {
   const s = useStore();
@@ -98,6 +153,7 @@ export default function Settings() {
               <br />
               {settings.vault}/Templates/
             </div>
+            <ObsidianRegistration vault={settings.vault} />
           </div>
         </div>
 

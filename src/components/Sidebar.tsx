@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { Box, Input } from "../lib/ui";
-import { statusOf } from "../lib/design";
+import { normalizeStatus, statusOf } from "../lib/design";
 import { shortStamp } from "../lib/format";
 import { isArchived, useStore, type Screen } from "../store/useStore";
 
@@ -40,13 +40,13 @@ export default function Sidebar() {
       completed: 0,
     };
     live.forEach((t) => {
-      const k = t.status === "reopened" ? "in-progress" : t.status;
+      const k = normalizeStatus(t.status);
       if (counts[k] !== undefined) counts[k]++;
     });
     const match = (t: (typeof tasks)[number]) =>
       `${t.title} ${t.tags.join(" ")} ${t.relFolder} ${t.tagline}`.toLowerCase().includes(q);
     const visible = live.filter((t) => {
-      const st = t.status === "reopened" ? "in-progress" : t.status;
+      const st = normalizeStatus(t.status);
       if (filter !== "all" && st !== filter) return false;
       return !q || match(t);
     });

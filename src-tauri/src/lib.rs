@@ -309,9 +309,26 @@ fn obsidian_available() -> bool {
     shell::obsidian_installed()
 }
 
+/// Obsidian 의 vault 목록이 사는 곳. 해석에 실패하면 `None` 이고, 그때 `shell` 쪽은
+/// "등록 안 됨" 이라고 단정하지 않고 예전 경로로 돌아간다.
+fn obsidian_config_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
+    app.path().config_dir().ok()
+}
+
 #[tauri::command]
-fn open_in_obsidian(root: String, path: String) -> Result<shell::OpenOutcome> {
-    shell::open_in_obsidian(&p(&root), &p(&path))
+fn open_in_obsidian(
+    app: tauri::AppHandle,
+    root: String,
+    path: String,
+) -> Result<shell::OpenOutcome> {
+    let dir = obsidian_config_dir(&app);
+    shell::open_in_obsidian(dir.as_deref(), &p(&root), &p(&path))
+}
+
+#[tauri::command]
+fn obsidian_vault_status(app: tauri::AppHandle, root: String) -> shell::VaultStatus {
+    let dir = obsidian_config_dir(&app);
+    shell::vault_status(dir.as_deref(), &p(&root))
 }
 
 // ---------------------------------------------------------------------------
@@ -598,6 +615,7 @@ pub fn run() {
             reveal_path,
             obsidian_available,
             open_in_obsidian,
+            obsidian_vault_status,
             scan_templates,
             create_template,
             create_template_from_folder,

@@ -253,8 +253,9 @@ pub struct NewTask<'a> {
     pub template: Option<&'a str>,
 }
 
-/// 템플릿이 없을 때의 골격. 개요와 Run Log 는 `compose_body` 가 채운다.
-const DEFAULT_SKELETON: &str = "## 개요\n\n## 체크리스트\n- [ ] \n";
+/// 템플릿이 없을 때의 골격 — 개요 한 섹션뿐이다. 새 업무의 첫 화면을 남의 골격으로
+/// 채우지 않는다. Run Log 는 첫 회차를 기록할 때 `append_run_log` 가 만들어 붙인다.
+const DEFAULT_SKELETON: &str = "## 개요\n";
 
 /// 템플릿 하나가 가리키는 실체. 폴더 템플릿이 우선한다 — 같은 이름의 노트와 폴더가
 /// 동시에 있으면 `create_template*` 이 애초에 거부하므로 실제로는 한쪽만 존재한다.
@@ -306,12 +307,17 @@ fn insert_summary(body: &str, summary: &str) -> String {
     }
 }
 
-/// 골격 · 개요 · Run Log 를 합쳐 최종 본문을 만든다. Run Log 섹션은 장식이 아니라
-/// `count_run_log` 와 `append_run` 이 찾는 앵커라, 템플릿이 빠뜨렸으면 반드시 붙여 준다
-/// (`append_run_log` 가 없을 때 만들어 주는 동작을 그대로 쓴다).
+/// 골격과 개요를 합쳐 최종 본문을 만든다.
+///
+/// **템플릿에서 온 골격에만 Run Log 를 붙인다.** 그 섹션은 장식이 아니라 `count_run_log` 와
+/// `append_run` 이 찾는 앵커여서, 표준 패턴이 빠뜨리면 회차 기록이 조용히 죽기 때문이다.
+/// 기본 골격은 개요 한 줄로 시작하고, 첫 회차를 기록하는 순간 `append_run_log` 가 없는
+/// 섹션을 만들어 붙인다 — 앵커는 그때 생겨도 늦지 않다.
 fn compose_body(skeleton: Option<String>, summary: &str, stamp: &str) -> String {
-    let base = skeleton.unwrap_or_else(|| DEFAULT_SKELETON.to_string());
-    append_run_log(&insert_summary(&base, summary), stamp, "업무 생성")
+    match skeleton {
+        Some(base) => append_run_log(&insert_summary(&base, summary), stamp, "업무 생성"),
+        None => insert_summary(DEFAULT_SKELETON, summary),
+    }
 }
 
 pub fn create_task(root: &Path, spec: NewTask<'_>) -> Result<TaskMeta> {
@@ -334,11 +340,10 @@ pub fn create_task(root: &Path, spec: NewTask<'_>) -> Result<TaskMeta> {
         Local::now().format("%Y-%m%d"),
         Local::now().format("%H%M%S")
     );
-    let summary = if spec.summary.trim().is_empty() {
-        "(개요를 입력하세요)"
-    } else {
-        spec.summary.trim()
-    };
+    // 개요를 비워 두면 비운 채로 만든다. 예전에는 "(개요를 입력하세요)" 를 넣었는데,
+    // 지우는 손이 한 번 더 가는 데다 `derive_tagline` 이 그 문구를 업무 목록의 한 줄
+    // 설명으로 그대로 뽑아 썼다.
+    let summary = spec.summary.trim();
     let source = resolve_template(root, spec.template);
     let body = compose_body(source.as_ref().and_then(skeleton_of), summary, &stamp);
 
@@ -456,14 +461,22 @@ pub fn set_status(root: &Path, folder: &Path, status: &str) -> Result<TaskMeta> 
     })
 }
 
+/// Run Log 에 한 줄 적고 `runs` 를 맞춘다.
+///
+/// 회차는 원칙적으로 Run Log 의 줄 수다. 그런데 기본 골격에는 그 섹션이 아예 없고
+/// (`DEFAULT_SKELETON`) frontmatter 만 `runs: 1` 을 들고 있어서, 그런 노트의 첫 기록에서는
+/// 세어 나온 값이 1 이라 회차가 2 로 오르지 않고 제자리에 선다. 세어 나온 값과
+/// "직전 값 + 1" 중 큰 쪽을 써서 회차가 뒷걸음치거나 멈추지 않게 한다.
+fn record_run(doc: &mut Doc, stamp: &str, text: &str) {
+    let next = append_run_log(&doc.body, stamp, text);
+    let runs = count_run_log(&next).max(doc.get_u32("runs").unwrap_or(0) + 1);
+    doc.set_body(next);
+    doc.set("runs", runs.to_string());
+}
+
 pub fn append_run(root: &Path, folder: &Path, text: &str) -> Result<TaskMeta> {
     let stamp = now_stamp();
-    edit_index(root, folder, |doc| {
-        let next = append_run_log(&doc.body, &stamp, text);
-        let runs = count_run_log(&next);
-        doc.set_body(next);
-        doc.set("runs", runs.to_string());
-    })
+    edit_index(root, folder, |doc| record_run(doc, &stamp, text))
 }
 
 /// `mode` is `tag` (frontmatter only, files stay put — Obsidian links survive)
@@ -483,12 +496,12 @@ pub fn set_archived(
         } else {
             doc.remove("archived_at");
             if reopen_note {
-                doc.set("status", "reopened");
+                // 재개한 업무는 그냥 진행 중이다. 예전에는 `reopened` 라는 상태를 따로 두었지만
+                // 필터도 카운트도 그것을 진행 중으로 접어 세고 있어서 배지 색만 달랐고,
+                // "다시 손댄 업무" 라는 사실은 아래 Run Log 줄과 `runs` 회차가 이미 말해 준다.
+                doc.set("status", "in-progress");
                 doc.remove("completed_at");
-                let next = append_run_log(&doc.body, &stamp, "보관함에서 재개");
-                let runs = count_run_log(&next);
-                doc.set_body(next);
-                doc.set("runs", runs.to_string());
+                record_run(doc, &stamp, "보관함에서 재개");
             }
         }
     })?;
@@ -919,9 +932,40 @@ mod tests {
         assert_eq!(t.tags, vec!["test"]);
         assert_eq!(t.runs, 1);
 
+        // 기본 골격은 개요 한 섹션뿐이다 — 체크리스트도 Run Log 도 미리 만들지 않는다.
         let body = fs::read_to_string(folder.join("index.md")).unwrap();
-        assert!(body.contains("## 실행 이력 (Run Log)"));
-        assert!(body.contains("· 업무 생성"));
+        assert!(body.contains("## 개요\n테스트 개요"));
+        assert!(!body.contains("## 체크리스트"));
+        assert!(!body.contains("## 실행 이력 (Run Log)"));
+    }
+
+    #[test]
+    fn an_empty_summary_stays_empty_rather_than_becoming_a_placeholder() {
+        let v = TempVault::new("emptysummary");
+        let t = create_task(
+            v.path(),
+            NewTask { title: "개요 없음", summary: "  ", tags: &[], template: None },
+        )
+        .unwrap();
+
+        let body = fs::read_to_string(Path::new(&t.folder).join("index.md")).unwrap();
+        assert!(body.contains("## 개요"));
+        assert!(!body.contains("개요를 입력하세요"));
+        // 한 줄 설명은 개요 첫 줄에서 뽑는다. 비었으면 비어 있어야 한다.
+        assert_eq!(t.tagline, "");
+    }
+
+    #[test]
+    fn the_first_run_log_entry_advances_the_count_even_without_a_section() {
+        let v = TempVault::new("runbump");
+        let t = make(v.path(), "회차 세기");
+        assert_eq!(t.runs, 1);
+        // 기본 골격에는 Run Log 섹션이 없다. 줄 수만 세면 여기서 1 에 머무른다.
+        let after = append_run(v.path(), Path::new(&t.folder), "두 번째 회차").unwrap();
+        assert_eq!(after.runs, 2);
+
+        let again = append_run(v.path(), Path::new(&t.folder), "세 번째 회차").unwrap();
+        assert_eq!(again.runs, 3);
     }
 
     #[test]
@@ -971,11 +1015,13 @@ mod tests {
         let after = append_run(v.path(), &folder, "둘째 회차").unwrap();
         assert_eq!(after.runs, 3); // creation + two appends
 
+        // 기본 골격에는 Run Log 가 없으므로 생성 시점의 줄도 없다. 회차 수는 frontmatter 가
+        // 이어 세고, 섹션은 첫 기록 때 생긴다.
         let body = fs::read_to_string(folder.join("index.md")).unwrap();
+        assert!(!body.contains("· 업무 생성"));
         let second = body.find("둘째 회차").unwrap();
         let first = body.find("첫 회차").unwrap();
-        let created = body.find("업무 생성").unwrap();
-        assert!(second < first && first < created, "newest entry must be on top");
+        assert!(second < first, "newest entry must be on top");
     }
 
     #[test]
@@ -1002,13 +1048,15 @@ mod tests {
         set_archived(v.path(), &folder, true, "tag", false).unwrap();
 
         let before = scan(v.path()).unwrap().len();
-        let reopened = set_archived(v.path(), &folder, false, "tag", true).unwrap();
+        let resumed = set_archived(v.path(), &folder, false, "tag", true).unwrap();
 
         assert_eq!(scan(v.path()).unwrap().len(), before, "no new task node");
-        assert_eq!(reopened.status, "reopened");
-        assert_eq!(reopened.archived, Some(false));
-        assert_eq!(reopened.completed_at, None);
-        assert!(reopened.runs > t.runs);
+        // 재개는 별도 상태를 만들지 않는다 — 그냥 다시 진행 중이다.
+        assert_eq!(resumed.status, "in-progress");
+        assert_eq!(resumed.archived, Some(false));
+        assert_eq!(resumed.completed_at, None);
+        assert!(resumed.runs > t.runs);
+        // 재개했다는 사실은 Run Log 가 들고 있다.
         let body = fs::read_to_string(folder.join("index.md")).unwrap();
         assert!(body.contains("보관함에서 재개"));
     }
@@ -1132,6 +1180,10 @@ mod tests {
         let body = fs::read_to_string(folder.join("index.md")).unwrap();
         assert!(body.contains("## 표준 절차"));
         assert!(body.contains("## 개요\n이번 회차"));
+        // 템플릿 본문에는 Run Log 앵커를 반드시 붙인다 — 기본 골격과 다른 점이다.
+        // 이게 없으면 `count_run_log` 와 `append_run` 이 회차를 놓친다.
+        assert!(body.contains("## 실행 이력 (Run Log)"));
+        assert!(body.contains("· 업무 생성"));
         assert!(body.contains("template_ref"));
         assert!(!body.contains("template: 표준 패키지"), "template frontmatter must not leak");
         assert!(body.contains("· 업무 생성"));

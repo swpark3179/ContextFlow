@@ -10,7 +10,6 @@ const STATUS_OPTIONS: [string, string, string][] = [
   ["in-progress", "진행 중", "작업 재개"],
   ["on-hold", "보류", "스냅샷 저장"],
   ["completed", "완료", "이력 확정"],
-  ["reopened", "재개됨", "기존 노드 유지"],
 ];
 
 export default function Workspace() {
