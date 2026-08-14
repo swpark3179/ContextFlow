@@ -48,6 +48,8 @@ export default function MenuBar() {
       { label: "보류", run: () => void s.setStatus("on-hold") },
       { label: "완료", run: () => void s.setStatus("completed") },
       { label: "지금 보관함으로", run: () => void s.archiveNow(s.activeFolder) },
+      // 한 번 끌어 옮기면 그 순서가 계속 이긴다 — 돌아가는 길이 있어야 한다.
+      { label: "정렬 초기화 (최근 수정순)", run: () => void s.clearTaskOrder() },
       {
         label: "Obsidian에서 열기",
         run: () => void s.openTaskInObsidian(s.activeFolder),

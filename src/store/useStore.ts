@@ -158,6 +158,18 @@ export interface MergeState {
   primary: number;
 }
 
+/** 업무 리스트를 끌어 옮기는 중. 탐색기의 `fileDrag` 와 같은 자리에 사는 이유도 같다. */
+export interface TaskDrag {
+  /** 끌고 있는 업무의 폴더 경로. */
+  folder: string;
+  y: number;
+  /**
+   * 놓으면 들어갈 자리 — 화면에 보이는 목록 기준의 삽입 인덱스다. `0` 은 맨 위,
+   * 목록 길이는 맨 아래를 뜻한다.
+   */
+  at: number;
+}
+
 export interface RenameState {
   /** 이름을 바꿀 업무의 폴더 경로 — 확정되면 이 경로 자체가 바뀐다. */
   folder: string;
@@ -187,6 +199,28 @@ function emptyUi(): TaskUi {
     docs: {},
     extOpened: {},
   };
+}
+
+/**
+ * [Obsidian] 계열 버튼의 결과를 토스트로 옮긴다.
+ *
+ * Obsidian 이 떴으면 아무것도 띄우지 않는다 — 창이 뜨는 것 자체가 결과다. 알릴 값어치가
+ * 있는 것은 떠야 할 것이 안 떴을 때뿐이고, 그중 `unregistered` 는 사용자가 손쓸 수 있는
+ * 유일한 경우라 무엇을 하면 되는지까지 적어 준다. 업무 노트와 Archive MOC 두 호출 지점이
+ * 같은 문구를 쓰도록 여기 한 곳에 둔다.
+ */
+export function reportObsidianOpen(res: api.OpenOutcome): void {
+  const { toast } = useStore.getState();
+  if (res.opened === "obsidian") return;
+  if (res.opened === "unregistered") {
+    toast(
+      "Obsidian에 등록되지 않은 Vault입니다",
+      `탐색기에서 열었습니다 · Obsidian에서 [폴더를 vault로 열기]로 ${res.detail} 를 한 번 등록하세요`,
+      TOAST.warn,
+    );
+    return;
+  }
+  toast("탐색기에서 열었습니다", res.detail, TOAST.muted);
 }
 
 /** Mirrors `is_archived` in src-tauri/src/lib.rs so both agree on the rule. */
@@ -240,6 +274,7 @@ interface State {
   dragOver: boolean;
   ow: OwState | null;
   fileDrag: FileDrag | null;
+  taskDrag: TaskDrag | null;
 
   newOpen: boolean;
   nt: NewTaskState;
@@ -250,6 +285,11 @@ interface State {
   recTag: Record<string, string>;
   /** [참고만 하기] 로 고른 업무들의 폴더 경로. `createTask` 가 이 파일들을 복사해 온다. */
   ntRefs: string[];
+  /**
+   * 업무 생성이 도는 중. 모달은 생성이 **끝난 뒤에야** 닫히므로, 그 사이에 Enter 나
+   * [업무 생성] 이 한 번 더 들어오면 같은 업무가 두 개 만들어진다(이름만 `(2)` 로 갈린다).
+   */
+  ntBusy: boolean;
   expanded: Record<string, boolean>;
   merge: MergeState | null;
   ren: RenameState | null;
@@ -275,6 +315,8 @@ interface Actions {
   peekArchived: (folder: string) => Promise<void>;
   closeArchived: () => void;
   openTaskInObsidian: (folder: string) => Promise<void>;
+  reorderTask: (folder: string, at: number) => Promise<void>;
+  clearTaskOrder: () => Promise<void>;
 
   setScreen: (s: Screen) => void;
   setUi: (patch: Partial<TaskUi>) => void;
@@ -352,6 +394,7 @@ export const useStore = create<State & Actions>((set, get) => ({
   dragOver: false,
   ow: null,
   fileDrag: null,
+  taskDrag: null,
 
   newOpen: false,
   nt: { title: "", summary: "", tags: "", template: "(없음)" },
@@ -361,6 +404,7 @@ export const useStore = create<State & Actions>((set, get) => ({
   ntNote: "",
   recTag: {},
   ntRefs: [],
+  ntBusy: false,
   expanded: {},
   merge: null,
   ren: null,
@@ -633,11 +677,7 @@ export const useStore = create<State & Actions>((set, get) => ({
   openTaskInObsidian: async (folder) => {
     const { settings } = get();
     try {
-      const res = await api.openInObsidian(settings.vault, joinPath(folder, "index.md"));
-      // Obsidian 이 떴으면 눈에 보인다. 알릴 값어치가 있는 것은 **떠야 할 것이 안 떴을 때**다
-      // — obsidian:// 프로토콜이 등록돼 있지 않아 탐색기로 대신 연 경우.
-      if (res.opened !== "obsidian")
-        get().toast("탐색기에서 열었습니다", res.detail, TOAST.muted);
+      reportObsidianOpen(await api.openInObsidian(settings.vault, joinPath(folder, "index.md")));
     } catch (e) {
       get().fail(e, "Obsidian에서 열지 못했습니다");
     }
@@ -981,6 +1021,47 @@ export const useStore = create<State & Actions>((set, get) => ({
   },
 
   /**
+   * 업무 리스트에서 `folder` 를 화면상 `at` 번째 자리로 옮긴다.
+   *
+   * 프런트는 원하는 최종 순서만 만들어 넘기고 `order` 값 계산은 Rust 가 한다.
+   * **보이는 목록이 아니라 살아 있는 업무 전체**로 순서를 만든다 — 필터나 검색이 걸린
+   * 채로 보이는 것만 넘기면 화면에 없는 업무들의 자리가 조용히 뒤섞인다(사이드바가
+   * 그럴 때 아예 드래그를 막지만, 규칙을 여기서도 지킨다).
+   */
+  reorderTask: async (folder, at) => {
+    const { settings, tasks } = get();
+    const live = tasks.filter((t) => !isArchived(t, settings.archDays));
+    const from = live.findIndex((t) => t.folder === folder);
+    if (from < 0) return;
+    // 자기 자신을 뺀 자리 기준으로 삽입 지점을 다시 센다.
+    const rest = live.filter((t) => t.folder !== folder);
+    const to = Math.max(0, Math.min(at > from ? at - 1 : at, rest.length));
+    if (to === from) return;
+    const next = [...rest.slice(0, to), live[from], ...rest.slice(to)];
+    try {
+      set({ tasks: await api.reorderTasks(settings.vault, next.map((t) => t.folder)) });
+    } catch (e) {
+      get().fail(e, "순서를 바꾸지 못했습니다");
+    }
+  },
+
+  /** 수동 정렬을 버리고 최근 수정순으로 되돌린다. 노트에서 `order` 키를 지운다. */
+  clearTaskOrder: async () => {
+    const { settings, tasks } = get();
+    if (!tasks.some((t) => t.order !== null)) {
+      get().toast("이미 최근 수정순입니다", "수동으로 정한 순서가 없습니다", TOAST.muted);
+      return;
+    }
+    try {
+      set({ tasks: await api.clearTaskOrder(settings.vault) });
+      // 목록이 통째로 다시 늘어서는데 그 이유가 화면에 드러나지 않는다.
+      get().toast("정렬을 초기화했습니다", "다시 최근 수정순으로 정렬합니다", TOAST.ok);
+    } catch (e) {
+      get().fail(e, "정렬을 초기화하지 못했습니다");
+    }
+  },
+
+  /**
    * 창 밖으로 끌어다 놓았을 때의 바탕화면 반출. 결과가 앱 화면에 전혀 드러나지 않으므로
    * (파일은 다른 창에 생긴다) 성공도 토스트로 알린다.
    */
@@ -1065,9 +1146,10 @@ export const useStore = create<State & Actions>((set, get) => ({
   },
 
   createTask: async () => {
-    const { nt, settings, ntRefs, tasks } = get();
+    const { nt, settings, ntRefs, tasks, ntBusy } = get();
     const title = nt.title.trim();
-    if (!title) return;
+    if (!title || ntBusy) return;
+    set({ ntBusy: true });
     const tags = nt.tags
       .split(",")
       .map((x) => x.trim())
@@ -1115,6 +1197,8 @@ export const useStore = create<State & Actions>((set, get) => ({
       await get().reloadTemplates();
     } catch (e) {
       get().fail(e, "업무를 만들지 못했습니다");
+    } finally {
+      set({ ntBusy: false });
     }
   },
 

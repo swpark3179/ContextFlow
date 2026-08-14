@@ -135,6 +135,12 @@ impl Doc {
         self.get_str(key)?.parse().ok()
     }
 
+    /// 부호 있는 정수. 업무 리스트의 수동 순서(`order`)가 쓰는데, 맨 앞에 끼워 넣을 때
+    /// 값이 음수로 내려갈 수 있어서 `u32` 로는 담기지 않는다.
+    pub fn get_i64(&self, key: &str) -> Option<i64> {
+        self.get_str(key)?.parse().ok()
+    }
+
     /// Reads both `tags: [a, b]` and the block-sequence form.
     pub fn get_list(&self, key: &str) -> Vec<String> {
         let Some(entry) = self.entries.iter().find(|e| e.key == key) else {

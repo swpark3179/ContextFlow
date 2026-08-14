@@ -165,6 +165,17 @@ fn append_task_run(root: String, folder: String, text: String) -> Result<vault::
     vault::append_run(&p(&root), &p(&folder), &text)
 }
 
+/// `folders` 는 원하는 최종 순서 전체다. 값 계산은 Rust 가 하고, 실제로 바뀐 노트만 쓴다.
+#[tauri::command]
+fn reorder_tasks(root: String, folders: Vec<String>) -> Result<Vec<vault::TaskMeta>> {
+    vault::reorder_tasks(&p(&root), &folders)
+}
+
+#[tauri::command]
+fn clear_task_order(root: String) -> Result<Vec<vault::TaskMeta>> {
+    vault::clear_task_order(&p(&root))
+}
+
 #[tauri::command]
 fn set_task_archived(
     root: String,
@@ -309,9 +320,26 @@ fn obsidian_available() -> bool {
     shell::obsidian_installed()
 }
 
+/// Obsidian 의 vault 목록이 사는 곳. 해석에 실패하면 `None` 이고, 그때 `shell` 쪽은
+/// "등록 안 됨" 이라고 단정하지 않고 예전 경로로 돌아간다.
+fn obsidian_config_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
+    app.path().config_dir().ok()
+}
+
 #[tauri::command]
-fn open_in_obsidian(root: String, path: String) -> Result<shell::OpenOutcome> {
-    shell::open_in_obsidian(&p(&root), &p(&path))
+fn open_in_obsidian(
+    app: tauri::AppHandle,
+    root: String,
+    path: String,
+) -> Result<shell::OpenOutcome> {
+    let dir = obsidian_config_dir(&app);
+    shell::open_in_obsidian(dir.as_deref(), &p(&root), &p(&path))
+}
+
+#[tauri::command]
+fn obsidian_vault_status(app: tauri::AppHandle, root: String) -> shell::VaultStatus {
+    let dir = obsidian_config_dir(&app);
+    shell::vault_status(dir.as_deref(), &p(&root))
 }
 
 // ---------------------------------------------------------------------------
@@ -578,6 +606,8 @@ pub fn run() {
             rename_task,
             set_task_status,
             append_task_run,
+            reorder_tasks,
+            clear_task_order,
             set_task_archived,
             merge_tasks,
             read_text_file,
@@ -598,6 +628,7 @@ pub fn run() {
             reveal_path,
             obsidian_available,
             open_in_obsidian,
+            obsidian_vault_status,
             scan_templates,
             create_template,
             create_template_from_folder,

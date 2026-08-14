@@ -19,6 +19,8 @@ export default function NewTaskModal() {
 
   const { nt, ntRecs, ntLoading, ntEngine, ntRefs, settings } = s;
   const title = nt.title.trim();
+  /** 제목이 있고, 앞선 생성이 아직 돌고 있지 않을 때만. */
+  const canCreate = !!title && !s.ntBusy;
   const monthPrefix = new Date().toISOString().slice(0, 7);
   const folderPreview = `${settings.vault.split("/").pop()}/Tasks/[${monthPrefix}] ${
     sanitizeFolderName(title) || "새 업무"
@@ -131,6 +133,13 @@ export default function NewTaskModal() {
                 onChange={(e) => {
                   s.set({ nt: { ...nt, title: e.target.value }, ntLoading: e.target.value.trim().length > 1 });
                   scheduleRecommend();
+                }}
+                onKeyDown={(e) => {
+                  // 한글 조합을 확정하는 Enter 도 keydown 을 낸다(keyCode 229). 그것까지 받으면
+                  // "마이그레이션" 을 치고 조합을 닫는 순간 업무가 만들어진다.
+                  if (e.key !== "Enter" || e.repeat || e.nativeEvent.isComposing) return;
+                  e.preventDefault();
+                  if (canCreate) void s.createTask();
                 }}
                 placeholder="예: Tauri 2.0 마이그레이션"
                 style={{
@@ -586,7 +595,7 @@ export default function NewTaskModal() {
             취소
           </Box>
           <Box
-            onClick={() => title && void s.createTask()}
+            onClick={() => canCreate && void s.createTask()}
             style={{
               height: 29,
               padding: "0 16px",
@@ -595,13 +604,13 @@ export default function NewTaskModal() {
               borderRadius: 5,
               fontSize: 12.5,
               fontWeight: 600,
-              cursor: title ? "pointer" : "not-allowed",
-              background: title ? BLUE : "#e6e2da",
-              color: title ? "#fff" : "#a09a8f",
+              cursor: canCreate ? "pointer" : "not-allowed",
+              background: canCreate ? BLUE : "#e6e2da",
+              color: canCreate ? "#fff" : "#a09a8f",
             }}
-            hover={title ? { background: "#2f5cbb" } : undefined}
+            hover={canCreate ? { background: "#2f5cbb" } : undefined}
           >
-            업무 생성
+            {s.ntBusy ? "만드는 중…" : "업무 생성"}
           </Box>
         </div>
       </div>

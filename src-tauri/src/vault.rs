@@ -6,6 +6,7 @@ use crate::error::{AppError, Result};
 use crate::frontmatter::{append_run_log, Doc};
 use chrono::Local;
 use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -31,6 +32,9 @@ pub struct TaskMeta {
     pub archived: Option<bool>,
     pub archived_at: Option<String>,
     pub runs: u32,
+    /// 사용자가 끌어 정한 자리. `None` = 아직 손대지 않았다는 뜻이고, 그때는 `updated`
+    /// 내림차순이라는 예전 규칙이 그대로 적용된다(`scan` 참고).
+    pub order: Option<i64>,
     /// Absolute path to the task folder.
     pub folder: String,
     /// Vault-relative folder path, e.g. `Tasks/[2026-08] 제목/`.
@@ -190,6 +194,7 @@ pub fn read_task(root: &Path, index_path: &Path) -> Result<TaskMeta> {
         archived: doc.get_bool("archived"),
         archived_at: doc.get_str("archived_at"),
         runs: doc.get_u32("runs").unwrap_or_else(|| count_run_log(&doc.body).max(1)),
+        order: doc.get_i64("order"),
         folder: folder.to_string_lossy().to_string(),
         rel_folder,
         index_path: index_path.to_string_lossy().to_string(),
@@ -235,8 +240,147 @@ pub fn scan(root: &Path) -> Result<Vec<TaskMeta>> {
         }
     }
 
-    out.sort_by(|a, b| b.updated.cmp(&a.updated));
+    // 사용자가 정한 자리가 있으면 그것이 먼저다. 한 번도 끌어 본 적 없는 Vault 는
+    // `order` 가 전부 비어 있어 예전과 똑같이 "최근 수정순" 으로 남는다.
+    out.sort_by(|a, b| match (a.order, b.order) {
+        (Some(x), Some(y)) => x.cmp(&y),
+        (Some(_), None) => Ordering::Less,
+        (None, Some(_)) => Ordering::Greater,
+        (None, None) => b.updated.cmp(&a.updated),
+    });
     Ok(out)
+}
+
+/// 수동 정렬의 기본 간격. 두 이웃 사이에 새 값을 넣을 자리를 남겨 두려는 것이라,
+/// 보통은 드래그 한 번에 파일 하나만 다시 쓰면 된다.
+const ORDER_STEP: i64 = 1024;
+
+/// 요청한 순서대로 `order` 값을 정한다. **이미 순서에 맞는 값은 그대로 둔다** — 바꿀
+/// 필요가 없는 파일까지 다시 쓰면 드래그 한 번에 Vault 전체가 수정된 것으로 보인다.
+///
+/// 돌려주는 `Vec` 은 입력과 같은 길이이고, `Some(v)` 는 "이 값으로 써라",
+/// `None` 은 "그대로 둬라" 다.
+///
+/// 끼워 넣을 정수 자리가 없으면 그 구간만 `ORDER_STEP` 간격으로 다시 번호를 매긴다.
+fn assign_orders(current: &[Option<i64>]) -> Vec<Option<i64>> {
+    let n = current.len();
+    let mut out = vec![None; n];
+    if n == 0 {
+        return out;
+    }
+
+    let keep = longest_increasing(current);
+    let anchor = |i: usize| if keep[i] { current[i] } else { None };
+
+    let mut i = 0;
+    while i < n {
+        if keep[i] {
+            i += 1;
+            continue;
+        }
+        let start = i;
+        while i < n && !keep[i] {
+            i += 1;
+        }
+        let gap = (i - start) as i64; // 새 값을 받아야 하는 칸 수
+        let lo = if start == 0 { None } else { anchor(start - 1) };
+        let hi = if i == n { None } else { anchor(i) };
+
+        let values: Vec<i64> = match (lo, hi) {
+            // 맨 앞으로 끌어왔다 — 뒤 고정점보다 작은 값을 붙인다. 음수여도 정상이며,
+            // 다음 재번호 때 정리된다.
+            (None, Some(h)) => (1..=gap).rev().map(|k| h - k * ORDER_STEP).collect(),
+            // 맨 뒤로 보냈다.
+            (Some(l), None) => (1..=gap).map(|k| l + k * ORDER_STEP).collect(),
+            // 아직 아무 값도 없는 Vault — 처음 끌었을 때다. 보이던 순서를 그대로 굳힌다.
+            (None, None) => (1..=gap).map(|k| k * ORDER_STEP).collect(),
+            (Some(l), Some(h)) => {
+                let step = (h - l) / (gap + 1);
+                if step >= 1 {
+                    (1..=gap).map(|k| l + k * step).collect()
+                } else {
+                    // 두 이웃 사이에 정수가 남지 않았다. 여기부터 끝까지 다시 번호를
+                    // 매긴다 — 앞쪽에서 이미 정한 값은 그대로 살린다.
+                    for (k, slot) in out.iter_mut().enumerate().skip(start) {
+                        let v = l + (k - start + 1) as i64 * ORDER_STEP;
+                        *slot = (current[k] != Some(v)).then_some(v);
+                    }
+                    return out;
+                }
+            }
+        };
+        for (k, v) in values.into_iter().enumerate() {
+            out[start + k] = Some(v);
+        }
+    }
+    out
+}
+
+/// 업무 리스트를 `folders` 가 준 순서대로 고정한다.
+///
+/// 프런트는 **원하는 최종 순서만** 보내고 값 계산은 여기서 한다. 처음 끌었을 때는 그때
+/// 보이던 순서 전체가 굳고(그러지 않으면 끌어온 하나만 맨 위로 튀어 사용자가 기대한
+/// 결과와 달라진다), 그 뒤로는 보통 파일 하나만 다시 쓴다.
+pub fn reorder_tasks(root: &Path, folders: &[String]) -> Result<Vec<TaskMeta>> {
+    let current: Vec<Option<i64>> = folders
+        .iter()
+        .map(|f| {
+            let index = Path::new(f).join("index.md");
+            fs::read_to_string(&index).ok().and_then(|s| Doc::parse(&s).get_i64("order"))
+        })
+        .collect();
+
+    for (folder, value) in folders.iter().zip(assign_orders(&current)) {
+        let Some(v) = value else { continue };
+        // 순서는 작업 이력이 아니다 — `updated` 는 그대로 둔다.
+        edit_index_inner(root, Path::new(folder), false, |doc| doc.set("order", v.to_string()))?;
+    }
+    scan(root)
+}
+
+/// 모든 업무에서 `order` 를 지워 "최근 수정순" 으로 되돌린다. 한 번 수동 정렬하면
+/// 그 규칙이 계속 이기므로 돌아가는 길이 있어야 한다.
+pub fn clear_task_order(root: &Path) -> Result<Vec<TaskMeta>> {
+    for task in scan(root)? {
+        if task.order.is_none() {
+            continue;
+        }
+        edit_index_inner(root, Path::new(&task.folder), false, |doc| doc.remove("order"))?;
+    }
+    scan(root)
+}
+
+/// 값이 있는 항목 중 **이미 오름차순인 가장 긴 부분열**을 고른다. 그 항목들만 제자리에
+/// 두고 나머지에 새 값을 주면 다시 쓰는 파일이 최소가 된다.
+///
+/// 왼쪽부터 욕심껏 고르면 안 된다 — 맨 아래 업무를 맨 위로 끌어온 순간 그 하나가 첫
+/// 고정점이 되어 버려서, 자리가 그대로인 나머지 전부가 새 값을 받는다(파일 N개 쓰기).
+/// 가장 긴 부분열을 고르면 그 경우 끌어온 하나만 바뀐다.
+fn longest_increasing(values: &[Option<i64>]) -> Vec<bool> {
+    let n = values.len();
+    let mut keep = vec![false; n];
+    // tails[l] = 길이 l+1 짜리 증가 부분열의 마지막 인덱스 중 값이 가장 작은 것.
+    let mut tails: Vec<usize> = Vec::new();
+    let mut prev: Vec<Option<usize>> = vec![None; n];
+
+    for (i, v) in values.iter().enumerate() {
+        let Some(v) = *v else { continue };
+        // 엄격 증가라 v 이상인 첫 자리를 v 로 덮는다.
+        let pos = tails.partition_point(|&j| values[j].unwrap_or(i64::MIN) < v);
+        prev[i] = (pos > 0).then(|| tails[pos - 1]);
+        if pos == tails.len() {
+            tails.push(i);
+        } else {
+            tails[pos] = i;
+        }
+    }
+
+    let mut cur = tails.last().copied();
+    while let Some(i) = cur {
+        keep[i] = true;
+        cur = prev[i];
+    }
+    keep
 }
 
 pub fn ensure_layout(root: &Path) -> Result<()> {
@@ -253,8 +397,9 @@ pub struct NewTask<'a> {
     pub template: Option<&'a str>,
 }
 
-/// 템플릿이 없을 때의 골격. 개요와 Run Log 는 `compose_body` 가 채운다.
-const DEFAULT_SKELETON: &str = "## 개요\n\n## 체크리스트\n- [ ] \n";
+/// 템플릿이 없을 때의 골격 — 개요 한 섹션뿐이다. 새 업무의 첫 화면을 남의 골격으로
+/// 채우지 않는다. Run Log 는 첫 회차를 기록할 때 `append_run_log` 가 만들어 붙인다.
+const DEFAULT_SKELETON: &str = "## 개요\n";
 
 /// 템플릿 하나가 가리키는 실체. 폴더 템플릿이 우선한다 — 같은 이름의 노트와 폴더가
 /// 동시에 있으면 `create_template*` 이 애초에 거부하므로 실제로는 한쪽만 존재한다.
@@ -306,12 +451,17 @@ fn insert_summary(body: &str, summary: &str) -> String {
     }
 }
 
-/// 골격 · 개요 · Run Log 를 합쳐 최종 본문을 만든다. Run Log 섹션은 장식이 아니라
-/// `count_run_log` 와 `append_run` 이 찾는 앵커라, 템플릿이 빠뜨렸으면 반드시 붙여 준다
-/// (`append_run_log` 가 없을 때 만들어 주는 동작을 그대로 쓴다).
+/// 골격과 개요를 합쳐 최종 본문을 만든다.
+///
+/// **템플릿에서 온 골격에만 Run Log 를 붙인다.** 그 섹션은 장식이 아니라 `count_run_log` 와
+/// `append_run` 이 찾는 앵커여서, 표준 패턴이 빠뜨리면 회차 기록이 조용히 죽기 때문이다.
+/// 기본 골격은 개요 한 줄로 시작하고, 첫 회차를 기록하는 순간 `append_run_log` 가 없는
+/// 섹션을 만들어 붙인다 — 앵커는 그때 생겨도 늦지 않다.
 fn compose_body(skeleton: Option<String>, summary: &str, stamp: &str) -> String {
-    let base = skeleton.unwrap_or_else(|| DEFAULT_SKELETON.to_string());
-    append_run_log(&insert_summary(&base, summary), stamp, "업무 생성")
+    match skeleton {
+        Some(base) => append_run_log(&insert_summary(&base, summary), stamp, "업무 생성"),
+        None => insert_summary(DEFAULT_SKELETON, summary),
+    }
 }
 
 pub fn create_task(root: &Path, spec: NewTask<'_>) -> Result<TaskMeta> {
@@ -334,11 +484,10 @@ pub fn create_task(root: &Path, spec: NewTask<'_>) -> Result<TaskMeta> {
         Local::now().format("%Y-%m%d"),
         Local::now().format("%H%M%S")
     );
-    let summary = if spec.summary.trim().is_empty() {
-        "(개요를 입력하세요)"
-    } else {
-        spec.summary.trim()
-    };
+    // 개요를 비워 두면 비운 채로 만든다. 예전에는 "(개요를 입력하세요)" 를 넣었는데,
+    // 지우는 손이 한 번 더 가는 데다 `derive_tagline` 이 그 문구를 업무 목록의 한 줄
+    // 설명으로 그대로 뽑아 썼다.
+    let summary = spec.summary.trim();
     let source = resolve_template(root, spec.template);
     let body = compose_body(source.as_ref().and_then(skeleton_of), summary, &stamp);
 
@@ -358,6 +507,12 @@ pub fn create_task(root: &Path, spec: NewTask<'_>) -> Result<TaskMeta> {
         },
     );
     doc.set("runs", "1");
+    // 사용자가 이미 순서를 정해 둔 Vault 라면 새 업무는 맨 위다 — `updated` 내림차순일
+    // 때와 같은 자리다. 아직 끌어 본 적 없는 Vault 에는 키를 만들지 않는다(그쪽은 예전
+    // 규칙 그대로 돌아간다). 이 시점에는 `index.md` 를 아직 쓰지 않아 자기 자신은 안 잡힌다.
+    if let Some(min) = scan(root)?.iter().filter_map(|t| t.order).min() {
+        doc.set("order", (min - ORDER_STEP).to_string());
+    }
     doc.set_body(body);
 
     // 기본 노트는 `index.md` 하나뿐이다. 예전에는 빈 `notes.md` 도 함께 만들었지만
@@ -429,7 +584,19 @@ pub fn rename_task(root: &Path, folder: &Path, title: &str) -> Result<TaskMeta> 
     })
 }
 
-fn edit_index<F>(root: &Path, folder: &Path, mut f: F) -> Result<TaskMeta>
+fn edit_index<F>(root: &Path, folder: &Path, f: F) -> Result<TaskMeta>
+where
+    F: FnMut(&mut Doc),
+{
+    edit_index_inner(root, folder, true, f)
+}
+
+/// `bump_updated` 가 false 면 `updated` 를 손대지 않는다.
+///
+/// 목록에서 순서를 바꾸는 것은 업무를 **작업한** 것이 아니다. 그런데도 `updated` 를
+/// 갱신하면 사이드바가 그 값을 "마지막 작업 시각" 으로 그대로 보여 주므로(`shortStamp`)
+/// 끌어 옮기기만 해도 방금 만진 것처럼 보인다.
+fn edit_index_inner<F>(root: &Path, folder: &Path, bump_updated: bool, mut f: F) -> Result<TaskMeta>
 where
     F: FnMut(&mut Doc),
 {
@@ -437,7 +604,9 @@ where
     let src = fs::read_to_string(&index)?;
     let mut doc = Doc::parse(&src);
     f(&mut doc);
-    doc.set("updated", now_stamp());
+    if bump_updated {
+        doc.set("updated", now_stamp());
+    }
     fs::write(&index, doc.render())?;
     read_task(root, &index)
 }
@@ -456,14 +625,22 @@ pub fn set_status(root: &Path, folder: &Path, status: &str) -> Result<TaskMeta> 
     })
 }
 
+/// Run Log 에 한 줄 적고 `runs` 를 맞춘다.
+///
+/// 회차는 원칙적으로 Run Log 의 줄 수다. 그런데 기본 골격에는 그 섹션이 아예 없고
+/// (`DEFAULT_SKELETON`) frontmatter 만 `runs: 1` 을 들고 있어서, 그런 노트의 첫 기록에서는
+/// 세어 나온 값이 1 이라 회차가 2 로 오르지 않고 제자리에 선다. 세어 나온 값과
+/// "직전 값 + 1" 중 큰 쪽을 써서 회차가 뒷걸음치거나 멈추지 않게 한다.
+fn record_run(doc: &mut Doc, stamp: &str, text: &str) {
+    let next = append_run_log(&doc.body, stamp, text);
+    let runs = count_run_log(&next).max(doc.get_u32("runs").unwrap_or(0) + 1);
+    doc.set_body(next);
+    doc.set("runs", runs.to_string());
+}
+
 pub fn append_run(root: &Path, folder: &Path, text: &str) -> Result<TaskMeta> {
     let stamp = now_stamp();
-    edit_index(root, folder, |doc| {
-        let next = append_run_log(&doc.body, &stamp, text);
-        let runs = count_run_log(&next);
-        doc.set_body(next);
-        doc.set("runs", runs.to_string());
-    })
+    edit_index(root, folder, |doc| record_run(doc, &stamp, text))
 }
 
 /// `mode` is `tag` (frontmatter only, files stay put — Obsidian links survive)
@@ -483,12 +660,12 @@ pub fn set_archived(
         } else {
             doc.remove("archived_at");
             if reopen_note {
-                doc.set("status", "reopened");
+                // 재개한 업무는 그냥 진행 중이다. 예전에는 `reopened` 라는 상태를 따로 두었지만
+                // 필터도 카운트도 그것을 진행 중으로 접어 세고 있어서 배지 색만 달랐고,
+                // "다시 손댄 업무" 라는 사실은 아래 Run Log 줄과 `runs` 회차가 이미 말해 준다.
+                doc.set("status", "in-progress");
                 doc.remove("completed_at");
-                let next = append_run_log(&doc.body, &stamp, "보관함에서 재개");
-                let runs = count_run_log(&next);
-                doc.set_body(next);
-                doc.set("runs", runs.to_string());
+                record_run(doc, &stamp, "보관함에서 재개");
             }
         }
     })?;
@@ -842,6 +1019,166 @@ mod tests {
         assert_eq!(sanitize_name("정상 제목"), "정상 제목");
     }
 
+    /// `assign_orders` 의 결과를 실제 저장될 값으로 펼친다(`None` = 그대로 둠).
+    fn settled(current: &[Option<i64>]) -> Vec<i64> {
+        let next = assign_orders(current);
+        current
+            .iter()
+            .zip(&next)
+            .map(|(cur, new)| new.or(*cur).expect("모든 자리에 값이 정해져야 한다"))
+            .collect()
+    }
+
+    fn is_ascending(v: &[i64]) -> bool {
+        v.windows(2).all(|w| w[0] < w[1])
+    }
+
+    #[test]
+    fn first_reorder_freezes_the_order_that_was_on_screen() {
+        // 아직 아무 값도 없는 Vault. 하나만 값을 받으면 그것만 맨 위로 튄다 —
+        // 보이던 순서 전체가 굳어야 한다.
+        let out = assign_orders(&[None, None, None]);
+        assert_eq!(out, vec![Some(1024), Some(2048), Some(3072)]);
+    }
+
+    #[test]
+    fn moving_one_row_to_the_top_rewrites_only_that_row() {
+        // [A,B,C,D,E] 를 [E,A,B,C,D] 로. 왼쪽부터 욕심껏 고르면 네 개를 다시 쓰게 된다.
+        let current = [Some(5120), Some(1024), Some(2048), Some(3072), Some(4096)];
+        let next = assign_orders(&current);
+        assert_eq!(next.iter().filter(|v| v.is_some()).count(), 1, "파일 하나만 바뀌어야 한다");
+        assert!(next[0].is_some(), "끌어온 행만 새 값을 받는다");
+        assert!(is_ascending(&settled(&current)));
+    }
+
+    #[test]
+    fn moving_one_row_into_the_middle_rewrites_only_that_row() {
+        // 맨 위 업무를 셋째 자리로 내렸다.
+        let current = [Some(2048), Some(3072), Some(1024), Some(4096)];
+        let next = assign_orders(&current);
+        assert_eq!(next.iter().filter(|v| v.is_some()).count(), 1);
+        assert!(next[2].is_some());
+        assert!(is_ascending(&settled(&current)));
+    }
+
+    #[test]
+    fn a_row_moved_to_the_end_lands_after_everything() {
+        let current = [Some(2048), Some(3072), Some(1024)];
+        let out = settled(&current);
+        assert!(is_ascending(&out));
+        assert_eq!(out[2], 3072 + ORDER_STEP);
+    }
+
+    #[test]
+    fn renumbers_when_no_integer_room_is_left_between_neighbours() {
+        // 이웃이 붙어 있어 사이에 넣을 정수가 없다.
+        let current = [Some(10), Some(12), Some(11)];
+        let out = settled(&current);
+        assert!(is_ascending(&out), "재번호 뒤에도 요청한 순서 그대로여야 한다: {out:?}");
+    }
+
+    #[test]
+    fn a_vault_with_only_some_orders_still_ends_up_ascending() {
+        let current = [None, Some(2048), None, Some(4096), None];
+        let out = settled(&current);
+        assert!(is_ascending(&out), "{out:?}");
+    }
+
+    #[test]
+    fn assigning_an_already_correct_order_writes_nothing() {
+        let current = [Some(1024), Some(2048), Some(3072)];
+        assert!(assign_orders(&current).iter().all(|v| v.is_none()));
+    }
+
+    #[test]
+    fn reorder_persists_the_requested_sequence_without_touching_updated() {
+        let v = TempVault::new("reorder");
+        let a = make(v.path(), "가");
+        let b = make(v.path(), "나");
+        let c = make(v.path(), "다");
+
+        let reordered =
+            reorder_tasks(v.path(), &[c.folder.clone(), a.folder.clone(), b.folder.clone()])
+                .unwrap();
+        let titles: Vec<&str> = reordered.iter().map(|t| t.title.as_str()).collect();
+        assert_eq!(titles, vec!["다", "가", "나"]);
+
+        // 순서를 바꾼 것은 업무를 작업한 것이 아니다 — "마지막 작업 시각" 은 그대로다.
+        for (before, after) in [(&a, "가"), (&b, "나"), (&c, "다")] {
+            let now = reordered.iter().find(|t| t.title == after).unwrap();
+            assert_eq!(now.updated, before.updated, "{after} 의 updated 가 바뀌었다");
+        }
+
+        // 다시 읽어도 그 순서다.
+        let titles: Vec<String> =
+            scan(v.path()).unwrap().into_iter().map(|t| t.title).collect();
+        assert_eq!(titles, vec!["다", "가", "나"]);
+    }
+
+    #[test]
+    fn a_new_task_goes_to_the_top_of_an_ordered_vault() {
+        let v = TempVault::new("newtop");
+        let a = make(v.path(), "가");
+        let b = make(v.path(), "나");
+        reorder_tasks(v.path(), &[a.folder.clone(), b.folder.clone()]).unwrap();
+
+        let fresh = make(v.path(), "새 업무");
+        assert!(fresh.order.is_some());
+        let titles: Vec<String> = scan(v.path()).unwrap().into_iter().map(|t| t.title).collect();
+        assert_eq!(titles, vec!["새 업무", "가", "나"]);
+    }
+
+    /// `now_stamp` 은 분 단위라 한 테스트 안에서 만든 업무들은 `updated` 가 모두 같다.
+    /// 정렬을 보려면 값을 직접 벌려 놓아야 한다.
+    fn set_updated(folder: &str, stamp: &str) {
+        let index = Path::new(folder).join("index.md");
+        let mut doc = Doc::parse(&fs::read_to_string(&index).unwrap());
+        doc.set("updated", stamp);
+        fs::write(&index, doc.render()).unwrap();
+    }
+
+    #[test]
+    fn an_untouched_vault_keeps_the_recently_updated_ordering() {
+        let v = TempVault::new("nosort");
+        let a = make(v.path(), "가");
+        let b = make(v.path(), "나");
+        // 한 번도 끌지 않았으면 order 키 자체가 없다 — 정렬 규칙도 예전 그대로다.
+        assert!(scan(v.path()).unwrap().iter().all(|t| t.order.is_none()));
+
+        set_updated(&a.folder, "2026-08-14 10:00");
+        set_updated(&b.folder, "2026-08-14 09:00");
+        assert_eq!(scan(v.path()).unwrap()[0].title, "가", "가장 최근에 손댄 업무가 위로");
+
+        set_updated(&b.folder, "2026-08-14 11:00");
+        assert_eq!(scan(v.path()).unwrap()[0].title, "나");
+    }
+
+    #[test]
+    fn a_manual_order_outranks_the_updated_stamp() {
+        let v = TempVault::new("orderwins");
+        let a = make(v.path(), "가");
+        let b = make(v.path(), "나");
+        reorder_tasks(v.path(), &[b.folder.clone(), a.folder.clone()]).unwrap();
+
+        // 가를 방금 손댄 것으로 만들어도 사용자가 정한 자리는 그대로다.
+        set_updated(&a.folder, "2026-08-14 23:59");
+        assert_eq!(scan(v.path()).unwrap()[0].title, "나");
+    }
+
+    #[test]
+    fn clearing_the_order_returns_to_recently_updated() {
+        let v = TempVault::new("clearorder");
+        let a = make(v.path(), "가");
+        let b = make(v.path(), "나");
+        reorder_tasks(v.path(), &[b.folder.clone(), a.folder.clone()]).unwrap();
+        assert_eq!(scan(v.path()).unwrap()[0].title, "나");
+
+        let cleared = clear_task_order(v.path()).unwrap();
+        assert!(cleared.iter().all(|t| t.order.is_none()));
+        let body = fs::read_to_string(Path::new(&a.folder).join("index.md")).unwrap();
+        assert!(!body.contains("order:"), "키가 노트에 남으면 안 된다");
+    }
+
     #[test]
     fn counts_only_the_run_log_section() {
         let body = "## 실행 이력 (Run Log)\n- a · 1\n- b · 2\n\n## 다른 섹션\n- c · 3\n";
@@ -919,9 +1256,40 @@ mod tests {
         assert_eq!(t.tags, vec!["test"]);
         assert_eq!(t.runs, 1);
 
+        // 기본 골격은 개요 한 섹션뿐이다 — 체크리스트도 Run Log 도 미리 만들지 않는다.
         let body = fs::read_to_string(folder.join("index.md")).unwrap();
-        assert!(body.contains("## 실행 이력 (Run Log)"));
-        assert!(body.contains("· 업무 생성"));
+        assert!(body.contains("## 개요\n테스트 개요"));
+        assert!(!body.contains("## 체크리스트"));
+        assert!(!body.contains("## 실행 이력 (Run Log)"));
+    }
+
+    #[test]
+    fn an_empty_summary_stays_empty_rather_than_becoming_a_placeholder() {
+        let v = TempVault::new("emptysummary");
+        let t = create_task(
+            v.path(),
+            NewTask { title: "개요 없음", summary: "  ", tags: &[], template: None },
+        )
+        .unwrap();
+
+        let body = fs::read_to_string(Path::new(&t.folder).join("index.md")).unwrap();
+        assert!(body.contains("## 개요"));
+        assert!(!body.contains("개요를 입력하세요"));
+        // 한 줄 설명은 개요 첫 줄에서 뽑는다. 비었으면 비어 있어야 한다.
+        assert_eq!(t.tagline, "");
+    }
+
+    #[test]
+    fn the_first_run_log_entry_advances_the_count_even_without_a_section() {
+        let v = TempVault::new("runbump");
+        let t = make(v.path(), "회차 세기");
+        assert_eq!(t.runs, 1);
+        // 기본 골격에는 Run Log 섹션이 없다. 줄 수만 세면 여기서 1 에 머무른다.
+        let after = append_run(v.path(), Path::new(&t.folder), "두 번째 회차").unwrap();
+        assert_eq!(after.runs, 2);
+
+        let again = append_run(v.path(), Path::new(&t.folder), "세 번째 회차").unwrap();
+        assert_eq!(again.runs, 3);
     }
 
     #[test]
@@ -971,11 +1339,13 @@ mod tests {
         let after = append_run(v.path(), &folder, "둘째 회차").unwrap();
         assert_eq!(after.runs, 3); // creation + two appends
 
+        // 기본 골격에는 Run Log 가 없으므로 생성 시점의 줄도 없다. 회차 수는 frontmatter 가
+        // 이어 세고, 섹션은 첫 기록 때 생긴다.
         let body = fs::read_to_string(folder.join("index.md")).unwrap();
+        assert!(!body.contains("· 업무 생성"));
         let second = body.find("둘째 회차").unwrap();
         let first = body.find("첫 회차").unwrap();
-        let created = body.find("업무 생성").unwrap();
-        assert!(second < first && first < created, "newest entry must be on top");
+        assert!(second < first, "newest entry must be on top");
     }
 
     #[test]
@@ -1002,13 +1372,15 @@ mod tests {
         set_archived(v.path(), &folder, true, "tag", false).unwrap();
 
         let before = scan(v.path()).unwrap().len();
-        let reopened = set_archived(v.path(), &folder, false, "tag", true).unwrap();
+        let resumed = set_archived(v.path(), &folder, false, "tag", true).unwrap();
 
         assert_eq!(scan(v.path()).unwrap().len(), before, "no new task node");
-        assert_eq!(reopened.status, "reopened");
-        assert_eq!(reopened.archived, Some(false));
-        assert_eq!(reopened.completed_at, None);
-        assert!(reopened.runs > t.runs);
+        // 재개는 별도 상태를 만들지 않는다 — 그냥 다시 진행 중이다.
+        assert_eq!(resumed.status, "in-progress");
+        assert_eq!(resumed.archived, Some(false));
+        assert_eq!(resumed.completed_at, None);
+        assert!(resumed.runs > t.runs);
+        // 재개했다는 사실은 Run Log 가 들고 있다.
         let body = fs::read_to_string(folder.join("index.md")).unwrap();
         assert!(body.contains("보관함에서 재개"));
     }
@@ -1132,6 +1504,10 @@ mod tests {
         let body = fs::read_to_string(folder.join("index.md")).unwrap();
         assert!(body.contains("## 표준 절차"));
         assert!(body.contains("## 개요\n이번 회차"));
+        // 템플릿 본문에는 Run Log 앵커를 반드시 붙인다 — 기본 골격과 다른 점이다.
+        // 이게 없으면 `count_run_log` 와 `append_run` 이 회차를 놓친다.
+        assert!(body.contains("## 실행 이력 (Run Log)"));
+        assert!(body.contains("· 업무 생성"));
         assert!(body.contains("template_ref"));
         assert!(!body.contains("template: 표준 패키지"), "template frontmatter must not leak");
         assert!(body.contains("· 업무 생성"));

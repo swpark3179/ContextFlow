@@ -8,7 +8,7 @@ export const AMBER = "#b07520";
 export const GREEN = "#2f7f57";
 export const VIOLET = "#6a54c6";
 
-export type StatusKey = "in-progress" | "on-hold" | "completed" | "reopened";
+export type StatusKey = "in-progress" | "on-hold" | "completed";
 
 export interface StatusStyle {
   label: string;
@@ -22,11 +22,22 @@ export const STATUS: Record<StatusKey, StatusStyle> = {
   "in-progress": { label: "진행 중", dot: BLUE, bg: "#eef3fd", fg: "#2f5cbb", bd: "#cddcf8" },
   "on-hold": { label: "보류", dot: AMBER, bg: "#fbf3e6", fg: "#8f5d17", bd: "#eeddc0" },
   completed: { label: "완료", dot: GREEN, bg: "#e9f4ee", fg: "#256b47", bd: "#c9e4d5" },
-  reopened: { label: "재개됨", dot: VIOLET, bg: "#f4f0fd", fg: "#5a44b4", bd: "#e0d6f8" },
 };
 
+/**
+ * 옛 vault 의 `reopened` 를 진행 중으로 접는다.
+ *
+ * '재개됨' 은 상태가 아니라 표식이었다 — 필터도 카운트도 그것을 진행 중으로 세고 있어서
+ * (`Sidebar.tsx`) 실제로 갈리는 것은 배지 색 하나뿐이었고, 다시 손댄 업무라는 사실은
+ * Run Log 의 `보관함에서 재개` 줄과 회차(`runs`)가 이미 말해 준다. 손으로 고친 Obsidian
+ * 노트나 예전 vault 에는 그 값이 남아 있으므로 읽는 쪽에서 접어 준다.
+ */
+export function normalizeStatus(key: string): StatusKey {
+  return key === "reopened" ? "in-progress" : (key as StatusKey);
+}
+
 export function statusOf(key: string): StatusStyle {
-  return STATUS[key as StatusKey] ?? STATUS["in-progress"];
+  return STATUS[normalizeStatus(key)] ?? STATUS["in-progress"];
 }
 
 export const LANG: Record<string, string> = {

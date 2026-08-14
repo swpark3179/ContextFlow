@@ -4,7 +4,7 @@ import { GREEN, VIOLET } from "../lib/design";
 import { daysSince, qLabel } from "../lib/format";
 import * as api from "../lib/api";
 import type { TaskMeta } from "../lib/api";
-import { isArchived, useStore } from "../store/useStore";
+import { isArchived, reportObsidianOpen, useStore } from "../store/useStore";
 import { useVirtual } from "../lib/virtual";
 import Workspace from "./Workspace";
 
@@ -747,11 +747,9 @@ export default function Archive() {
             onClick={() => {
               void (async () => {
                 try {
+                  // MOC 는 열기 직전에 항상 새로 쓴다 — 파일이 없어서 실패하는 일은 없다.
                   const path = await api.writeArchiveMoc(settings.vault, settings.archDays);
-                  const res = await api.openInObsidian(settings.vault, path);
-                  // Obsidian 이 떴으면 보인다. 알릴 것은 대신 탐색기로 열린 경우뿐이다.
-                  if (res.opened !== "obsidian")
-                    s.toast("탐색기에서 열었습니다", res.detail, "#a8a29a");
+                  reportObsidianOpen(await api.openInObsidian(settings.vault, path));
                 } catch (e) {
                   s.fail(e, "MOC 노트를 열지 못했습니다");
                 }
