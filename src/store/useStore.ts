@@ -158,6 +158,18 @@ export interface MergeState {
   primary: number;
 }
 
+/** 업무 리스트를 끌어 옮기는 중. 탐색기의 `fileDrag` 와 같은 자리에 사는 이유도 같다. */
+export interface TaskDrag {
+  /** 끌고 있는 업무의 폴더 경로. */
+  folder: string;
+  y: number;
+  /**
+   * 놓으면 들어갈 자리 — 화면에 보이는 목록 기준의 삽입 인덱스다. `0` 은 맨 위,
+   * 목록 길이는 맨 아래를 뜻한다.
+   */
+  at: number;
+}
+
 export interface RenameState {
   /** 이름을 바꿀 업무의 폴더 경로 — 확정되면 이 경로 자체가 바뀐다. */
   folder: string;
@@ -262,6 +274,7 @@ interface State {
   dragOver: boolean;
   ow: OwState | null;
   fileDrag: FileDrag | null;
+  taskDrag: TaskDrag | null;
 
   newOpen: boolean;
   nt: NewTaskState;
@@ -302,6 +315,8 @@ interface Actions {
   peekArchived: (folder: string) => Promise<void>;
   closeArchived: () => void;
   openTaskInObsidian: (folder: string) => Promise<void>;
+  reorderTask: (folder: string, at: number) => Promise<void>;
+  clearTaskOrder: () => Promise<void>;
 
   setScreen: (s: Screen) => void;
   setUi: (patch: Partial<TaskUi>) => void;
@@ -379,6 +394,7 @@ export const useStore = create<State & Actions>((set, get) => ({
   dragOver: false,
   ow: null,
   fileDrag: null,
+  taskDrag: null,
 
   newOpen: false,
   nt: { title: "", summary: "", tags: "", template: "(없음)" },
@@ -1001,6 +1017,47 @@ export const useStore = create<State & Actions>((set, get) => ({
       await get().refreshFiles();
     } catch (e) {
       get().fail(e, "옮기지 못했습니다");
+    }
+  },
+
+  /**
+   * 업무 리스트에서 `folder` 를 화면상 `at` 번째 자리로 옮긴다.
+   *
+   * 프런트는 원하는 최종 순서만 만들어 넘기고 `order` 값 계산은 Rust 가 한다.
+   * **보이는 목록이 아니라 살아 있는 업무 전체**로 순서를 만든다 — 필터나 검색이 걸린
+   * 채로 보이는 것만 넘기면 화면에 없는 업무들의 자리가 조용히 뒤섞인다(사이드바가
+   * 그럴 때 아예 드래그를 막지만, 규칙을 여기서도 지킨다).
+   */
+  reorderTask: async (folder, at) => {
+    const { settings, tasks } = get();
+    const live = tasks.filter((t) => !isArchived(t, settings.archDays));
+    const from = live.findIndex((t) => t.folder === folder);
+    if (from < 0) return;
+    // 자기 자신을 뺀 자리 기준으로 삽입 지점을 다시 센다.
+    const rest = live.filter((t) => t.folder !== folder);
+    const to = Math.max(0, Math.min(at > from ? at - 1 : at, rest.length));
+    if (to === from) return;
+    const next = [...rest.slice(0, to), live[from], ...rest.slice(to)];
+    try {
+      set({ tasks: await api.reorderTasks(settings.vault, next.map((t) => t.folder)) });
+    } catch (e) {
+      get().fail(e, "순서를 바꾸지 못했습니다");
+    }
+  },
+
+  /** 수동 정렬을 버리고 최근 수정순으로 되돌린다. 노트에서 `order` 키를 지운다. */
+  clearTaskOrder: async () => {
+    const { settings, tasks } = get();
+    if (!tasks.some((t) => t.order !== null)) {
+      get().toast("이미 최근 수정순입니다", "수동으로 정한 순서가 없습니다", TOAST.muted);
+      return;
+    }
+    try {
+      set({ tasks: await api.clearTaskOrder(settings.vault) });
+      // 목록이 통째로 다시 늘어서는데 그 이유가 화면에 드러나지 않는다.
+      get().toast("정렬을 초기화했습니다", "다시 최근 수정순으로 정렬합니다", TOAST.ok);
+    } catch (e) {
+      get().fail(e, "정렬을 초기화하지 못했습니다");
     }
   },
 

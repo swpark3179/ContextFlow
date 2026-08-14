@@ -165,6 +165,17 @@ fn append_task_run(root: String, folder: String, text: String) -> Result<vault::
     vault::append_run(&p(&root), &p(&folder), &text)
 }
 
+/// `folders` 는 원하는 최종 순서 전체다. 값 계산은 Rust 가 하고, 실제로 바뀐 노트만 쓴다.
+#[tauri::command]
+fn reorder_tasks(root: String, folders: Vec<String>) -> Result<Vec<vault::TaskMeta>> {
+    vault::reorder_tasks(&p(&root), &folders)
+}
+
+#[tauri::command]
+fn clear_task_order(root: String) -> Result<Vec<vault::TaskMeta>> {
+    vault::clear_task_order(&p(&root))
+}
+
 #[tauri::command]
 fn set_task_archived(
     root: String,
@@ -595,6 +606,8 @@ pub fn run() {
             rename_task,
             set_task_status,
             append_task_run,
+            reorder_tasks,
+            clear_task_order,
             set_task_archived,
             merge_tasks,
             read_text_file,

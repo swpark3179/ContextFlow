@@ -3,13 +3,10 @@ import { Box } from "../lib/ui";
 import { extOf, extStyle } from "../lib/design";
 import { dragCursor, dragKind } from "../lib/dragCursor";
 import { flatten } from "../lib/tree";
+import { useDropGuard, useLongPress } from "../lib/longPress";
 import { dirname } from "../lib/format";
 import { useStore } from "../store/useStore";
 
-/** 이만큼 누르고 있어야 드래그가 시작된다 — 그 전에는 평범한 클릭이다. */
-const LONG_PRESS_MS = 1000;
-/** 누른 채 이 이상 움직이면 옮길 뜻이 아니라 스크롤·드래그선택으로 본다. */
-const SLOP_PX = 5;
 /** 고스트의 최대 폭(아래 `maxWidth`). 창 가장자리에 붙일 때 쓴다. */
 const GHOST_W = 300;
 
@@ -18,14 +15,7 @@ export default function Explorer() {
   const { ui, files, activeFolder } = s;
   const mkInput = useRef<HTMLInputElement | null>(null);
   const task = s.tasks.find((t) => t.folder === activeFolder);
-  /** 롱프레스 타이머와 시작 좌표. 드래그가 시작되면 상태는 스토어(`fileDrag`)로 넘어간다. */
-  const press = useRef<{ timer: number; detach: () => void } | null>(null);
-  /**
-   * 드래그를 끝낸 시각. pointerup 뒤에 click 이 한 번 더 오는데, 그걸 선택이나
-   * 폴더 접기로 받으면 방금 옮긴 행이 엉뚱하게 반응한다.
-   */
-  const droppedAt = useRef(0);
-  const justDropped = () => Date.now() - droppedAt.current < 300;
+  const { markDropped, justDropped } = useDropGuard();
 
   const rows = useMemo(() => flatten(files, ui.treeOpen), [files, ui.treeOpen]);
   const openedModes = useMemo(() => {
@@ -69,7 +59,7 @@ export default function Explorer() {
       const st = useStore.getState();
       const d = st.fileDrag;
       st.set({ fileDrag: null });
-      droppedAt.current = Date.now();
+      markDropped();
       if (!d) return;
       if (d.outside) void st.exportToDesktop(d.path, e.altKey ? "link" : "copy");
       else if (d.over !== null) void st.moveFile(d.path, d.over);
@@ -102,17 +92,8 @@ export default function Explorer() {
 
   // -- 롱프레스 드래그 ------------------------------------------------------
   //
-  // HTML5 드래그를 쓰지 않는 이유는 두 가지다. (1) 1초 누르고 있어야 시작한다는
-  // 조건을 native drag 로는 표현할 수 없고, (2) Tauri 에는 웹뷰 밖으로 파일을
-  // 넘기는 API 가 없어서 창 밖 드롭은 어차피 좌표로 판정해야 한다.
-
-  const cancelPress = () => {
-    if (press.current) {
-      window.clearTimeout(press.current.timer);
-      press.current.detach();
-      press.current = null;
-    }
-  };
+  // 감시 기계장치는 `lib/longPress.ts` 에 있고 업무 리스트의 순서 바꾸기와 함께 쓴다.
+  // 여기 남은 것은 이 화면만의 판정 — 어느 폴더 위에 놓았는가다.
 
   /** 드롭 지점 아래의 행을 찾아 **넣을 폴더**의 상대 경로로 바꾼다. */
   const folderAt = (x: number, y: number): string | null => {
@@ -123,45 +104,11 @@ export default function Explorer() {
     return path.endsWith("/") ? path : dirname(path);
   };
 
-  const startPress = (e: React.PointerEvent, path: string, name: string, isDir: boolean) => {
-    if (e.button !== 0) return;
-    // 타이머 안에서 쓸 값은 지금 꺼내 둔다 — 그때는 이벤트의 currentTarget 이 이미 비어 있다.
-    const target = e.currentTarget as HTMLElement;
-    const pointerId = e.pointerId;
-    const { clientX: x, clientY: y } = e;
-    cancelPress();
-
-    // 감시는 window 에 건다. 행에만 걸면 누른 채 이웃 행으로 넘어갔을 때 이벤트가
-    // 끊겨서, 옮길 뜻이 없었는데도 1초 뒤에 드래그가 시작된다.
-    const onMove = (ev: PointerEvent) => {
-      if (Math.abs(ev.clientX - x) > SLOP_PX || Math.abs(ev.clientY - y) > SLOP_PX) cancelPress();
-    };
-    const detach = () => {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", cancelPress);
-      window.removeEventListener("pointercancel", cancelPress);
-    };
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", cancelPress);
-    window.addEventListener("pointercancel", cancelPress);
-
-    press.current = {
-      detach,
-      timer: window.setTimeout(() => {
-        detach();
-        press.current = null;
-        // 포인터를 잡아 둬야 커서가 창 밖으로 나가도 move/up 이 계속 온다.
-        try {
-          target.setPointerCapture(pointerId);
-        } catch {
-          /* 캡처는 최적화일 뿐 — 실패해도 window 리스너로 따라간다 */
-        }
-        s.set({
-          fileDrag: { path, name, isDir, x, y, over: null, outside: false, alt: false },
-        });
-      }, LONG_PRESS_MS),
-    };
-  };
+  const { startPress } = useLongPress<{ path: string; name: string; isDir: boolean }>(
+    ({ path, name, isDir }, { x, y }) => {
+      s.set({ fileDrag: { path, name, isDir, x, y, over: null, outside: false, alt: false } });
+    },
+  );
 
   const drag = s.fileDrag;
 
@@ -499,7 +446,7 @@ export default function Explorer() {
               <Box
                 key={`d${r.path}`}
                 data-tree-path={r.path}
-                onPointerDown={(e) => startPress(e, r.path, r.name, true)}
+                onPointerDown={(e) => startPress(e, { path: r.path, name: r.name, isDir: true })}
                 onClick={() => {
                   if (justDropped()) return;
                   s.setUi({
@@ -586,7 +533,7 @@ export default function Explorer() {
             <Box
               key={`f${r.path}`}
               data-tree-path={r.path}
-              onPointerDown={(e) => startPress(e, r.path, r.name, false)}
+              onPointerDown={(e) => startPress(e, { path: r.path, name: r.name, isDir: false })}
               onClick={() => {
                 if (justDropped()) return;
                 s.setUi({ sel: r.path });

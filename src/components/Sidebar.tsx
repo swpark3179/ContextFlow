@@ -1,6 +1,7 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { Box, Input } from "../lib/ui";
-import { normalizeStatus, statusOf } from "../lib/design";
+import { BLUE, normalizeStatus, statusOf } from "../lib/design";
+import { useDropGuard, useLongPress } from "../lib/longPress";
 import { shortStamp } from "../lib/format";
 import { isArchived, useStore, type Screen } from "../store/useStore";
 
@@ -53,6 +54,85 @@ export default function Sidebar() {
     const sideArch = q ? archived.filter(match) : [];
     return { live, archived, visible, sideArch, counts };
   }, [tasks, settings.archDays, query, filter]);
+
+  /**
+   * 순서를 바꿀 수 있는 상태인가.
+   *
+   * 걸러진 목록의 인덱스는 전체 목록의 인덱스가 아니다 — 필터나 검색이 걸린 채로 옮기면
+   * 화면에 없는 업무들의 자리가 조용히 틀어진다. 그래서 그때는 아예 끌 수 없게 한다.
+   */
+  const sortable = listActive && filter === "all" && !query.trim();
+  const drag = s.taskDrag;
+
+  const listRef = useRef<HTMLDivElement | null>(null);
+
+  /** 드롭 지점을 **삽입 인덱스**로 바꾼다. 행 중점을 넘었으면 그 아래 자리다. */
+  const insertAt = (y: number): number => {
+    const rows = Array.from(document.querySelectorAll<HTMLElement>("[data-task-folder]"));
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i].getBoundingClientRect();
+      if (y < r.top + r.height / 2) return i;
+    }
+    return rows.length;
+  };
+
+  const { startPress } = useLongPress<string>((folder, { y }) => {
+    s.set({ taskDrag: { folder, y, at: insertAt(y) } });
+  });
+  const { markDropped, justDropped } = useDropGuard();
+
+  /**
+   * 드래그가 살아 있는 동안만 붙는 리스너. 탐색기와 같은 이유로 `[!!drag]` 에만
+   * 의존한다 — 좌표가 바뀔 때마다 다시 붙이면 이벤트가 새고 포인터 캡처도 놓친다.
+   */
+  useEffect(() => {
+    if (!drag) return;
+    // 최신 좌표는 ref 가 아니라 이 지역 값으로 든다. 자동 스크롤 타이머도 같은 값을 본다.
+    const pos = { y: drag.y };
+
+    const sync = () => {
+      const d = useStore.getState().taskDrag;
+      if (d) useStore.getState().set({ taskDrag: { ...d, y: pos.y, at: insertAt(pos.y) } });
+    };
+    const move = (e: PointerEvent) => {
+      pos.y = e.clientY;
+      sync();
+    };
+    const up = () => {
+      const st = useStore.getState();
+      const d = st.taskDrag;
+      st.set({ taskDrag: null });
+      markDropped();
+      if (d) void st.reorderTask(d.folder, d.at);
+    };
+
+    // 목록 가장자리에서는 스스로 스크롤한다. 사이드바 목록은 스크롤 컨테이너라
+    // 이게 없으면 화면 밖 자리로는 옮길 수 없다. pointermove 는 커서가 멈추면 오지
+    // 않으므로, 가장자리에 대고 가만히 있어도 계속 밀리도록 타이머로 돌린다.
+    const scroller = window.setInterval(() => {
+      const el = listRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const EDGE = 26;
+      const step = pos.y < r.top + EDGE ? -14 : pos.y > r.bottom - EDGE ? 14 : 0;
+      if (!step) return;
+      const before = el.scrollTop;
+      el.scrollTop += step;
+      // 실제로 움직였을 때만 다시 센다 — 끝에 닿으면 삽입 지점도 그대로다.
+      if (el.scrollTop !== before) sync();
+    }, 50);
+
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+    return () => {
+      window.clearInterval(scroller);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [!!drag]);
 
   if (s.sidebarMin) {
     return (
@@ -227,9 +307,17 @@ export default function Sidebar() {
             );
           })}
         </div>
+        {/* 순서를 정해 둔 사용자가 필터를 켠 채 끌어 보고 "왜 안 되지" 하는 것을 막는다.
+            한 번도 순서를 바꾼 적 없으면 알릴 것도 없으므로 띄우지 않는다. */}
+        {listActive && !sortable && live.some((t) => t.order !== null) && (
+          <div style={{ fontSize: 10.5, color: "#a09a8f", lineHeight: 1.5 }}>
+            검색·필터 중에는 순서를 바꿀 수 없습니다
+          </div>
+        )}
       </div>
 
       <div
+        ref={listRef}
         style={{
           flex: 1,
           minHeight: 0,
@@ -237,6 +325,8 @@ export default function Sidebar() {
           padding: "2px 6px 8px 6px",
           opacity: listActive ? 1 : 0.42,
           pointerEvents: listActive ? "auto" : "none",
+          // 드래그 중에는 텍스트가 잡히지 않게 한다.
+          userSelect: drag ? "none" : undefined,
         }}
       >
         {!listActive && (
@@ -251,25 +341,46 @@ export default function Sidebar() {
             워크스페이스에서 업무를 선택할 수 있습니다
           </div>
         )}
-        {visible.map((t) => {
+        {visible.map((t, i) => {
           const cfg = statusOf(t.status);
           const on = listActive && t.folder === s.activeFolder;
+          const dragging = drag?.folder === t.folder;
           return (
             <Box
               key={t.folder}
-              onClick={() => void s.selectTask(t.folder)}
+              data-task-folder={t.folder}
+              onPointerDown={(e) => {
+                if (sortable) startPress(e, t.folder);
+              }}
+              onClick={() => {
+                if (justDropped()) return;
+                void s.selectTask(t.folder);
+              }}
               style={{
                 display: "flex",
                 gap: 8,
                 padding: "7px 8px 7px 7px",
                 borderRadius: 5,
-                cursor: "pointer",
+                cursor: drag ? "grabbing" : "pointer",
                 marginBottom: 1,
                 borderLeft: `2px solid ${on ? cfg.dot : "transparent"}`,
                 background: on ? "#fff" : "transparent",
                 boxShadow: on ? "0 1px 2px rgba(35,33,30,.10)" : "none",
+                // 끌고 있는 행은 흐리게 — 지금 손에 쥔 것이 무엇인지 보여 준다.
+                opacity: dragging ? 0.4 : 1,
+                // 놓을 자리를 행 사이의 선으로 그린다. 고스트는 필요 없다 — 탐색기와
+                // 달리 이 드래그는 창 밖으로 나가지 않는다. 테두리는 **드래그 중에만**
+                // 깐다: 평소에도 투명 테두리를 두면 모든 행이 4px 씩 두꺼워져 설계의
+                // 목록 밀도가 바뀐다. 드래그 중에는 모든 행에 똑같이 깔리므로 선이
+                // 켜지고 꺼져도 행이 흔들리지 않는다.
+                ...(drag && {
+                  borderTop: `2px solid ${drag.at === i ? BLUE : "transparent"}`,
+                  borderBottom: `2px solid ${
+                    drag.at === visible.length && i === visible.length - 1 ? BLUE : "transparent"
+                  }`,
+                }),
               }}
-              hover={{ background: on ? "#fff" : "#ede9e2" }}
+              hover={drag ? undefined : { background: on ? "#fff" : "#ede9e2" }}
             >
               <div
                 style={{

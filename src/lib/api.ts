@@ -27,6 +27,8 @@ export interface TaskMeta {
   archived: boolean | null;
   archivedAt: string | null;
   runs: number;
+  /** 사용자가 끌어 정한 자리. `null` = 아직 손대지 않았고, 그때는 최근 수정순이다. */
+  order: number | null;
   folder: string;
   relFolder: string;
   indexPath: string;
@@ -158,6 +160,10 @@ export const setTaskStatus = (root: string, folder: string, status: string) =>
   invoke<TaskMeta>("set_task_status", { root, folder, status });
 export const appendTaskRun = (root: string, folder: string, text: string) =>
   invoke<TaskMeta>("append_task_run", { root, folder, text });
+/** `folders` 는 원하는 **최종 순서 전체**다. 값 계산과 최소 쓰기는 Rust 가 한다. */
+export const reorderTasks = (root: string, folders: string[]) =>
+  invoke<TaskMeta[]>("reorder_tasks", { root, folders });
+export const clearTaskOrder = (root: string) => invoke<TaskMeta[]>("clear_task_order", { root });
 export const setTaskArchived = (
   root: string,
   folder: string,
