@@ -3,6 +3,10 @@
  * (`mdParse` / `mdSegs`, lines 1279-1320). Deliberately the same limited
  * grammar the design renders: headings, rules, task lists, quotes, bullets,
  * ordered items, and inline `[[wikilink]]` / `` `code` `` / `**bold**`.
+ *
+ * `~~취소선~~` 은 설계에 없던 하나뿐인 추가다. 보통의 마크다운 뷰어(Obsidian ·
+ * GitHub)가 전부 그리는 표기라, 여기서만 물결표 네 개가 본문에 그대로 남으면
+ * 같은 노트가 Vault 안에서 두 가지로 보인다.
  */
 import { GREEN } from "./design";
 
@@ -11,6 +15,7 @@ export interface Seg {
   text: string;
   isT: boolean;
   isB: boolean;
+  isStrike: boolean;
   isCode: boolean;
   isLink: boolean;
 }
@@ -32,16 +37,17 @@ export interface Block {
 
 export function mdSegs(text: string, key: string): Seg[] {
   const out: Seg[] = [];
-  const re = /(\[\[[^\]]+\]\]|`[^`]+`|\*\*[^*]+\*\*)/g;
+  const re = /(\[\[[^\]]+\]\]|`[^`]+`|\*\*[^*]+\*\*|~~[^~]+~~)/g;
   let last = 0;
   let m: RegExpExecArray | null;
   let i = 0;
-  const push = (t: string, kind: "t" | "b" | "c" | "l") => {
+  const push = (t: string, kind: "t" | "b" | "s" | "c" | "l") => {
     out.push({
       key: `${key}s${i++}`,
       text: t,
       isT: kind === "t",
       isB: kind === "b",
+      isStrike: kind === "s",
       isCode: kind === "c",
       isLink: kind === "l",
     });
@@ -51,6 +57,7 @@ export function mdSegs(text: string, key: string): Seg[] {
     const tk = m[0];
     if (tk[0] === "[") push(tk.slice(2, -2), "l");
     else if (tk[0] === "`") push(tk.slice(1, -1), "c");
+    else if (tk[0] === "~") push(tk.slice(2, -2), "s");
     else push(tk.slice(2, -2), "b");
     last = m.index + tk.length;
   }

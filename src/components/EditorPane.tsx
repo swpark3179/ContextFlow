@@ -3,6 +3,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { Box } from "../lib/ui";
 import { extOf, LANG, statusOf } from "../lib/design";
 import { fmValue, mdParse, splitFrontmatter } from "../lib/markdown";
+import { cutLine } from "../lib/editing";
 import { basename, joinPath } from "../lib/format";
 import { useStore, viewerFor, type TabMode } from "../store/useStore";
 
@@ -122,11 +123,45 @@ export default function EditorPane() {
     s.editDoc(tab.path, editingBodyOnly ? `---\n${fm}\n---\n${next}` : next);
   };
 
-  const onCaret = (e: React.SyntheticEvent<HTMLTextAreaElement>) => {
-    const el = e.currentTarget;
+  const showCaret = (el: HTMLTextAreaElement) => {
     const pos = el.selectionStart ?? 0;
     const upto = el.value.slice(0, pos);
     setCaret({ ln: upto.split("\n").length, col: pos - upto.lastIndexOf("\n") });
+  };
+  const onCaret = (e: React.SyntheticEvent<HTMLTextAreaElement>) => showCaret(e.currentTarget);
+
+  /**
+   * 고른 구간이 없을 때의 Ctrl+X 는 **커서가 놓인 줄 하나**를 잘라낸다(에디터의 관례).
+   *
+   * 잘라내기 자체는 그 줄을 선택해 두고 웹뷰에게 맡긴다 — 클립보드도 되돌리기(Ctrl+Z)도
+   * 네이티브 그대로 남고, 값은 평소처럼 onChange 로 따라온다. 웹뷰가 거절하면 그때만
+   * 클립보드 API 로 옮기고 본문은 직접 지운다. 클립보드에 못 올렸다고 줄까지 지우지
+   * 않으려면 순서가 이대로여야 한다.
+   */
+  const onCut = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key !== "x" && e.key !== "X") return;
+    if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+    const el = e.currentTarget;
+    const at = el.selectionStart ?? 0;
+    if (at !== (el.selectionEnd ?? at)) return; // 구간을 골랐으면 평범한 잘라내기
+    const cut = cutLine(el.value, at);
+    if (!cut) return;
+    e.preventDefault();
+    el.setSelectionRange(cut.from, cut.to);
+    let native = false;
+    try {
+      native = document.execCommand("cut");
+    } catch {
+      native = false;
+    }
+    if (native) return;
+    void navigator.clipboard?.writeText(cut.text).catch(() => {});
+    onEdit(cut.next);
+    // 새 값이 그려진 뒤라야 캐럿이 붙는다 — 지금 놓으면 다시 그리면서 끝으로 밀린다.
+    requestAnimationFrame(() => {
+      el.setSelectionRange(cut.from, cut.from);
+      showCaret(el);
+    });
   };
 
   return (
@@ -400,6 +435,17 @@ export default function EditorPane() {
                             {g.text}
                           </span>
                         );
+                      if (g.isStrike)
+                        // 그어 지운 글은 이미 지나간 이야기다. 완료된 체크 항목과
+                        // 같은 회색으로 낮춰 본문의 시선을 뺏지 않게 둔다.
+                        return (
+                          <span
+                            key={g.key}
+                            style={{ textDecoration: "line-through", color: "#8a857c" }}
+                          >
+                            {g.text}
+                          </span>
+                        );
                       if (g.isCode)
                         return (
                           <span
@@ -542,6 +588,7 @@ export default function EditorPane() {
           <textarea
             value={editorValue}
             onChange={(e) => onEdit(e.target.value)}
+            onKeyDown={onCut}
             onKeyUp={onCaret}
             onClick={onCaret}
             spellCheck={false}
