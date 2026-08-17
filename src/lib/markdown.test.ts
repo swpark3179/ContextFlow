@@ -19,6 +19,20 @@ describe("mdSegs", () => {
     expect(segs.find((s) => s.isB)?.text).toBe("capabilities");
   });
 
+  it("marks ~~strikethrough~~ runs and drops the tildes", () => {
+    const segs = mdSegs("이 단계는 ~~직접 빌드~~ 대신 배포본을 쓴다", "k");
+    expect(segs.map((s) => s.text)).toEqual(["이 단계는 ", "직접 빌드", " 대신 배포본을 쓴다"]);
+    expect(segs[1].isStrike).toBe(true);
+    expect(segs[0].isStrike).toBe(false);
+  });
+
+  it("leaves a lone tilde pair alone", () => {
+    // 여는 물결표만 있거나 사이가 비면 취소선이 아니다 — 본문 그대로 둔다.
+    expect(mdSegs("~~닫히지 않은 표기", "k")[0].isStrike).toBe(false);
+    expect(mdSegs("~~~~", "k")[0].isStrike).toBe(false);
+    expect(mdSegs("경로: ~/notes 와 ~/vault", "k")[0].isStrike).toBe(false);
+  });
+
   it("always returns at least one segment", () => {
     expect(mdSegs("", "k")).toHaveLength(1);
   });
