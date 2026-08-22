@@ -57,7 +57,11 @@ export interface TaskUi {
   bsView: Record<string, BsView>;
 }
 
+export type BsViewKind = "canvas" | "outline" | "decision";
+
 export interface BsView {
+  /** 캔버스는 생각을 뻗는 곳, 개요와 결정 로그는 쌓인 것을 읽는 곳이다. */
+  view: BsViewKind;
   zoom: number;
   panX: number;
   panY: number;

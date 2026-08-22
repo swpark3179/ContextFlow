@@ -72,7 +72,18 @@ const REASON_KEY = "폐기";
  */
 const FIELD_RE = /^(근거|리스크|질문|폐기)::\s*(.*)$/;
 
-const BULLET_RE = /^(\s*)[-*]\s+(.*)$/;
+/**
+ * 제목이 비어 있는 노드는 `-` 한 글자로 적힌다(줄 끝 공백은 남기지 않는다). 그래서
+ * 불릿 뒤의 공백을 **선택**으로 둔다 — 필수로 두면 방금 만든 빈 생각이 다시 읽을 때
+ * 사라진다. `---`(구분선)은 뒤에 `--` 가 남아 `$` 에 걸리므로 여기 걸리지 않는다.
+ */
+const BULLET_RE = /^(\s*)[-*](?:\s+(.*))?$/;
+
+/**
+ * 그림·다이어그램은 Obsidian 의 임베드 문법으로 적는다. 앱에서도 Obsidian 에서도
+ * 같은 자리에 같은 그림이 보이고, 파일은 업무 폴더 안에 그대로 있다.
+ */
+const EMBED_RE = /^!\[\[(.+?)\]\]$/;
 
 /** 앞뒤의 빈 줄만 걷어낸다. 사이에 낀 빈 줄은 사용자가 쓴 글의 일부다. */
 function trimBlankLines(s: string): string {
@@ -92,6 +103,8 @@ export interface BsNode {
   /** 폐기 이유. 상태와 무관하게 값이 있으면 보존한다. */
   reason: string;
   evidence: Evidence[];
+  /** 업무 폴더 기준 상대 경로. `![[attachments/x.png]]` 로 저장된다. */
+  images: string[];
   children: BsNode[];
 }
 
@@ -106,7 +119,7 @@ export interface BsDoc {
 }
 
 export function newNode(title = ""): BsNode {
-  return { title, detail: "", status: "explore", reason: "", evidence: [], children: [] };
+  return { title, detail: "", status: "explore", reason: "", evidence: [], images: [], children: [] };
 }
 
 /** 앞머리 이모지를 떼어 상태와 제목으로 가른다. 표시가 없으면 탐색중이다. */
@@ -152,7 +165,7 @@ export function parseBstorm(src: string): BsDoc {
       // 들여쓰기 폭은 편집기마다 다르다(2칸 · 4칸 · 탭). 절대 칸 수로 깊이를 나누지 않고
       // 쌓여 있는 조상들과 비교해 정하면 어떤 폭이든 트리 모양이 살아남는다.
       while (stack.length && stack[stack.length - 1].indent >= indent) stack.pop();
-      const { status, title } = splitStatus(bullet[2]);
+      const { status, title } = splitStatus(bullet[2] ?? "");
       const node = { ...newNode(title), status };
       if (stack.length) stack[stack.length - 1].node.children.push(node);
       else roots.push(node);
@@ -162,6 +175,12 @@ export function parseBstorm(src: string): BsDoc {
 
     const cur = stack.length ? stack[stack.length - 1].node : null;
     if (!cur) continue;
+
+    const embed = line.trim().match(EMBED_RE);
+    if (embed) {
+      cur.images.push(embed[1].trim());
+      continue;
+    }
 
     const field = line.trim().match(FIELD_RE);
     if (field) {
@@ -196,6 +215,9 @@ function writeNode(n: BsNode, depth: number, out: string[]): void {
   const inner = " ".repeat((depth + 1) * INDENT);
   for (const line of n.detail.split("\n")) {
     if (line.trim()) out.push(inner + line.trim());
+  }
+  for (const src of n.images) {
+    if (src.trim()) out.push(`${inner}![[${src.trim()}]]`);
   }
   for (const e of n.evidence) {
     if (e.text.trim()) out.push(`${inner}${e.kind}:: ${e.text.trim()}`);
@@ -324,6 +346,43 @@ export function addChildAt(
   };
 }
 
+export interface WalkedNode {
+  path: string;
+  node: BsNode;
+  depth: number;
+}
+
+/**
+ * 트리 전체를 위에서 아래로 편다. `layout()` 과 달리 접힌 가지도 포함한다 —
+ * 개요와 결정 로그는 "전부 보는" 화면이라 캔버스에서 무엇을 접었는지와 무관해야 한다.
+ */
+export function walkNodes(roots: BsNode[]): WalkedNode[] {
+  const out: WalkedNode[] = [];
+  const go = (list: BsNode[], depth: number, prefix: string) => {
+    list.forEach((node, i) => {
+      const path = prefix ? `${prefix}.${i}` : String(i);
+      out.push({ path, node, depth });
+      go(node.children, depth + 1, path);
+    });
+  };
+  go(roots, 0, "");
+  return out;
+}
+
+/** 뿌리부터 이 노드의 부모까지의 제목. 결정 로그가 어디서 나온 생각인지 보여 준다. */
+export function ancestorTitles(roots: BsNode[], path: string): string[] {
+  const parts = path.split(".");
+  const out: string[] = [];
+  let list = roots;
+  for (let d = 0; d < parts.length - 1; d++) {
+    const n = list[Number(parts[d])];
+    if (!n) break;
+    out.push(n.title);
+    list = n.children;
+  }
+  return out;
+}
+
 // ---- 배치 -------------------------------------------------------------------
 
 const NODE_W = 210;
@@ -353,6 +412,7 @@ function heightOf(n: BsNode): number {
   const titleLines = Math.max(1, Math.min(3, Math.ceil(n.title.length / 20)));
   let h = 24 + titleLines * 17;
   if (n.detail.trim()) h += 16;
+  if (n.images.length) h += 40;
   h += n.evidence.length * 15;
   if (n.reason.trim()) h += 15;
   return h;
