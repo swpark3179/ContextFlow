@@ -5,10 +5,33 @@ import { dragCursor, dragKind } from "../lib/dragCursor";
 import { flatten } from "../lib/tree";
 import { useDropGuard, useLongPress } from "../lib/longPress";
 import { dirname } from "../lib/format";
-import { useStore } from "../store/useStore";
+import { useStore, type MkState, type TabMode } from "../store/useStore";
+import { BSTORM_EXT } from "../lib/bstorm";
 
 /** 고스트의 최대 폭(아래 `maxWidth`). 창 가장자리에 붙일 때 쓴다. */
 const GHOST_W = 300;
+
+/**
+ * 트리에 붙는 확장자 배지. `.bs.md` 는 `extOf` 가 `md` 를 주지만 브레인스토밍
+ * 문서라는 것이 한눈에 보여야 하므로 BS 로 가른다.
+ */
+function badgeFor(path: string): { label: string; fg: string; bg: string } {
+  if (path.toLowerCase().endsWith(BSTORM_EXT)) return { label: "BS", fg: "#256b47", bg: "#e9f4ee" };
+  const e = extOf(path);
+  return { label: e.toUpperCase(), ...extStyle(e) };
+}
+
+/** 인라인 생성 행의 칩과 안내 문구. 만들 수 있는 종류마다 하나씩. */
+const MK_CHIP: Record<MkState["kind"], { label: string; fg: string; bg: string; placeholder: string }> = {
+  folder: { label: "DIR", fg: "#8f5d17", bg: "#fbf3e6", placeholder: "새 폴더 이름" },
+  file: { label: "FILE", fg: "#2f5cbb", bg: "#eef3fd", placeholder: "새 파일 이름 (확장자 생략 시 .md)" },
+  bstorm: {
+    label: "BS",
+    fg: "#256b47",
+    bg: "#e9f4ee",
+    placeholder: `새 브레인스토밍 이름 (${BSTORM_EXT})`,
+  },
+};
 
 export default function Explorer() {
   const s = useStore();
@@ -19,7 +42,7 @@ export default function Explorer() {
 
   const rows = useMemo(() => flatten(files, ui.treeOpen), [files, ui.treeOpen]);
   const openedModes = useMemo(() => {
-    const m: Record<string, { md?: boolean; text?: boolean; html?: boolean }> = {};
+    const m: Record<string, Partial<Record<TabMode, boolean>>> = {};
     ui.openTabs.forEach((t) => {
       m[t.path] = { ...m[t.path], [t.mode]: true };
     });
@@ -86,8 +109,7 @@ export default function Explorer() {
   }, [!!s.fileDrag]);
 
   const selMeta = ui.sel ? files.find((f) => f.p === ui.sel) : undefined;
-  const selExt = ui.sel ? extOf(ui.sel) : "";
-  const selEs = extStyle(selExt);
+  const selEs = badgeFor(ui.sel);
   const anyCollapsed = Object.values(ui.treeOpen).some((v) => v === false);
 
   // -- 롱프레스 드래그 ------------------------------------------------------
@@ -373,13 +395,13 @@ export default function Explorer() {
                   fontFamily: "'Roboto Mono',monospace",
                   fontSize: 8.5,
                   fontWeight: 600,
-                  color: s.mk.kind === "folder" ? "#8f5d17" : "#2f5cbb",
-                  background: s.mk.kind === "folder" ? "#fbf3e6" : "#eef3fd",
+                  color: MK_CHIP[s.mk.kind].fg,
+                  background: MK_CHIP[s.mk.kind].bg,
                   borderRadius: 2,
                   padding: "1px 3px",
                 }}
               >
-                {s.mk.kind === "folder" ? "DIR" : "FILE"}
+                {MK_CHIP[s.mk.kind].label}
               </span>
               <input
                 ref={mkInput}
@@ -389,9 +411,7 @@ export default function Explorer() {
                   if (e.key === "Enter") void s.commitMk();
                   else if (e.key === "Escape") s.set({ mk: null });
                 }}
-                placeholder={
-                  s.mk.kind === "folder" ? "새 폴더 이름" : "새 파일 이름 (확장자 생략 시 .md)"
-                }
+                placeholder={MK_CHIP[s.mk.kind].placeholder}
                 style={{
                   flex: 1,
                   minWidth: 0,
@@ -526,7 +546,7 @@ export default function Explorer() {
           }
 
           const ext = extOf(r.name);
-          const es = extStyle(ext);
+          const es = badgeFor(r.path);
           const on = ui.sel === r.path;
           const om = openedModes[r.path] ?? {};
           return (
@@ -585,7 +605,7 @@ export default function Explorer() {
                   background: es.bg,
                 }}
               >
-                {ext.toUpperCase()}
+                {es.label}
               </span>
               <span
                 style={{
@@ -601,6 +621,21 @@ export default function Explorer() {
               >
                 {r.name}
               </span>
+              {om.bstorm && (
+                <span
+                  style={{
+                    flex: "0 0 auto",
+                    fontFamily: "'Roboto Mono',monospace",
+                    fontSize: 8.5,
+                    color: "#256b47",
+                    background: "#e9f4ee",
+                    borderRadius: 2,
+                    padding: "1px 3px",
+                  }}
+                >
+                  BS
+                </span>
+              )}
               {om.md && (
                 <span
                   style={{
@@ -735,7 +770,7 @@ export default function Explorer() {
                 flex: "0 0 auto",
               }}
             >
-              {ui.sel.endsWith("/") ? "DIR" : selExt.toUpperCase()}
+              {ui.sel.endsWith("/") ? "DIR" : selEs.label}
             </span>
             <span
               style={{

@@ -6,11 +6,13 @@ import { fmValue, mdParse, splitFrontmatter } from "../lib/markdown";
 import { cutLine } from "../lib/editing";
 import { basename, joinPath } from "../lib/format";
 import { useStore, viewerFor, type TabMode } from "../store/useStore";
+import BrainstormPane from "./BrainstormPane";
 
 const MODE_BADGE: Record<TabMode, { label: string; fg: string; bg: string; bar: string }> = {
   md: { label: "MD", fg: "#5a44b4", bg: "#f2eefc", bar: "#6a54c6" },
   html: { label: "HTML", fg: "#8f5d17", bg: "#fbf3e6", bar: "#b07520" },
   text: { label: "TXT", fg: "#2f5cbb", bg: "#eef3fd", bar: "#3a6fd8" },
+  bstorm: { label: "BS", fg: "#256b47", bg: "#e9f4ee", bar: "#2f7f57" },
 };
 
 /**
@@ -198,7 +200,7 @@ export default function EditorPane() {
             const key = `${t.mode}|${t.path}`;
             const on = key === ui.activeTab;
             const tDoc = ui.docs[t.path];
-            const tDirty = t.mode === "text" && !!tDoc && tDoc.text !== tDoc.saved;
+            const tDirty = (t.mode === "text" || t.mode === "bstorm") && !!tDoc && tDoc.text !== tDoc.saved;
             const badge = MODE_BADGE[t.mode];
             return (
               <div
@@ -633,6 +635,18 @@ export default function EditorPane() {
               {dirty ? "미저장 변경 · 자동 저장 대기" : `저장됨 ${s.snapAt}`}
             </span>
           </div>
+        </div>
+      )}
+
+      {tab && !isBinary && tab.mode === "bstorm" && (
+        <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", background: "#fff" }}>
+          <PaneHeader
+            label="브레인스토밍"
+            hint="캔버스 · 생각 트리"
+            action={dirty ? "저장 후 텍스트로 편집" : "텍스트로 편집"}
+            onAction={() => void s.setTabMode(tab.path, "bstorm", "text")}
+          />
+          <BrainstormPane path={tab.path} />
         </div>
       )}
     </div>
