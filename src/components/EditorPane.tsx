@@ -6,7 +6,7 @@ import { fmValue, mdParse, splitFrontmatter } from "../lib/markdown";
 import { cutLine } from "../lib/editing";
 import { basename, joinPath } from "../lib/format";
 import { useStore, viewerFor, type TabMode } from "../store/useStore";
-import BrainstormPane from "./BrainstormPane";
+import BrainstormPane, { BrainstormViewTabs } from "./BrainstormPane";
 
 const MODE_BADGE: Record<TabMode, { label: string; fg: string; bg: string; bar: string }> = {
   md: { label: "MD", fg: "#5a44b4", bg: "#f2eefc", bar: "#6a54c6" },
@@ -642,10 +642,12 @@ export default function EditorPane() {
         <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", background: "#fff" }}>
           <PaneHeader
             label="브레인스토밍"
-            hint="캔버스 · 생각 트리"
+            hint=""
             action={dirty ? "저장 후 텍스트로 편집" : "텍스트로 편집"}
             onAction={() => void s.setTabMode(tab.path, "bstorm", "text")}
-          />
+          >
+            <BrainstormViewTabs path={tab.path} />
+          </PaneHeader>
           <BrainstormPane path={tab.path} />
         </div>
       )}

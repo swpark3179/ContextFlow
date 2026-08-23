@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   addChildAt,
+  ancestorTitles,
   layout,
   mapAt,
   newNode,
@@ -11,6 +12,7 @@ import {
   serializeBstorm,
   setFm,
   TREE_HEADING,
+  walkNodes,
 } from "./bstorm";
 
 const DOC = `---
@@ -25,6 +27,7 @@ ${TREE_HEADING}
     - 🔍 첫 화면에서 가장 많이 빠진다
         - ✅ 입력 필드를 3개로 줄인다
             세 개까지는 이탈이 완만하다.
+            ![[attachments/funnel.png]]
             근거:: 세션 리플레이 40건 중 31건이 3번째 필드에서 멈췄다
             리스크:: 세그먼트 정보를 잃는다
         - ❌ 튜토리얼 영상을 넣는다
@@ -71,6 +74,12 @@ describe("parseBstorm", () => {
       { kind: "리스크", text: "세그먼트 정보를 잃는다" },
     ]);
     expect(adopted.detail).toBe("세 개까지는 이탈이 완만하다.");
+  });
+
+  it("reads an Obsidian embed as an attached image, not as detail", () => {
+    const adopted = parseBstorm(DOC).roots[0].children[0].children[0];
+    expect(adopted.images).toEqual(["attachments/funnel.png"]);
+    expect(adopted.detail).not.toContain("funnel");
   });
 
   it("puts the 폐기 field on reason, not on the evidence list", () => {
@@ -150,10 +159,56 @@ describe("serializeBstorm", () => {
     expect(serializeBstorm(parseBstorm(out))).toBe(out);
   });
 
+  it("round-trips a node whose title is still empty", () => {
+    // 캔버스에서 ＋ 를 누르면 제목이 빈 노드가 먼저 생긴다. 이것이 다시 읽을 때 사라지면
+    // 생각을 추가해도 화면에 아무것도 나타나지 않는다.
+    const roots = [{ ...newNode("뿌리"), children: [newNode("")] }];
+    const out = serializeBstorm({ fmLines: [], before: "", after: "", roots });
+    expect(out).not.toMatch(/[ \t]+$/m);
+    const back = parseBstorm(out).roots[0];
+    expect(back.children).toHaveLength(1);
+    expect(back.children[0].title).toBe("");
+  });
+
+  it("does not read a horizontal rule as an empty bullet", () => {
+    expect(parseBstorm(`${TREE_HEADING}\n\n- 뿌리\n\n---\n`).roots).toHaveLength(1);
+  });
+
   it("ends with exactly one newline", () => {
     const out = serializeBstorm(parseBstorm(DOC));
     expect(out.endsWith("\n")).toBe(true);
     expect(out.endsWith("\n\n")).toBe(false);
+  });
+});
+
+describe("walkNodes", () => {
+  it("flattens the whole tree in reading order with depths", () => {
+    const walked = walkNodes(parseBstorm(DOC).roots);
+    expect(walked.map((w) => w.path)).toEqual(["0", "0.0", "0.0.0", "0.0.1", "0.1"]);
+    expect(walked.map((w) => w.depth)).toEqual([0, 1, 2, 2, 1]);
+  });
+
+  it("includes branches the canvas has collapsed", () => {
+    // 개요와 결정 로그는 "전부 보는" 화면이다. 캔버스에서 무엇을 접었는지와 무관해야 한다.
+    expect(walkNodes(parseBstorm(DOC).roots)).toHaveLength(5);
+  });
+
+  it("is empty for an empty tree", () => {
+    expect(walkNodes([])).toEqual([]);
+  });
+});
+
+describe("ancestorTitles", () => {
+  it("lists the titles from the root down to the parent", () => {
+    const roots = parseBstorm(DOC).roots;
+    expect(ancestorTitles(roots, "0.0.0")).toEqual([
+      "온보딩 첫 주 이탈이 42%다",
+      "첫 화면에서 가장 많이 빠진다",
+    ]);
+  });
+
+  it("is empty for a root node", () => {
+    expect(ancestorTitles(parseBstorm(DOC).roots, "0")).toEqual([]);
   });
 });
 
