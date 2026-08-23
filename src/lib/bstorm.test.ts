@@ -12,8 +12,18 @@ import {
   serializeBstorm,
   setFm,
   TREE_HEADING,
+  trimmedBlock,
+  trimmedLine,
   walkNodes,
+  type BsNode,
 } from "./bstorm";
+
+/** 인스펙터가 노드 하나를 고쳤을 때 실제로 일어나는 일 — 직렬화하고 다시 읽는다. */
+function roundTrip(n: Partial<BsNode>): BsNode {
+  const roots = [{ ...newNode("뿌리"), ...n }];
+  const out = serializeBstorm({ fmLines: [], before: "", after: "", roots });
+  return parseBstorm(out).roots[0];
+}
 
 const DOC = `---
 type: brainstorm
@@ -181,6 +191,44 @@ describe("serializeBstorm", () => {
   });
 });
 
+describe("편집 중인 값", () => {
+  // 인스펙터의 입력칸은 이 왕복을 거친 값을 다시 화면에 띄운다. 왕복이 지워 버리는 것은
+  // 곧 타이핑할 수 없는 것이다 — 스페이스바와 Enter 가 먹히지 않던 원인이 여기였다.
+
+  it("keeps an evidence row that has no text yet", () => {
+    // [＋ 근거] 로 만든 빈 칸이 여기서 사라지면 버튼이 아무 일도 안 하는 것처럼 보인다.
+    const back = roundTrip({ evidence: [{ kind: "근거", text: "" }] });
+    expect(back.evidence).toEqual([{ kind: "근거", text: "" }]);
+  });
+
+  it("writes an empty evidence row without trailing whitespace", () => {
+    const out = serializeBstorm({
+      fmLines: [],
+      before: "",
+      after: "",
+      roots: [{ ...newNode("뿌리"), evidence: [{ kind: "질문", text: "" }] }],
+    });
+    expect(out).toContain("질문::");
+    expect(out).not.toMatch(/[ \t]+$/m);
+    expect(serializeBstorm(parseBstorm(out))).toBe(out);
+  });
+
+  it("keeps every line of a multi-line detail", () => {
+    expect(roundTrip({ detail: "첫 줄\n둘째 줄\n셋째 줄" }).detail).toBe("첫 줄\n둘째 줄\n셋째 줄");
+  });
+
+  it("trims exactly what trimmedLine and trimmedBlock say it trims", () => {
+    // 이 둘이 왕복과 어긋나면 입력칸이 자기 메아리를 남의 변경으로 오해해서, 방금 친
+    // 글자를 되돌려 버린다(`BrainstormBits.tsx`).
+    const typed = { title: "띄어 쓰는 중 ", detail: "첫 줄\n", reason: " 왜 접었나 " };
+    const back = roundTrip({ ...typed, evidence: [{ kind: "리스크", text: "아직 적는 중 " }] });
+    expect(back.title).toBe(trimmedLine(typed.title));
+    expect(back.detail).toBe(trimmedBlock(typed.detail));
+    expect(back.reason).toBe(trimmedLine(typed.reason));
+    expect(back.evidence[0].text).toBe(trimmedLine("아직 적는 중 "));
+  });
+});
+
 describe("walkNodes", () => {
   it("flattens the whole tree in reading order with depths", () => {
     const walked = walkNodes(parseBstorm(DOC).roots);
@@ -300,6 +348,13 @@ describe("layout", () => {
     const placed = layout(roots, { "0.0": true }).placed;
     expect(placed.map((p) => p.path)).not.toContain("0.0.0");
     expect(placed.map((p) => p.path)).toContain("0.0");
+  });
+
+  it("leaves a row for the status badge on a decided node", () => {
+    // 배지를 세지 않으면 채택·유력 카드가 아래 카드와 겹친다(`BrainstormPane`).
+    const exploring = layout([newNode("생각")]).height;
+    const adopted = layout([{ ...newNode("생각"), status: "adopted" }]).height;
+    expect(adopted).toBeGreaterThan(exploring);
   });
 
   it("has no size for an empty tree", () => {

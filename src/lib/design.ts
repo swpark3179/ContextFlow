@@ -48,6 +48,11 @@ export function statusOf(key: string): StatusStyle {
 /**
  * 브레인스토밍 노드의 상태 다섯 가지. 설계 원본은 `design/Brainstorming.dc.html`
  * 의 `ST` 표(503-509)이고, 업무 상태(`STATUS`)와 같은 모양으로 맞춰 두었다.
+ *
+ * 원본에는 색 넷(`dot` · `bg` · `fg` · `bd`)뿐이었는데, 캔버스에서는 그 중 7px 점
+ * 하나만 보여서 채택과 유력이 사실상 같아 보였다. 그래서 **색 말고도 갈리는** 값을
+ * 셋 더 둔다 — 카드 바탕(`card`) · 진한 테두리(`line`) · 점선 여부(`dash`). 색각
+ * 이상에서도, 축소한 캔버스에서도 상태가 갈려야 한다.
  */
 export interface BsStatusStyle {
   label: string;
@@ -55,14 +60,65 @@ export interface BsStatusStyle {
   bg: string;
   fg: string;
   bd: string;
+  /** 카드 전체에 까는 옅은 바탕. 멀리서 봐도 정해진 것과 아직인 것이 갈린다. */
+  card: string;
+  /** 카드 테두리. `bd` 보다 진하다 — 흰 바탕 위의 `bd` 1px 은 거의 보이지 않았다. */
+  line: string;
+  /** 테두리를 점선으로 그린다. "아직 확정이 아니다"를 색 없이도 말해 준다. */
+  dash: boolean;
 }
 
 export const BS_STATUS: Record<BsStatus, BsStatusStyle> = {
-  explore: { label: "탐색중", dot: "#8a857c", bg: "#f2efe9", fg: "#6a665e", bd: "#e0dcd4" },
-  strong: { label: "유력", dot: VIOLET, bg: "#f4f0fd", fg: "#5a44b4", bd: "#e4dcf8" },
-  adopted: { label: "채택", dot: GREEN, bg: "#e9f4ee", fg: "#256b47", bd: "#c9e4d5" },
-  hold: { label: "보류", dot: AMBER, bg: "#fbf3e6", fg: "#8f5d17", bd: "#eeddc0" },
-  dropped: { label: "폐기", dot: "#b5afa2", bg: "#f6f5f2", fg: "#8a857c", bd: "#e4e0d8" },
+  explore: {
+    label: "탐색중",
+    dot: "#8a857c",
+    bg: "#f2efe9",
+    fg: "#6a665e",
+    bd: "#e0dcd4",
+    card: "#fff",
+    line: "#ddd8cf",
+    dash: false,
+  },
+  strong: {
+    label: "유력",
+    dot: VIOLET,
+    bg: "#f4f0fd",
+    fg: "#5a44b4",
+    bd: "#e4dcf8",
+    card: "#faf7ff",
+    line: "#bda9f0",
+    dash: false,
+  },
+  adopted: {
+    label: "채택",
+    dot: GREEN,
+    bg: "#e9f4ee",
+    fg: "#256b47",
+    bd: "#c9e4d5",
+    card: "#f1faf5",
+    line: "#8ecdb0",
+    dash: false,
+  },
+  hold: {
+    label: "보류",
+    dot: AMBER,
+    bg: "#fbf3e6",
+    fg: "#8f5d17",
+    bd: "#eeddc0",
+    card: "#fdf9f0",
+    line: "#e2c185",
+    dash: true,
+  },
+  dropped: {
+    label: "폐기",
+    dot: "#b5afa2",
+    bg: "#f6f5f2",
+    fg: "#8a857c",
+    bd: "#e4e0d8",
+    card: "#f7f6f3",
+    line: "#cfcabf",
+    dash: true,
+  },
 };
 
 /**
