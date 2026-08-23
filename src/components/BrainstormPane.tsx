@@ -10,12 +10,13 @@
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { Box, Input, TextArea } from "../lib/ui";
+import { Box } from "../lib/ui";
 import { inputFocus, inputStyle, labelStyle } from "../modals/Modal";
 import { BS_BRANCH, BS_EVIDENCE, BS_STATUS, isImagePath } from "../lib/design";
 import { joinPath, nowStamp } from "../lib/format";
 import { useStore, type BsView, type BsViewKind } from "../store/useStore";
 import { DecisionLog, Outline } from "./BrainstormViews";
+import { DraftInput, DraftTextArea, StatusBadge } from "./BrainstormBits";
 import {
   addChildAt,
   bstormName,
@@ -28,8 +29,10 @@ import {
   removeAt,
   serializeBstorm,
   setFm,
+  STATUS_MARK,
   STATUS_ORDER,
   type BsNode,
+  type EvidenceKind,
 } from "../lib/bstorm";
 
 const PAD = 28;
@@ -45,6 +48,13 @@ const DEFAULT_VIEW: BsView = {
 
 /** 되돌리기 스택의 깊이. 설계와 같은 값이다. */
 const UNDO_MAX = 40;
+
+/** 빈 근거 칸이 스스로 무엇을 적는 자리인지 말한다. */
+const EVIDENCE_HINT: Record<EvidenceKind, string> = {
+  근거: "무엇이 이 생각을 뒷받침하나",
+  리스크: "무엇이 어긋날 수 있나",
+  질문: "무엇을 더 알아야 하나",
+};
 
 function branchColor(path: string): string {
   const parts = path.split(".");
@@ -107,6 +117,8 @@ export default function BrainstormPane({ path }: { path: string }) {
   /** 삭제는 두 번 눌러야 한다. 되돌리기가 있어도 한 번의 실수는 막는 편이 낫다. */
   const [armedDelete, setArmedDelete] = useState("");
   const [picking, setPicking] = useState(false);
+  /** 방금 만든 근거 칸("<노드경로>|<번째>"). 만들자마자 커서가 거기 들어가야 한다. */
+  const [freshEv, setFreshEv] = useState("");
   const [undo, setUndo] = useState<string[]>([]);
 
   const text = s.ui.docs[path]?.text ?? "";
@@ -337,6 +349,12 @@ export default function BrainstormPane({ path }: { path: string }) {
               const st = BS_STATUS[p.node.status];
               const on = p.path === sel;
               const dropped = p.node.status === "dropped";
+              /**
+               * 정해진 것과 아직인 것. 탐색중은 흰 카드에 실선 한 겹으로 조용히 두고,
+               * 나머지 넷은 배지 · 바탕 · 테두리 세 가지를 한꺼번에 바꾼다 — 색 하나만
+               * 다르게 하면 축소한 캔버스에서 채택과 유력이 갈리지 않는다.
+               */
+              const decided = p.node.status !== "explore";
               const kids = p.node.children.length;
               const folded = !!view.collapsed[p.path];
               return (
@@ -359,33 +377,44 @@ export default function BrainstormPane({ path }: { path: string }) {
                     gap: 4,
                     padding: "7px 9px",
                     borderRadius: 7,
-                    background: "#fff",
-                    border: `1px solid ${on ? "#3a6fd8" : st.bd}`,
-                    borderLeft: `3px solid ${dropped ? "#d5d0c6" : branchColor(p.path)}`,
+                    background: st.card,
+                    border: `${decided ? 1.5 : 1}px ${st.dash ? "dashed" : "solid"} ${
+                      on ? "#3a6fd8" : st.line
+                    }`,
+                    // 왼쪽 굵은 띠는 탐색중일 때만 가지 색이다. 상태가 정해지면 그 자리를
+                    // 상태에 내준다 — 어느 가지에서 나왔는지는 잇는 선이 이미 말해 준다.
+                    borderLeft: `4px solid ${decided ? st.dot : branchColor(p.path)}`,
                     boxShadow: on
                       ? "0 0 0 2px #dce7fb, 0 4px 14px rgba(35,33,30,.12)"
                       : "0 1px 3px rgba(35,33,30,.08)",
-                    opacity: dropped ? 0.62 : 1,
+                    opacity: dropped ? 0.72 : 1,
                     cursor: "pointer",
                   }}
                 >
+                  {decided && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                      <StatusBadge status={p.node.status} />
+                    </div>
+                  )}
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <span
-                      style={{
-                        width: 7,
-                        height: 7,
-                        borderRadius: "50%",
-                        flex: "0 0 7px",
-                        background: st.dot,
-                      }}
-                    />
+                    {!decided && (
+                      <span
+                        style={{
+                          width: 7,
+                          height: 7,
+                          borderRadius: "50%",
+                          flex: "0 0 7px",
+                          background: st.dot,
+                        }}
+                      />
+                    )}
                     <span
                       style={{
                         flex: 1,
                         minWidth: 0,
                         fontSize: 12.5,
                         lineHeight: 1.36,
-                        fontWeight: 500,
+                        fontWeight: p.node.status === "adopted" ? 700 : 500,
                         color: dropped ? "#8a857c" : "#23211e",
                         textDecoration: dropped ? "line-through" : "none",
                         overflowWrap: "anywhere",
@@ -464,22 +493,28 @@ export default function BrainstormPane({ path }: { path: string }) {
 
                   {(p.node.evidence.length > 0 || !!p.node.reason.trim()) && (
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
-                      {p.node.evidence.map((e, i) => (
-                        <span
-                          key={`${p.path}e${i}`}
-                          style={{
-                            fontSize: 9,
-                            fontWeight: 600,
-                            padding: "1px 4px",
-                            borderRadius: 3,
-                            color: BS_EVIDENCE[e.kind].fg,
-                            background: BS_EVIDENCE[e.kind].bg,
-                            border: `1px solid ${BS_EVIDENCE[e.kind].bd}`,
-                          }}
-                        >
-                          {e.kind}
-                        </span>
-                      ))}
+                      {p.node.evidence.map((e, i) => {
+                        // 아직 비어 있는 칸은 점선으로 둔다. 채운 것과 같아 보이면
+                        // 카드가 "근거가 있다"고 거짓말을 한다.
+                        const empty = !e.text.trim();
+                        return (
+                          <span
+                            key={`${p.path}e${i}`}
+                            style={{
+                              fontSize: 9,
+                              fontWeight: 600,
+                              padding: "1px 4px",
+                              borderRadius: 3,
+                              color: BS_EVIDENCE[e.kind].fg,
+                              background: empty ? "transparent" : BS_EVIDENCE[e.kind].bg,
+                              border: `1px ${empty ? "dashed" : "solid"} ${BS_EVIDENCE[e.kind].bd}`,
+                              opacity: empty ? 0.75 : 1,
+                            }}
+                          >
+                            {e.kind}
+                          </span>
+                        );
+                      })}
                       {!!p.node.reason.trim() && (
                         <span style={{ fontSize: 9.5, color: "#a09a8f" }}>폐기 이유 있음</span>
                       )}
@@ -665,10 +700,15 @@ export default function BrainstormPane({ path }: { path: string }) {
 
           {node && (
             <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "10px 12px 16px 12px" }}>
-              <div style={labelStyle}>제목</div>
-              <Input
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
+                <div style={{ ...labelStyle, marginBottom: 0 }}>제목</div>
+                <div style={{ flex: 1 }} />
+                <StatusBadge status={node.status} big />
+              </div>
+              <DraftInput
+                key={`${path}|${sel}|title`}
                 value={node.title}
-                onChange={(e) => patchNode({ title: e.target.value })}
+                onCommit={(v) => patchNode({ title: v })}
                 placeholder="한 문장으로"
                 style={{ ...inputStyle, width: "100%", marginBottom: 10 }}
                 focusStyle={inputFocus}
@@ -678,6 +718,7 @@ export default function BrainstormPane({ path }: { path: string }) {
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4, margin: "4px 0 10px 0" }}>
                 {STATUS_ORDER.map((k) => {
                   const on = node.status === k;
+                  const stk = BS_STATUS[k];
                   return (
                     <Box
                       key={k}
@@ -687,43 +728,52 @@ export default function BrainstormPane({ path }: { path: string }) {
                         alignItems: "center",
                         gap: 4,
                         fontSize: 11,
-                        padding: "3px 7px",
+                        padding: "3px 8px",
                         borderRadius: 3,
                         cursor: "pointer",
-                        color: on ? BS_STATUS[k].fg : "#8a857c",
-                        background: on ? BS_STATUS[k].bg : "#fff",
-                        border: `1px solid ${on ? BS_STATUS[k].bd : "#e6e2da"}`,
-                        fontWeight: on ? 600 : 400,
+                        color: on ? stk.fg : "#8a857c",
+                        background: on ? stk.bg : "#fff",
+                        // 고른 것은 테두리를 두 겹으로 두른다. 옅은 배경색만으로는
+                        // 지금 이 생각이 채택인지 유력인지 한눈에 들어오지 않았다.
+                        border: `1px ${stk.dash ? "dashed" : "solid"} ${on ? stk.line : "#e6e2da"}`,
+                        boxShadow: on ? `inset 0 0 0 1px ${stk.bd}` : "none",
+                        fontWeight: on ? 700 : 400,
                       }}
-                      hover={{ borderColor: BS_STATUS[k].bd }}
+                      hover={{ borderColor: stk.line }}
                     >
-                      <span
-                        style={{
-                          width: 6,
-                          height: 6,
-                          borderRadius: "50%",
-                          background: BS_STATUS[k].dot,
-                        }}
-                      />
-                      {BS_STATUS[k].label}
+                      {STATUS_MARK[k] ? (
+                        <span style={{ fontSize: 9 }}>{STATUS_MARK[k]}</span>
+                      ) : (
+                        <span
+                          style={{ width: 6, height: 6, borderRadius: "50%", background: stk.dot }}
+                        />
+                      )}
+                      {stk.label}
                     </Box>
                   );
                 })}
               </div>
 
-              <div style={labelStyle}>상세</div>
-              <TextArea
+              <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                <div style={labelStyle}>상세</div>
+                <span style={{ fontSize: 10, color: "#b5afa2" }}>Enter 로 줄바꿈</span>
+              </div>
+              <DraftTextArea
+                key={`${path}|${sel}|detail`}
                 value={node.detail}
-                onChange={(e) => patchNode({ detail: e.target.value })}
-                placeholder="왜 이 생각인지, 무엇을 확인해야 하는지"
+                onCommit={(v) => patchNode({ detail: v })}
+                placeholder={"왜 이 생각인지, 무엇을 확인해야 하는지\n여러 줄로 적어도 됩니다"}
                 rows={4}
                 style={{
                   ...inputStyle,
                   width: "100%",
                   height: "auto",
+                  minHeight: 66,
                   padding: "6px 8px",
                   lineHeight: 1.6,
                   marginBottom: 10,
+                  resize: "vertical",
+                  fontFamily: "inherit",
                 }}
                 focusStyle={inputFocus}
               />
@@ -731,9 +781,10 @@ export default function BrainstormPane({ path }: { path: string }) {
               {node.status === "dropped" && (
                 <>
                   <div style={labelStyle}>폐기 이유</div>
-                  <Input
+                  <DraftInput
+                    key={`${path}|${sel}|reason`}
                     value={node.reason}
-                    onChange={(e) => patchNode({ reason: e.target.value })}
+                    onCommit={(v) => patchNode({ reason: v })}
                     placeholder="왜 접었는지 남겨 둡니다"
                     style={{ ...inputStyle, width: "100%", marginBottom: 10 }}
                     focusStyle={inputFocus}
@@ -907,15 +958,16 @@ export default function BrainstormPane({ path }: { path: string }) {
                     >
                       {e.kind}
                     </span>
-                    <Input
+                    <DraftInput
+                      key={`${path}|${sel}|ev${i}`}
                       value={e.text}
-                      onChange={(ev) =>
+                      onCommit={(v) =>
                         patchNode({
-                          evidence: node.evidence.map((x, k) =>
-                            k === i ? { ...x, text: ev.target.value } : x,
-                          ),
+                          evidence: node.evidence.map((x, k) => (k === i ? { ...x, text: v } : x)),
                         })
                       }
+                      autoFocus={freshEv === `${sel}|${i}`}
+                      placeholder={EVIDENCE_HINT[e.kind]}
                       style={{ ...inputStyle, flex: 1, minWidth: 0, height: 24, fontSize: 11.5 }}
                       focusStyle={inputFocus}
                     />
@@ -929,6 +981,7 @@ export default function BrainstormPane({ path }: { path: string }) {
                         padding: "0 3px",
                       }}
                       hover={{ color: "#a55a4c" }}
+                      title="이 줄 지우기"
                     >
                       ✕
                     </Box>
@@ -939,7 +992,12 @@ export default function BrainstormPane({ path }: { path: string }) {
                 {EVIDENCE_KINDS.map((k) => (
                   <Box
                     key={k}
-                    onClick={() => patchNode({ evidence: [...node.evidence, { kind: k, text: "" }] })}
+                    onClick={() => {
+                      // 빈 줄 하나를 만들고 거기로 커서를 옮긴다. 빈 줄이 문서에도 남기
+                      // 때문에(`serializeBstorm`) 화면과 파일이 같은 것을 본다.
+                      setFreshEv(`${sel}|${node.evidence.length}`);
+                      patchNode({ evidence: [...node.evidence, { kind: k, text: "" }] });
+                    }}
                     style={{
                       fontSize: 10.5,
                       padding: "3px 7px",

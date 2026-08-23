@@ -35,27 +35,29 @@ export function bstormName(path: string): string {
 
 export type BsStatus = "explore" | "strong" | "adopted" | "hold" | "dropped";
 
+export const STATUS_ORDER: BsStatus[] = ["explore", "strong", "adopted", "hold", "dropped"];
+
 /**
- * 상태를 나타내는 앞머리 이모지. `explore` 에는 표시가 없다 — 대부분의 노드가
+ * 상태를 나타내는 앞머리 이모지. `explore` 는 빈 문자열이다 — 대부분의 노드가
  * 탐색중이라, 표시를 붙이면 파일 전체가 이모지로 뒤덮인다.
+ *
+ * 화면에서도 같은 글자를 쓴다(`BS_STATUS` 옆의 배지). 파일에서 ✅ 로 보이던 것이
+ * 캔버스에서 다른 기호로 보이면, 같은 문서를 두 벌 외워야 한다.
  */
-const STATUS_MARK: Record<Exclude<BsStatus, "explore">, string> = {
+export const STATUS_MARK: Record<BsStatus, string> = {
+  explore: "",
   strong: "⭐",
   adopted: "✅",
   hold: "⏸",
   dropped: "❌",
 };
 
-export const STATUS_ORDER: BsStatus[] = ["explore", "strong", "adopted", "hold", "dropped"];
-
 /**
  * 읽을 때만 쓰는 표. 직렬화는 탐색중에 표시를 붙이지 않지만, 형식 문서가 🔍 를
  * 탐색중으로 규정하므로 손으로 적어 넣은 것도 읽어야 한다.
  */
 const READ_MARKS: [string, BsStatus][] = [
-  ...(Object.keys(STATUS_MARK) as Exclude<BsStatus, "explore">[]).map(
-    (k) => [STATUS_MARK[k], k] as [string, BsStatus],
-  ),
+  ...STATUS_ORDER.filter((k) => STATUS_MARK[k]).map((k) => [STATUS_MARK[k], k] as [string, BsStatus]),
   ["🔍", "explore"],
 ];
 
@@ -88,6 +90,31 @@ const EMBED_RE = /^!\[\[(.+?)\]\]$/;
 /** 앞뒤의 빈 줄만 걷어낸다. 사이에 낀 빈 줄은 사용자가 쓴 글의 일부다. */
 function trimBlankLines(s: string): string {
   return s.replace(/^(?:[ \t]*\n)+/, "").replace(/\s+$/, "");
+}
+
+/**
+ * 한 줄짜리 값(제목 · 근거 · 폐기 이유)이 왕복하고 나면 남는 모양.
+ *
+ * 마크다운 한 줄에 담기는 값이라 줄 끝 공백이 남지 않는다 — 남기면 파일에 눈에
+ * 보이지 않는 공백이 쌓이고, 편집기마다 그것을 다르게 지운다.
+ */
+export function trimmedLine(v: string): string {
+  return v.trim();
+}
+
+/**
+ * 여러 줄 값(상세)이 왕복하고 나면 남는 모양. 줄마다 앞뒤 공백을 떼고 빈 줄은 접는다 —
+ * 불릿 아래의 빈 줄은 리스트를 끊어 놓는 마크다운이라 파일에 그대로 둘 수 없다.
+ *
+ * 편집 중인 글이 이것과 다르다고 해서 화면에서 지우지는 않는다. 지금 누르고 있는
+ * 스페이스바와 방금 누른 Enter 는 아직 문서가 아니라 타이핑이다(`BrainstormBits.tsx`).
+ */
+export function trimmedBlock(v: string): string {
+  return v
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .join("\n");
 }
 
 export interface Evidence {
@@ -213,16 +240,21 @@ function writeNode(n: BsNode, depth: number, out: string[]): void {
   out.push(`${pad}- ${mark}${n.title}`.replace(/\s+$/, ""));
 
   const inner = " ".repeat((depth + 1) * INDENT);
-  for (const line of n.detail.split("\n")) {
-    if (line.trim()) out.push(inner + line.trim());
-  }
+  const block = trimmedBlock(n.detail);
+  if (block) for (const line of block.split("\n")) out.push(inner + line);
   for (const src of n.images) {
     if (src.trim()) out.push(`${inner}![[${src.trim()}]]`);
   }
+  /**
+   * 내용이 아직 비어 있어도 줄을 남긴다. 지우면 인스펙터에서 [＋ 근거] 로 만든 빈 칸이
+   * 왕복 한 번에 사라져서, 버튼이 아무 일도 하지 않는 것처럼 보인다. `근거::` 는
+   * Dataview 인라인 필드로도, 파서(`FIELD_RE`)로도 값이 빈 필드로 멀쩡히 읽힌다.
+   */
   for (const e of n.evidence) {
-    if (e.text.trim()) out.push(`${inner}${e.kind}:: ${e.text.trim()}`);
+    const text = trimmedLine(e.text);
+    out.push(`${inner}${e.kind}::${text ? ` ${text}` : ""}`);
   }
-  if (n.reason.trim()) out.push(`${inner}${REASON_KEY}:: ${n.reason.trim()}`);
+  if (trimmedLine(n.reason)) out.push(`${inner}${REASON_KEY}:: ${trimmedLine(n.reason)}`);
 
   for (const c of n.children) writeNode(c, depth + 1, out);
 }
@@ -411,6 +443,9 @@ export interface LayoutResult {
 function heightOf(n: BsNode): number {
   const titleLines = Math.max(1, Math.min(3, Math.ceil(n.title.length / 20)));
   let h = 24 + titleLines * 17;
+  // 정해진 상태는 카드 위에 배지 한 줄을 차지한다(`BrainstormPane`). 배치가 그 줄을
+  // 세지 않으면 카드끼리 겹친다.
+  if (n.status !== "explore") h += 18;
   if (n.detail.trim()) h += 16;
   if (n.images.length) h += 40;
   h += n.evidence.length * 15;

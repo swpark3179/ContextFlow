@@ -10,7 +10,8 @@
  */
 import { Box } from "../lib/ui";
 import { BS_EVIDENCE, BS_STATUS } from "../lib/design";
-import { ancestorTitles, walkNodes, type BsNode, type BsStatus } from "../lib/bstorm";
+import { StatusBadge } from "./BrainstormBits";
+import { ancestorTitles, STATUS_MARK, walkNodes, type BsNode, type BsStatus } from "../lib/bstorm";
 
 /** 결정 로그가 묶는 순서. 탐색중은 아직 결정이 아니라서 빠진다. */
 const GROUPS: { key: BsStatus; title: string; note: string }[] = [
@@ -20,35 +21,13 @@ const GROUPS: { key: BsStatus; title: string; note: string }[] = [
   { key: "dropped", title: "폐기 · 아이디어 묘지", note: "왜 접었는지 남아 있다" },
 ];
 
-function StatusPill({ status }: { status: BsStatus }) {
-  const st = BS_STATUS[status];
-  return (
-    <span
-      style={{
-        flex: "0 0 auto",
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 4,
-        fontSize: 10,
-        fontWeight: 600,
-        padding: "1px 6px",
-        borderRadius: 3,
-        color: st.fg,
-        background: st.bg,
-        border: `1px solid ${st.bd}`,
-      }}
-    >
-      <span style={{ width: 5, height: 5, borderRadius: "50%", background: st.dot }} />
-      {st.label}
-    </span>
-  );
-}
-
 function EvidenceRow({ node }: { node: BsNode }) {
-  if (!node.evidence.length) return null;
+  // 인스펙터에서 만들어 두고 아직 안 채운 칸은 읽는 화면에 내보내지 않는다.
+  const rows = node.evidence.filter((e) => e.text.trim());
+  if (!rows.length) return null;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 2, marginTop: 4 }}>
-      {node.evidence.map((e, i) => (
+      {rows.map((e, i) => (
         <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 5 }}>
           <span
             style={{
@@ -70,6 +49,23 @@ function EvidenceRow({ node }: { node: BsNode }) {
           </span>
         </div>
       ))}
+    </div>
+  );
+}
+
+/** 여러 줄 상세를 줄 그대로 보여 준다. 한 줄로 이으면 사용자가 나눈 뜻이 사라진다. */
+function DetailBlock({ text, size }: { text: string; size: number }) {
+  return (
+    <div
+      style={{
+        fontSize: size,
+        lineHeight: 1.65,
+        color: "#6a665e",
+        whiteSpace: "pre-wrap",
+        overflowWrap: "anywhere",
+      }}
+    >
+      {text}
     </div>
   );
 }
@@ -99,7 +95,9 @@ export function Outline({
     <div style={{ flex: 1, minWidth: 0, overflow: "auto", background: "#fff", padding: "10px 14px 20px 14px" }}>
       {rows.map((r) => {
         const on = r.path === sel;
+        const st = BS_STATUS[r.node.status];
         const dropped = r.node.status === "dropped";
+        const decided = r.node.status !== "explore";
         return (
           <Box
             key={r.path}
@@ -113,21 +111,26 @@ export function Outline({
               marginBottom: 2,
               borderRadius: 6,
               cursor: "pointer",
-              borderLeft: `2px solid ${on ? "#3a6fd8" : "transparent"}`,
-              background: on ? "#f7fafe" : "transparent",
-              opacity: dropped ? 0.7 : 1,
+              /**
+               * 왼쪽 띠는 상태의 자리다. 고른 줄은 배경과 안쪽 테두리로 말한다 —
+               * 예전에는 둘 다 이 띠 하나를 놓고 다퉈서, 고르는 순간 상태가 사라졌다.
+               */
+              borderLeft: `3px solid ${decided ? st.dot : "transparent"}`,
+              background: on ? "#f7fafe" : decided ? st.card : "transparent",
+              boxShadow: on ? "inset 0 0 0 1px #cddcf8" : "none",
+              opacity: dropped ? 0.8 : 1,
             }}
             hover={{ background: on ? "#f7fafe" : "#f8f7f4" }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-              <StatusPill status={r.node.status} />
+              <StatusBadge status={r.node.status} />
               <span
                 style={{
                   flex: 1,
                   minWidth: 0,
                   fontSize: 12.5,
                   lineHeight: 1.5,
-                  fontWeight: r.depth === 0 ? 600 : 400,
+                  fontWeight: r.node.status === "adopted" ? 700 : r.depth === 0 ? 600 : 400,
                   color: dropped ? "#8a857c" : "#23211e",
                   textDecoration: dropped ? "line-through" : "none",
                   overflowWrap: "anywhere",
@@ -166,11 +169,7 @@ export function Outline({
               </Box>
             </div>
 
-            {!!r.node.detail.trim() && (
-              <div style={{ fontSize: 11.5, lineHeight: 1.65, color: "#6a665e", overflowWrap: "anywhere" }}>
-                {r.node.detail}
-              </div>
-            )}
+            {!!r.node.detail.trim() && <DetailBlock text={r.node.detail} size={11.5} />}
             {!!r.node.reason.trim() && (
               <div style={{ fontSize: 11, lineHeight: 1.6, color: "#8f5d17" }}>
                 폐기 이유 · {r.node.reason}
@@ -211,11 +210,29 @@ export function DecisionLog({
         const st = BS_STATUS[g.key];
         return (
           <div key={g.key} style={{ marginBottom: 18 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 7 }}>
-              <span style={{ width: 7, height: 7, borderRadius: "50%", background: st.dot }} />
-              <span style={{ fontSize: 12.5, fontWeight: 600, color: "#23211e" }}>{g.title}</span>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                marginBottom: 7,
+                paddingBottom: 5,
+                borderBottom: `1px solid ${st.bd}`,
+              }}
+            >
+              <span style={{ fontSize: 11 }}>{STATUS_MARK[g.key]}</span>
+              <span style={{ fontSize: 12.5, fontWeight: 700, color: "#23211e" }}>{g.title}</span>
               <span
-                style={{ fontFamily: "'Roboto Mono',monospace", fontSize: 10.5, color: "#a09a8f" }}
+                style={{
+                  fontFamily: "'Roboto Mono',monospace",
+                  fontSize: 10,
+                  fontWeight: 700,
+                  padding: "0 5px",
+                  borderRadius: 8,
+                  color: st.fg,
+                  background: st.bg,
+                  border: `1px solid ${st.bd}`,
+                }}
               >
                 {g.rows.length}
               </span>
@@ -236,22 +253,33 @@ export function DecisionLog({
                       padding: "8px 10px",
                       borderRadius: 6,
                       cursor: "pointer",
-                      background: "#fff",
-                      border: `1px solid ${st.bd}`,
-                      borderLeft: `3px solid ${st.dot}`,
+                      background: st.card,
+                      border: `1px ${st.dash ? "dashed" : "solid"} ${st.line}`,
+                      borderLeft: `4px solid ${st.dot}`,
                     }}
                     hover={{ borderColor: "#3a6fd8" }}
                   >
-                    {!!trail.length && (
-                      <div style={{ fontSize: 10, color: "#a09a8f", overflowWrap: "anywhere" }}>
-                        {trail.join("  ›  ")}
-                      </div>
-                    )}
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <StatusBadge status={g.key} />
+                      {!!trail.length && (
+                        <div
+                          style={{
+                            flex: 1,
+                            minWidth: 0,
+                            fontSize: 10,
+                            color: "#a09a8f",
+                            overflowWrap: "anywhere",
+                          }}
+                        >
+                          {trail.join("  ›  ")}
+                        </div>
+                      )}
+                    </div>
                     <div
                       style={{
                         fontSize: 12.5,
                         lineHeight: 1.5,
-                        fontWeight: 500,
+                        fontWeight: g.key === "adopted" ? 700 : 500,
                         color: g.key === "dropped" ? "#8a857c" : "#23211e",
                         textDecoration: g.key === "dropped" ? "line-through" : "none",
                         overflowWrap: "anywhere",
@@ -259,11 +287,7 @@ export function DecisionLog({
                     >
                       {r.node.title || "이름 없는 생각"}
                     </div>
-                    {!!r.node.detail.trim() && (
-                      <div style={{ fontSize: 11.5, lineHeight: 1.6, color: "#6a665e", overflowWrap: "anywhere" }}>
-                        {r.node.detail}
-                      </div>
-                    )}
+                    {!!r.node.detail.trim() && <DetailBlock text={r.node.detail} size={11.5} />}
                     {!!r.node.reason.trim() && (
                       <div
                         style={{
