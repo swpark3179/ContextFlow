@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { Box } from "../lib/ui";
 import { appsFor, extStyle } from "../lib/design";
 import { useStore } from "../store/useStore";
+import { BSTORM_EXT } from "../lib/bstorm";
 import * as api from "../lib/api";
 
 interface Item {
@@ -35,7 +36,13 @@ export default function ContextMenu() {
 
   if (!ctx) return null;
 
-  const es = ctx.isDir ? { fg: "#8f5d17", bg: "#fbf3e6" } : extStyle(ctx.ext);
+  // `.bs.md` 는 확장자가 `md` 라 배지도 MD 가 된다. 트리와 같게 BS 로 가른다.
+  const isBs = !ctx.isDir && ctx.path.toLowerCase().endsWith(BSTORM_EXT);
+  const es = ctx.isDir
+    ? { fg: "#8f5d17", bg: "#fbf3e6" }
+    : isBs
+      ? { fg: "#256b47", bg: "#e9f4ee" }
+      : extStyle(ctx.ext);
   const abs = `${s.activeFolder}/${ctx.path}`.replace(/\/+$/, "");
 
   const copyPath: Item = {
@@ -133,6 +140,18 @@ export default function ContextMenu() {
             s.setUi({ treeOpen: { ...s.ui.treeOpen, [ctx.path]: true } });
           },
         },
+        {
+          key: "d4",
+          label: "새 브레인스토밍",
+          hint: BSTORM_EXT,
+          badge: "BS",
+          badgeFg: "#256b47",
+          badgeBg: "#e9f4ee",
+          run: () => {
+            s.set({ ctx: null, mk: { kind: "bstorm", parent: ctx.path, name: "" } });
+            s.setUi({ treeOpen: { ...s.ui.treeOpen, [ctx.path]: true } });
+          },
+        },
         copyPath,
         ...toDesktop,
         del,
@@ -153,6 +172,19 @@ export default function ContextMenu() {
                 run: () => void s.openFile(ctx.path, "text"),
               },
             ]),
+        ...(!ctx.bin && ctx.path.toLowerCase().endsWith(BSTORM_EXT)
+          ? [
+              {
+                key: "c0",
+                label: "브레인스토밍으로 열기",
+                hint: "캔버스",
+                badge: "BS",
+                badgeFg: "#256b47",
+                badgeBg: "#e9f4ee",
+                run: () => void s.openFile(ctx.path, "bstorm"),
+              },
+            ]
+          : []),
         ...(!ctx.bin && ctx.ext === "md"
           ? [
               {
@@ -271,7 +303,7 @@ export default function ContextMenu() {
               background: es.bg,
             }}
           >
-            {ctx.isDir ? "DIR" : ctx.ext.toUpperCase()}
+            {ctx.isDir ? "DIR" : isBs ? "BS" : ctx.ext.toUpperCase()}
           </span>
           <span
             style={{

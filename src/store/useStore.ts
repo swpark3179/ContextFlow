@@ -3,7 +3,8 @@ import * as api from "../lib/api";
 import type { TaskMeta, TemplateMeta, Recommendation } from "../lib/api";
 import type { FileEntry } from "../lib/tree";
 import { TOAST } from "../lib/design";
-import { daysSince, hhmm, joinPath } from "../lib/format";
+import { daysSince, hhmm, joinPath, nowStamp } from "../lib/format";
+import { BSTORM_EXT, seedBstorm } from "../lib/bstorm";
 import { sanitizeFolderName } from "../lib/vaultPaths";
 import { aiRecommend } from "../lib/aiRecommend";
 import { activeRun, useAi } from "./aiStore";
@@ -13,7 +14,7 @@ const SNAPSHOT_FILE = ".context_snapshot.json";
 
 export type Screen = "workspace" | "templates" | "archive" | "settings";
 /** `text` = 편집기, 나머지는 읽기 전용 뷰어. 같은 파일은 한 번에 한 모드로만 열린다. */
-export type TabMode = "md" | "text" | "html";
+export type TabMode = "md" | "text" | "html" | "bstorm";
 
 export interface Tab {
   path: string;
@@ -22,6 +23,8 @@ export interface Tab {
 
 /** 확장자별로 준비된 뷰어. 없으면 텍스트 편집기만 쓸 수 있다. */
 export function viewerFor(path: string): Exclude<TabMode, "text"> | null {
+  // `.bs.md` 는 `.md` 로도 끝난다 — 마크다운 검사보다 **먼저** 봐야 캔버스가 잡힌다.
+  if (path.toLowerCase().endsWith(BSTORM_EXT)) return "bstorm";
   const ext = path.includes(".") ? (path.split(".").pop() as string).toLowerCase() : "";
   if (ext === "md") return "md";
   if (ext === "html" || ext === "htm") return "html";
@@ -46,6 +49,21 @@ export interface TaskUi {
   treeOpen: Record<string, boolean>;
   docs: Record<string, Doc>;
   extOpened: Record<string, string>;
+  /**
+   * 브레인스토밍 캔버스의 보기 상태. 경로로 키잉하는 것은 `docs` · `treeOpen` 과 같다.
+   * 문서가 아니라 **보기**라서 `.bs.md` 가 아니라 스냅샷에 실린다 — 줌과 접힘은
+   * 파일을 열어 본 사람마다 다르고, 잃어도 문서가 상하지 않는다.
+   */
+  bsView: Record<string, BsView>;
+}
+
+export interface BsView {
+  zoom: number;
+  panX: number;
+  panY: number;
+  /** 고른 노드의 트리 경로(`"0.1.2"`). 빈 문자열이면 아무것도 고르지 않았다. */
+  sel: string;
+  collapsed: Record<string, boolean>;
 }
 
 export interface Settings {
@@ -98,7 +116,7 @@ export interface CtxTarget {
 }
 
 export interface MkState {
-  kind: "file" | "folder";
+  kind: "file" | "folder" | "bstorm";
   parent: string;
   name: string;
 }
@@ -198,6 +216,7 @@ function emptyUi(): TaskUi {
     treeOpen: {},
     docs: {},
     extOpened: {},
+    bsView: {},
   };
 }
 
@@ -522,7 +541,7 @@ export const useStore = create<State & Actions>((set, get) => ({
       if (settings.restoreView) {
         try {
           const snap = (await api.loadSnapshot(folder)) as Partial<TaskUi> | null;
-          if (snap) ui = { ...ui, ...snap, docs: snap.docs ?? {} };
+          if (snap) ui = { ...ui, ...snap, docs: snap.docs ?? {}, bsView: snap.bsView ?? {} };
         } catch {
           /* a corrupt snapshot must not block opening the task */
         }
@@ -849,6 +868,20 @@ export const useStore = create<State & Actions>((set, get) => ({
         set({ mk: null });
         await get().refreshFiles();
         get().setUi({ treeOpen: { ...get().ui.treeOpen, [rel]: true } });
+      } else if (mk.kind === "bstorm") {
+        const stripped = name.toLowerCase().endsWith(BSTORM_EXT)
+          ? name.slice(0, -BSTORM_EXT.length)
+          : name;
+        // 이름이 확장자뿐이면 점으로 시작하는 파일이 된다. `list_tree` 는 점 파일을 건너뛰므로
+        // 만들어져도 트리에 영영 나타나지 않는다 — 그 이름은 받지 않는다.
+        if (!stripped.trim()) return set({ mk: null });
+        const base = stripped.trim();
+        const rel = await api.createTaskFile(activeFolder, mk.parent + base + BSTORM_EXT);
+        // `create_file` 은 빈 파일을 만든다. 빈 캔버스 대신 중심 생각 하나를 심어 둔다.
+        await api.writeTextFile(joinPath(activeFolder, rel), seedBstorm(base, nowStamp()));
+        set({ mk: null });
+        await get().refreshFiles();
+        await get().openFile(rel, "bstorm");
       } else {
         const rel = await api.createTaskFile(activeFolder, mk.parent + name);
         set({ mk: null });

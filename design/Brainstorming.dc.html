@@ -1,0 +1,1172 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;height:100%;background:#e7e4de}
+body{font-family:'IBM Plex Sans KR',system-ui,sans-serif;-webkit-font-smoothing:antialiased;color:#23211e}
+a{color:#3a6fd8;text-decoration:none}
+a:hover{color:#2b56ad;text-decoration:underline}
+input,textarea,button,select{font-family:inherit}
+textarea{resize:none}
+::-webkit-scrollbar{width:11px;height:11px}
+::-webkit-scrollbar-thumb{background:#cfcabf;border-radius:8px;border:3px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background:#b5afa2;background-clip:content-box}
+::-webkit-scrollbar-track{background:transparent}
+@keyframes pIn{from{opacity:0;transform:translateY(8px) scale(.995)}to{opacity:1;transform:none}}
+@keyframes fIn{from{opacity:0}to{opacity:1}}
+</style>
+</helmet>
+
+<div style="height:100vh;padding:10px;display:flex;background:radial-gradient(1200px 600px at 20% 0%,#efece6,#e2ded7)">
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;background:#fff;border:1px solid #c6c1b6;border-radius:9px;box-shadow:0 24px 60px rgba(35,33,30,.22),0 2px 6px rgba(35,33,30,.10);overflow:hidden">
+
+<sc-if value="{{ showChrome }}" hint-placeholder-val="{{ true }}">
+<div style="height:34px;flex:0 0 34px;display:flex;align-items:center;gap:10px;padding:0 0 0 11px;background:linear-gradient(#f7f5f1,#f1eee9);border-bottom:1px solid #e0dcd4">
+  <div style="display:flex;align-items:center;gap:7px">
+    <div style="width:13px;height:13px;border-radius:4px;background:linear-gradient(140deg,#3a6fd8,#6a54c6)"></div>
+    <span style="font-size:12px;font-weight:600;letter-spacing:-.1px">ContextFlow</span>
+    <span style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#9b968c;border:1px solid #ded9d0;border-radius:3px;padding:0 4px;line-height:14px">브레인스토밍</span>
+  </div>
+  <div style="flex:1;text-align:center;font-size:11.5px;color:#8a857c;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ chromeTitle }}</div>
+  <div style="display:flex;align-items:stretch;height:34px">
+    <div style="width:44px;display:flex;align-items:center;justify-content:center;color:#5d594f;font-size:12px;cursor:default" style-hover="background:#e6e2da">&#8211;</div>
+    <div style="width:44px;display:flex;align-items:center;justify-content:center;color:#5d594f;font-size:10px;cursor:default" style-hover="background:#e6e2da">&#9723;</div>
+    <div style="width:46px;display:flex;align-items:center;justify-content:center;color:#5d594f;font-size:12px;cursor:default" style-hover="background:#d64545;color:#fff">&#10005;</div>
+  </div>
+</div>
+</sc-if>
+
+<div style="height:27px;flex:0 0 27px;display:flex;align-items:center;gap:2px;padding:0 8px;background:#faf9f6;border-bottom:1px solid #e6e2da">
+  <sc-for list="{{ menus }}" as="m" hint-placeholder-count="5">
+    <div style="font-size:11.5px;color:#4e4a43;padding:3px 7px;border-radius:4px;cursor:default" style-hover="background:#ece8e0">{{ m }}</div>
+  </sc-for>
+  <div style="flex:1"></div>
+  <div style="display:flex;align-items:center;gap:6px">
+    <div style="width:6px;height:6px;border-radius:50%;background:#2f7f57"></div>
+    <span style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:#8a857c">D:/Vault/ContextFlow</span>
+  </div>
+</div>
+
+<div style="flex:1;min-height:0;display:flex">
+
+  <div style="flex:0 0 234px;display:flex;flex-direction:column;background:#f5f3ef;border-right:1px solid #e0dcd4">
+    <div style="flex:0 0 27px;display:flex;align-items:center;gap:5px;padding:0 7px 0 11px;background:#f7f5f1;border-bottom:1px solid #e6e2da">
+      <span style="font-size:10.5px;font-weight:600;letter-spacing:.4px;color:#6a665e;flex:1;min-width:0">탐색기</span>
+      <div onClick="{{ onNewBsTop }}" style="display:flex;align-items:center;gap:4px;font-size:10px;color:#5a44b4;cursor:pointer;padding:2px 6px;border-radius:3px;border:1px solid #e4dcf8;background:#f6f3fd;white-space:nowrap" style-hover="background:#ece5fb">＋ 브레인스토밍</div>
+    </div>
+    <div style="flex:1;min-height:0;overflow-y:auto;padding:5px 6px 8px 6px">
+      <sc-for list="{{ treeRows }}" as="r" hint-placeholder-count="9">
+        <div onClick="{{ r.onClick }}" onDoubleClick="{{ r.onDbl }}" onContextMenu="{{ r.onCtx }}" style="display:flex;align-items:center;gap:6px;height:24px;border-radius:4px;cursor:default;user-select:none;padding:0 6px 0 {{ r.pad }}px;background:{{ r.bg }}" style-hover="background:#ece8e0">
+          <sc-if value="{{ r.isDir }}" hint-placeholder-val="{{ false }}">
+            <span style="flex:0 0 9px;font-size:7px;color:#a09a8f;text-align:center">{{ r.chevron }}</span>
+          </sc-if>
+          <sc-if value="{{ r.isFile }}" hint-placeholder-val="{{ true }}">
+            <span style="flex:0 0 9px"></span>
+          </sc-if>
+          <span style="flex:0 0 auto;font-family:'IBM Plex Mono',monospace;font-size:8px;font-weight:600;letter-spacing:.2px;border-radius:2px;padding:1px 3px;color:{{ r.badgeFg }};background:{{ r.badgeBg }}">{{ r.badge }}</span>
+          <span style="flex:1;min-width:0;font-size:11.5px;color:{{ r.fg }};font-weight:{{ r.fw }};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.name }}</span>
+          <sc-if value="{{ r.isOpenTab }}" hint-placeholder-val="{{ false }}">
+            <span style="flex:0 0 5px;width:5px;height:5px;border-radius:50%;background:#6a54c6"></span>
+          </sc-if>
+        </div>
+      </sc-for>
+      <sc-if value="{{ mkOpen }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;align-items:center;gap:5px;height:26px;padding:0 6px 0 {{ mk.pad }}px;background:#fff;border:1px solid #cddcf8;border-radius:4px;margin-top:2px;animation:pIn .12s ease-out">
+          <span style="flex:0 0 auto;font-family:'IBM Plex Mono',monospace;font-size:8px;font-weight:600;border-radius:2px;padding:1px 3px;color:{{ mk.badgeFg }};background:{{ mk.badgeBg }}">{{ mk.badge }}</span>
+          <input ref="{{ mkRef }}" value="{{ mk.name }}" onChange="{{ onMkName }}" onKeyDown="{{ onMkKey }}" placeholder="{{ mk.placeholder }}" style="flex:1;min-width:0;border:0;outline:none;background:transparent;font-size:11.5px;color:#23211e">
+          <span style="flex:0 0 auto;font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#a09a8f">{{ mk.suffix }}</span>
+        </div>
+        <div style="font-size:9.5px;color:#b5afa2;padding:3px 6px 0 {{ mk.pad }}px">{{ mk.parentLabel }} · Enter 생성 · Esc 취소</div>
+      </sc-if>
+    </div>
+    <div style="flex:0 0 auto;border-top:1px solid #e6e2da;padding:8px 9px;display:flex;flex-direction:column;gap:5px">
+      <div style="font-size:9.5px;color:#a09a8f;line-height:1.6">더블클릭 = 열기 · 우클릭 = 새 브레인스토밍</div>
+      <div style="display:flex;align-items:center;gap:6px;height:24px;padding:0 8px;border-radius:4px;background:#ebe7df">
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;color:#5a44b4;background:#f0eafd;border-radius:2px;padding:1px 3px">{{ extLabel }}</span>
+        <span style="font-size:10px;color:#6a665e;flex:1;min-width:0">브레인스토밍 파일 {{ bsCount }}개</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="flex:1;min-width:0;display:flex;flex-direction:column;background:#fff">
+
+    <div style="flex:0 0 27px;display:flex;align-items:stretch;background:#f7f5f1;border-bottom:1px solid #e6e2da;overflow:hidden">
+      <sc-for list="{{ tabs }}" as="tab" hint-placeholder-count="2">
+        <div onClick="{{ tab.onClick }}" style="display:flex;align-items:center;gap:6px;padding:0 8px 0 9px;font-family:'IBM Plex Mono',monospace;font-size:10.5px;cursor:pointer;border-right:1px solid #e6e2da;white-space:nowrap;flex:0 1 auto;min-width:0;max-width:210px;background:{{ tab.bg }};color:{{ tab.fg }};box-shadow:{{ tab.line }}">
+          <span style="flex:0 0 auto;font-size:8px;font-weight:600;letter-spacing:.3px;border-radius:2px;padding:1px 3px;color:{{ tab.modeFg }};background:{{ tab.modeBg }}">{{ tab.mode }}</span>
+          <span style="flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis">{{ tab.name }}</span>
+          <span onClick="{{ tab.onClose }}" style="width:13px;height:13px;flex:0 0 13px;display:flex;align-items:center;justify-content:center;border-radius:3px;font-size:9px;color:#a09a8f" style-hover="background:#e0dcd4;color:#4e4a43">✕</span>
+        </div>
+      </sc-for>
+      <div style="flex:1"></div>
+    </div>
+
+    <sc-if value="{{ isBs }}" hint-placeholder-val="{{ true }}">
+    <div style="flex:1;min-height:0;display:flex;flex-direction:column">
+
+      <div style="flex:0 0 auto;display:flex;align-items:center;gap:9px;padding:8px 12px 7px 12px;border-bottom:1px solid #e6e2da;background:#fdfcfa">
+        <div style="min-width:0">
+          <div style="display:flex;align-items:center;gap:7px">
+            <span style="font-size:14.5px;font-weight:600;letter-spacing:-.2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ docTitle }}</span>
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;color:#5a44b4;background:#f2eefc;border:1px solid #e4dcf8;border-radius:3px;padding:1px 5px">{{ extLabel }}</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:9px;margin-top:3px">
+            <sc-for list="{{ stats }}" as="st" hint-placeholder-count="4">
+              <div style="display:flex;align-items:center;gap:4px">
+                <span style="width:6px;height:6px;border-radius:50%;background:{{ st.dot }}"></span>
+                <span style="font-size:10px;color:#8a857c">{{ st.label }} <span style="font-family:'IBM Plex Mono',monospace;color:#6a665e">{{ st.n }}</span></span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+        <div style="flex:1"></div>
+        <div style="flex:0 0 auto;display:flex;align-items:stretch;height:26px;border:1px solid #ddd8cf;border-radius:5px;overflow:hidden;background:#fff;white-space:nowrap">
+          <sc-for list="{{ viewTabs }}" as="v" hint-placeholder-count="3">
+            <div onClick="{{ v.onClick }}" style="flex:0 0 auto;display:flex;align-items:center;padding:0 10px;font-size:11px;white-space:nowrap;cursor:pointer;border-right:1px solid #ede9e2;background:{{ v.bg }};color:{{ v.fg }};font-weight:{{ v.fw }}">{{ v.label }}</div>
+          </sc-for>
+        </div>
+        <div onClick="{{ onToggleDropped }}" style="flex:0 0 auto;white-space:nowrap;display:flex;align-items:center;gap:6px;height:26px;padding:0 9px;border-radius:5px;cursor:pointer;font-size:11px;border:1px solid {{ dropBtn.bd }};background:{{ dropBtn.bg }};color:{{ dropBtn.fg }}">{{ dropBtn.label }}</div>
+        <div onClick="{{ onTidy }}" style="flex:0 0 auto;white-space:nowrap;height:26px;padding:0 9px;display:flex;align-items:center;border-radius:5px;cursor:pointer;font-size:11px;border:1px solid #ddd8cf;background:#fff;color:#4e4a43" style-hover="background:#f4f2ed">자동 정렬</div>
+        <div onClick="{{ onExport }}" style="flex:0 0 auto;white-space:nowrap;height:26px;padding:0 10px;display:flex;align-items:center;gap:5px;border-radius:5px;cursor:pointer;font-size:11px;font-weight:600;border:1px solid #cddcf8;background:#eef3fd;color:#2f5cbb" style-hover="background:#e2ebfb">결정 요약 복사</div>
+        <div onClick="{{ onToggleInspector }}" style="flex:0 0 auto;width:26px;height:26px;display:flex;align-items:center;justify-content:center;border-radius:5px;cursor:pointer;font-size:11px;border:1px solid {{ insBtn.bd }};background:{{ insBtn.bg }};color:{{ insBtn.fg }}">▤</div>
+      </div>
+
+      <div style="flex:1;min-height:0;display:flex">
+        <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+
+          <sc-if value="{{ isEmptyDoc }}" hint-placeholder-val="{{ false }}">
+            <div style="flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;background:#fbfaf7;padding:24px">
+              <div style="text-align:center">
+                <div style="font-size:15px;font-weight:600;letter-spacing:-.2px">중심 생각부터 시작하세요</div>
+                <div style="font-size:11.5px;color:#8a857c;margin-top:5px;line-height:1.7">여기서 뻗어나간 가지를 채택 · 보류 · 폐기로 정리하게 됩니다.</div>
+              </div>
+              <div style="width:520px;max-width:100%;display:flex;flex-direction:column;gap:9px">
+                <div style="display:flex;gap:7px">
+                  <input ref="{{ newRef }}" value="{{ newT }}" onChange="{{ onNewT }}" onKeyDown="{{ onNewKey }}" placeholder="예: 신규 사용자 온보딩 이탈 40% 개선" style="flex:1;height:36px;border:1px solid #ddd8cf;border-radius:6px;background:#fff;padding:0 11px;font-size:12.5px;outline:none" style-focus="border-color:#3a6fd8;box-shadow:0 0 0 2px #e6eefc">
+                  <div onClick="{{ onCreateRoot }}" style="height:36px;padding:0 16px;display:flex;align-items:center;border-radius:6px;background:#3a6fd8;color:#fff;font-size:12px;font-weight:600;cursor:pointer" style-hover="background:#2f5cbb">시작</div>
+                </div>
+                <div style="font-size:10px;color:#a09a8f;padding-left:2px">시작 템플릿</div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px">
+                  <sc-for list="{{ templates }}" as="tp" hint-placeholder-count="4">
+                    <div onClick="{{ tp.onClick }}" style="border:1px solid #e4e0d8;background:#fff;border-radius:6px;padding:9px 11px;cursor:pointer" style-hover="border-color:#cddcf8;background:#f8fafe">
+                      <div style="font-size:11.5px;font-weight:600;color:#3a3630">{{ tp.label }}</div>
+                      <div style="font-size:10px;color:#a09a8f;margin-top:3px;line-height:1.5">{{ tp.desc }}</div>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ viewCanvas }}" hint-placeholder-val="{{ true }}">
+            <div ref="{{ canvasRef }}" onMouseDown="{{ onPanStart }}" onContextMenu="{{ onCanvasCtx }}" style="flex:1;min-height:0;position:relative;overflow:hidden;background:#fbfaf7;background-image:{{ gridImage }};background-size:22px 22px">
+              <div style="position:absolute;left:0;top:0;transform-origin:0 0;transform: translate({{ tx }}px, {{ ty }}px) scale({{ zoom }})">
+                <div style="position:relative;width: {{ cw }}px;height: {{ ch }}px">
+                  <svg width="{{ cw }}" height="{{ ch }}" style="position:absolute;left:0;top:0;overflow:visible;pointer-events:none">
+                    <sc-for list="{{ leaders }}" as="l" hint-placeholder-count="1">
+                      <path d="{{ l.d }}" fill="none" stroke="#cfcabf" strokeWidth="1" strokeDasharray="3 4"></path>
+                    </sc-for>
+                    <sc-for list="{{ edges }}" as="e" hint-placeholder-count="6">
+                      <path d="{{ e.d }}" fill="none" stroke="{{ e.stroke }}" strokeWidth="{{ e.w }}" strokeDasharray="{{ e.dash }}" strokeLinecap="round"></path>
+                    </sc-for>
+                  </svg>
+
+                  <sc-for list="{{ cards }}" as="c" hint-placeholder-count="1">
+                    <div onMouseDown="{{ c.onDown }}" style="position:absolute;left: {{ c.x }}px;top: {{ c.y }}px;width: {{ c.w }}px;height: {{ c.h }}px;background:#fff;border:1px solid #ddd8cf;border-radius:7px;box-shadow:0 3px 12px rgba(35,33,30,.13);padding:6px;display:flex;flex-direction:column;gap:5px;cursor:grab;user-select:none">
+                      <div style="flex:1;min-height:0;border-radius:4px;overflow:hidden;display:flex;align-items:center;justify-content:center;background-image:repeating-linear-gradient(45deg,#f3f0ea 0 6px,#eae6de 6px 12px)">
+                        {{ c.imgEl }}
+                        <sc-if value="{{ c.noSrc }}" hint-placeholder-val="{{ true }}">
+                          <span style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:#8a857c;text-align:center;padding:0 8px;line-height:1.5">{{ c.ph }}</span>
+                        </sc-if>
+                      </div>
+                      <div style="display:flex;align-items:center;gap:5px">
+                        <span style="font-size:9.5px;color:#6a665e;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ c.label }}</span>
+                        <span onClick="{{ c.onDel }}" style="flex:0 0 14px;width:14px;height:14px;display:flex;align-items:center;justify-content:center;border-radius:3px;font-size:9px;color:#a09a8f;cursor:pointer" style-hover="background:#f0ede7;color:#4e4a43">✕</span>
+                      </div>
+                    </div>
+                  </sc-for>
+
+                  <sc-for list="{{ nodes }}" as="n" hint-placeholder-count="7">
+                    <div style="position:absolute;left: {{ n.x }}px;top: {{ n.y }}px;width: {{ n.w }}px;height: {{ n.h }}px">
+                      <div onMouseDown="{{ n.onDown }}" onDoubleClick="{{ n.onDbl }}" onContextMenu="{{ n.onCtx }}" style="position:absolute;inset:0;display:flex;flex-direction:column;background:{{ n.bg }};border:1px solid {{ n.bd }};border-left:3px solid {{ n.accent }};border-radius:7px;box-shadow:{{ n.shadow }};padding:6px 9px 7px 8px;cursor:default;user-select:none;opacity:{{ n.op }}">
+                        <div style="display:flex;align-items:center;gap:5px">
+                          <span style="font-size:9px;font-weight:600;padding:1px 5px;border-radius:3px;background:{{ n.stBg }};color:{{ n.stFg }};white-space:nowrap">{{ n.stLabel }}</span>
+                          <sc-for list="{{ n.chips }}" as="ch" hint-placeholder-count="1">
+                            <span style="font-family:'IBM Plex Mono',monospace;font-size:8.5px;color:{{ ch.fg }};background:{{ ch.bg }};border-radius:2px;padding:1px 4px;white-space:nowrap">{{ ch.label }}</span>
+                          </sc-for>
+                          <div style="flex:1"></div>
+                        </div>
+                        <div style="margin-top:4px;height:{{ n.titleH }}px;overflow:hidden;font-size:12px;font-weight:600;line-height:1.42;color:{{ n.titleFg }};text-decoration:{{ n.deco }};text-wrap:pretty">{{ n.t }}</div>
+                        <sc-if value="{{ n.hasSnippet }}" hint-placeholder-val="{{ false }}">
+                          <div style="margin-top:2px;font-size:10px;color:#a39d92;line-height:1.5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ n.snippet }}</div>
+                        </sc-if>
+                        <sc-if value="{{ n.hasImg }}" hint-placeholder-val="{{ false }}">
+                          <div style="margin-top:auto;display:flex;gap:4px;padding-top:5px">
+                            <sc-for list="{{ n.thumbs }}" as="th" hint-placeholder-count="1">
+                              <div onClick="{{ th.onClick }}" style="width:44px;height:28px;border-radius:3px;border:1px solid #e4e0d8;cursor:pointer;overflow:hidden;display:flex;align-items:center;justify-content:center;background-image:repeating-linear-gradient(45deg,#f3f0ea 0 5px,#eae6de 5px 10px)">
+                                {{ th.imgEl }}
+                                <sc-if value="{{ th.noSrc }}" hint-placeholder-val="{{ true }}">
+                                  <span style="font-family:'IBM Plex Mono',monospace;font-size:7.5px;color:#a09a8f">IMG</span>
+                                </sc-if>
+                              </div>
+                            </sc-for>
+                          </div>
+                        </sc-if>
+                      </div>
+                      <div onClick="{{ n.onAdd }}" title="하위 생각 추가 (Tab)" style="position:absolute;left:100%;top:50%;margin-left:8px;margin-top:-9px;width:18px;height:18px;border-radius:50%;border:1px solid #ddd8cf;background:#fff;color:#8a857c;font-size:10px;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 1px 3px rgba(35,33,30,.10)" style-hover="border-color:#3a6fd8;color:#3a6fd8;background:#f4f8ff">＋</div>
+                      <sc-if value="{{ n.hasKids }}" hint-placeholder-val="{{ false }}">
+                        <div onClick="{{ n.onCollapse }}" style="position:absolute;left:100%;top:50%;margin-left:8px;margin-top:14px;height:16px;padding:0 5px;border-radius:8px;border:1px solid #ddd8cf;background:#fff;color:#8a857c;font-family:'IBM Plex Mono',monospace;font-size:8.5px;display:flex;align-items:center;gap:3px;cursor:pointer;box-shadow:0 1px 3px rgba(35,33,30,.08)" style-hover="border-color:#6a54c6;color:#5a44b4">{{ n.kidLabel }}</div>
+                      </sc-if>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+
+              <sc-if value="{{ focusOn }}" hint-placeholder-val="{{ false }}">
+                <div style="position:absolute;left:12px;top:11px;display:flex;align-items:center;gap:8px;height:26px;padding:0 6px 0 10px;background:#fff;border:1px solid #e4dcf8;border-radius:13px;box-shadow:0 2px 8px rgba(35,33,30,.10)">
+                  <span style="font-size:10.5px;color:#5a44b4;font-weight:600">집중</span>
+                  <span style="font-size:10.5px;color:#6a665e;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ focusTitle }}</span>
+                  <span onClick="{{ onUnfocus }}" style="font-size:10px;color:#8a857c;cursor:pointer;padding:2px 7px;border-radius:10px;background:#f4f2ed" style-hover="background:#ebe7df">전체 보기</span>
+                </div>
+              </sc-if>
+
+              <div style="position:absolute;right:12px;bottom:11px;display:flex;align-items:center;gap:4px;height:26px;padding:0 4px;background:#fff;border:1px solid #e0dcd4;border-radius:13px;box-shadow:0 2px 8px rgba(35,33,30,.10)">
+                <div onClick="{{ onZoomOut }}" style="width:20px;height:20px;display:flex;align-items:center;justify-content:center;border-radius:10px;cursor:pointer;color:#6a665e;font-size:12px" style-hover="background:#f0ede7">−</div>
+                <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#6a665e;width:34px;text-align:center">{{ zoomLabel }}</span>
+                <div onClick="{{ onZoomIn }}" style="width:20px;height:20px;display:flex;align-items:center;justify-content:center;border-radius:10px;cursor:pointer;color:#6a665e;font-size:12px" style-hover="background:#f0ede7">＋</div>
+                <div onClick="{{ onFit }}" style="height:20px;padding:0 8px;display:flex;align-items:center;border-radius:10px;cursor:pointer;color:#6a665e;font-size:10px" style-hover="background:#f0ede7">맞춤</div>
+              </div>
+
+              <div style="position:absolute;left:12px;bottom:11px;display:flex;align-items:center;gap:9px;height:24px;padding:0 10px;background:#fff;border:1px solid #e0dcd4;border-radius:12px;box-shadow:0 2px 8px rgba(35,33,30,.08)">
+                <sc-for list="{{ legend }}" as="lg" hint-placeholder-count="5">
+                  <div style="display:flex;align-items:center;gap:4px">
+                    <span style="width:6px;height:6px;border-radius:2px;background:{{ lg.dot }}"></span>
+                    <span style="font-size:9.5px;color:#8a857c">{{ lg.label }}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ viewOutline }}" hint-placeholder-val="{{ false }}">
+            <div style="flex:1;min-height:0;overflow-y:auto;background:#fff;padding:12px 16px 24px 16px">
+              <sc-for list="{{ outline }}" as="o" hint-placeholder-count="8">
+                <div onClick="{{ o.onClick }}" style="display:flex;gap:9px;padding:7px 9px 7px {{ o.pad }}px;border-radius:6px;cursor:pointer;background:{{ o.bg }};border:1px solid {{ o.bd }};margin-bottom:3px" style-hover="background:#f8f7f4">
+                  <span style="flex:0 0 8px;width:8px;height:8px;border-radius:50%;margin-top:5px;background:{{ o.dot }}"></span>
+                  <div style="flex:1;min-width:0">
+                    <div style="display:flex;align-items:flex-start;gap:6px;flex-wrap:wrap">
+                      <span style="flex:1 1 auto;min-width:0;font-size:12.5px;line-height:1.5;font-weight:{{ o.fw }};color:{{ o.fg }};text-decoration:{{ o.deco }};text-wrap:pretty">{{ o.t }}</span>
+                      <span style="flex:0 0 auto;margin-top:2px;font-size:9px;font-weight:600;padding:1px 5px;border-radius:3px;background:{{ o.stBg }};color:{{ o.stFg }}">{{ o.stLabel }}</span>
+                      <sc-for list="{{ o.chips }}" as="ch" hint-placeholder-count="1">
+                        <span style="flex:0 0 auto;margin-top:2px;font-family:'IBM Plex Mono',monospace;font-size:8.5px;color:{{ ch.fg }};background:{{ ch.bg }};border-radius:2px;padding:1px 4px">{{ ch.label }}</span>
+                      </sc-for>
+                    </div>
+                    <sc-if value="{{ o.hasD }}" hint-placeholder-val="{{ false }}">
+                      <div style="font-size:11px;color:#8a857c;line-height:1.6;margin-top:2px;text-wrap:pretty">{{ o.d }}</div>
+                    </sc-if>
+                    <sc-if value="{{ o.hasReason }}" hint-placeholder-val="{{ false }}">
+                      <div style="font-size:10.5px;color:#a08b6a;line-height:1.6;margin-top:2px">폐기 이유 · {{ o.reason }}</div>
+                    </sc-if>
+                  </div>
+                  <div onClick="{{ o.onAdd }}" style="flex:0 0 auto;font-size:10px;color:#8a857c;padding:2px 7px;border-radius:4px;border:1px solid #e4e0d8;background:#fff;height:20px;align-self:center" style-hover="border-color:#3a6fd8;color:#3a6fd8">＋ 하위</div>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ viewDecision }}" hint-placeholder-val="{{ false }}">
+            <div style="flex:1;min-height:0;overflow-y:auto;background:#fbfaf7;padding:14px 16px 26px 16px">
+              <sc-for list="{{ groups }}" as="g" hint-placeholder-count="3">
+                <div style="margin-bottom:18px">
+                  <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                    <span style="width:7px;height:7px;border-radius:50%;background:{{ g.dot }}"></span>
+                    <span style="font-size:12px;font-weight:600;color:#3a3630">{{ g.label }}</span>
+                    <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#a09a8f">{{ g.n }}</span>
+                    <div style="flex:1;height:1px;background:#e6e2da"></div>
+                  </div>
+                  <sc-if value="{{ g.empty }}" hint-placeholder-val="{{ false }}">
+                    <div style="font-size:11px;color:#b5afa2;padding:6px 2px">해당 아이디어가 없습니다.</div>
+                  </sc-if>
+                  <div style="display:flex;flex-direction:column;gap:7px">
+                    <sc-for list="{{ g.items }}" as="it" hint-placeholder-count="2">
+                      <div onClick="{{ it.onClick }}" style="background:#fff;border:1px solid {{ it.bd }};border-left:3px solid {{ it.accent }};border-radius:7px;padding:10px 12px;cursor:pointer;opacity:{{ it.op }}" style-hover="box-shadow:0 2px 10px rgba(35,33,30,.08)">
+                        <div style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#b5afa2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ it.path }}</div>
+                        <div style="font-size:13px;font-weight:600;color:{{ it.fg }};margin-top:3px;text-decoration:{{ it.deco }};text-wrap:pretty">{{ it.t }}</div>
+                        <sc-if value="{{ it.hasD }}" hint-placeholder-val="{{ false }}">
+                          <div style="font-size:11.5px;color:#6a665e;line-height:1.65;margin-top:4px;text-wrap:pretty">{{ it.d }}</div>
+                        </sc-if>
+                        <sc-if value="{{ it.hasReason }}" hint-placeholder-val="{{ false }}">
+                          <div style="font-size:11px;color:#8f7350;background:#fdf7ec;border:1px solid #f0e4cd;border-radius:5px;padding:5px 8px;margin-top:6px;line-height:1.6">폐기 이유 · {{ it.reason }}</div>
+                        </sc-if>
+                        <div style="display:flex;flex-direction:column;gap:3px;margin-top:6px">
+                          <sc-for list="{{ it.ev }}" as="e" hint-placeholder-count="1">
+                            <div style="display:flex;gap:6px;align-items:flex-start">
+                              <span style="flex:0 0 auto;font-size:9px;font-weight:600;padding:1px 5px;border-radius:3px;background:{{ e.bg }};color:{{ e.fg }};margin-top:1px">{{ e.k }}</span>
+                              <span style="flex:1;min-width:0;font-size:11px;color:#6a665e;line-height:1.6">{{ e.t }}</span>
+                            </div>
+                          </sc-for>
+                        </div>
+                      </div>
+                    </sc-for>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+        </div>
+
+        <sc-if value="{{ inspectorOn }}" hint-placeholder-val="{{ true }}">
+        <div style="flex:0 0 306px;display:flex;flex-direction:column;border-left:1px solid #e6e2da;background:#faf9f6">
+          <div style="flex:0 0 27px;display:flex;align-items:center;gap:6px;padding:0 8px 0 11px;background:#f5f3ef;border-bottom:1px solid #e6e2da">
+            <span style="font-size:10.5px;font-weight:600;letter-spacing:.4px;color:#6a665e;flex:1">생각 상세</span>
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#b5afa2">{{ ins.idLabel }}</span>
+          </div>
+
+          <sc-if value="{{ ins.none }}" hint-placeholder-val="{{ false }}">
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:20px">
+              <div style="font-size:11.5px;color:#8a857c">선택된 생각이 없습니다</div>
+              <div style="font-size:10.5px;color:#a09a8f;text-align:center;line-height:1.7">캔버스에서 카드를 클릭하면<br>상세 서술과 근거를 여기서 적습니다.</div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ ins.has }}" hint-placeholder-val="{{ true }}">
+          <div style="flex:1;min-height:0;overflow-y:auto;padding:10px 11px 16px 11px;display:flex;flex-direction:column;gap:11px">
+            <div style="flex:0 0 auto;font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#b5afa2;line-height:1.5">{{ ins.path }}</div>
+
+            <textarea value="{{ ins.t }}" onChange="{{ onInsTitle }}" placeholder="생각을 한 문장으로" style="flex:0 0 auto;width:100%;height:52px;border:1px solid #ddd8cf;border-radius:6px;background:#fff;padding:7px 9px;font-size:12.5px;font-weight:600;line-height:1.45;color:#23211e;outline:none" style-focus="border-color:#3a6fd8;box-shadow:0 0 0 2px #e6eefc"></textarea>
+
+            <div style="flex:0 0 auto">
+              <div style="font-size:9.5px;font-weight:600;letter-spacing:.4px;color:#a09a8f;margin-bottom:5px">상태</div>
+              <div style="display:flex;flex-wrap:wrap;gap:4px">
+                <sc-for list="{{ ins.states }}" as="st" hint-placeholder-count="5">
+                  <div onClick="{{ st.onClick }}" style="display:flex;align-items:center;gap:5px;height:24px;padding:0 9px;border-radius:12px;cursor:pointer;font-size:10.5px;font-weight:{{ st.fw }};border:1px solid {{ st.bd }};background:{{ st.bg }};color:{{ st.fg }}">
+                    <span style="width:6px;height:6px;border-radius:50%;background:{{ st.dot }}"></span>{{ st.label }}
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+
+            <sc-if value="{{ ins.isDropped }}" hint-placeholder-val="{{ false }}">
+              <div style="flex:0 0 auto">
+                <div style="font-size:9.5px;font-weight:600;letter-spacing:.4px;color:#a09a8f;margin-bottom:5px">폐기 이유 <span style="color:#c0b9ac">· 남겨두면 나중에 되살릴 때 근거가 됩니다</span></div>
+                <textarea value="{{ ins.reason }}" onChange="{{ onInsReason }}" placeholder="왜 접었는지 한 줄" style="flex:0 0 auto;width:100%;height:48px;border:1px solid #f0e4cd;border-radius:6px;background:#fdf9f1;padding:7px 9px;font-size:11.5px;line-height:1.6;color:#6a5a42;outline:none"></textarea>
+              </div>
+            </sc-if>
+
+            <div style="flex:0 0 auto">
+              <div style="font-size:9.5px;font-weight:600;letter-spacing:.4px;color:#a09a8f;margin-bottom:5px">상세 서술</div>
+              <textarea value="{{ ins.d }}" onChange="{{ onInsDetail }}" placeholder="이 생각의 배경 · 가정 · 어떻게 확인할지" style="flex:0 0 auto;width:100%;height:112px;border:1px solid #ddd8cf;border-radius:6px;background:#fff;padding:8px 9px;font-size:11.5px;line-height:1.7;color:#3a3630;outline:none" style-focus="border-color:#3a6fd8;box-shadow:0 0 0 2px #e6eefc"></textarea>
+            </div>
+
+            <div style="flex:0 0 auto">
+              <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px">
+                <span style="font-size:9.5px;font-weight:600;letter-spacing:.4px;color:#a09a8f;flex:1">근거 · 리스크 · 질문</span>
+                <span style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#b5afa2">{{ ins.evCount }}</span>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:4px">
+                <sc-for list="{{ ins.ev }}" as="e" hint-placeholder-count="2">
+                  <div style="display:flex;gap:6px;align-items:flex-start;background:#fff;border:1px solid #ede9e2;border-radius:5px;padding:6px 7px">
+                    <span style="flex:0 0 auto;font-size:9px;font-weight:600;padding:1px 5px;border-radius:3px;background:{{ e.bg }};color:{{ e.fg }};margin-top:1px">{{ e.k }}</span>
+                    <span style="flex:1;min-width:0;font-size:11px;color:#4e4a43;line-height:1.6">{{ e.t }}</span>
+                    <span onClick="{{ e.onDel }}" style="flex:0 0 13px;font-size:9px;color:#b5afa2;cursor:pointer" style-hover="color:#4e4a43">✕</span>
+                  </div>
+                </sc-for>
+              </div>
+              <div style="display:flex;gap:4px;margin-top:5px">
+                <div onClick="{{ onCycleEvK }}" style="flex:0 0 auto;height:26px;padding:0 8px;display:flex;align-items:center;border-radius:5px;cursor:pointer;font-size:10px;font-weight:600;border:1px solid {{ ins.evKBd }};background:{{ ins.evKBg }};color:{{ ins.evKFg }}">{{ ins.evK }}</div>
+                <input value="{{ ins.evT }}" onChange="{{ onEvT }}" onKeyDown="{{ onEvKey }}" placeholder="한 줄 추가 후 Enter" style="flex:1;min-width:0;height:26px;border:1px solid #ddd8cf;border-radius:5px;background:#fff;padding:0 8px;font-size:11px;outline:none" style-focus="border-color:#3a6fd8">
+              </div>
+            </div>
+
+            <div style="flex:0 0 auto">
+              <div style="font-size:9.5px;font-weight:600;letter-spacing:.4px;color:#a09a8f;margin-bottom:5px">첨부 그림 · 다이어그램</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px">
+                <sc-for list="{{ ins.imgs }}" as="im" hint-placeholder-count="2">
+                  <div style="border:1px solid #e4e0d8;border-radius:6px;background:#fff;padding:4px;display:flex;flex-direction:column;gap:4px">
+                    <div style="height:52px;border-radius:4px;overflow:hidden;display:flex;align-items:center;justify-content:center;background-image:repeating-linear-gradient(45deg,#f3f0ea 0 5px,#eae6de 5px 10px)">
+                      {{ im.imgEl }}
+                      <sc-if value="{{ im.noSrc }}" hint-placeholder-val="{{ true }}">
+                        <span style="font-family:'IBM Plex Mono',monospace;font-size:8px;color:#a09a8f">IMAGE</span>
+                      </sc-if>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:4px">
+                      <span style="flex:1;min-width:0;font-size:9.5px;color:#6a665e;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ im.label }}</span>
+                      <span onClick="{{ im.onDel }}" style="flex:0 0 12px;font-size:9px;color:#b5afa2;cursor:pointer" style-hover="color:#4e4a43">✕</span>
+                    </div>
+                  </div>
+                </sc-for>
+                <div onClick="{{ onAttach }}" style="height:78px;border:1px dashed #d5d0c6;border-radius:6px;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:pointer" style-hover="border-color:#3a6fd8;background:#f8fafe">
+                  <span style="font-size:13px;color:#a09a8f;line-height:1">＋</span>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:8.5px;color:#a09a8f">Ctrl+V 붙여넣기</span>
+                </div>
+              </div>
+            </div>
+
+            <div style="flex:0 0 auto">
+              <div style="font-size:9.5px;font-weight:600;letter-spacing:.4px;color:#a09a8f;margin-bottom:5px">태그</div>
+              <div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center">
+                <sc-for list="{{ ins.tags }}" as="tg" hint-placeholder-count="1">
+                  <span onClick="{{ tg.onDel }}" style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#6a665e;background:#f0ede7;border:1px solid #e4e0d8;border-radius:3px;padding:2px 6px;cursor:pointer" style-hover="background:#e6e2da">#{{ tg.t }} ✕</span>
+                </sc-for>
+                <input value="{{ ins.tagT }}" onChange="{{ onTagT }}" onKeyDown="{{ onTagKey }}" placeholder="+ 태그" style="width:74px;height:22px;border:1px dashed #ddd8cf;border-radius:4px;background:transparent;padding:0 6px;font-size:10px;outline:none" style-focus="border-style:solid;border-color:#3a6fd8;background:#fff">
+              </div>
+            </div>
+
+            <div style="flex:0 0 auto;display:grid;grid-template-columns:1fr 1fr;gap:5px;padding-top:2px">
+              <sc-for list="{{ ins.actions }}" as="ac" hint-placeholder-count="6">
+                <div onClick="{{ ac.onClick }}" style="height:27px;display:flex;align-items:center;justify-content:center;gap:5px;border-radius:5px;cursor:pointer;font-size:10.5px;font-weight:{{ ac.fw }};border:1px solid {{ ac.bd }};background:{{ ac.bg }};color:{{ ac.fg }}">{{ ac.label }}<span style="font-family:'IBM Plex Mono',monospace;font-size:8.5px;opacity:.65">{{ ac.key }}</span></div>
+              </sc-for>
+            </div>
+
+            <div style="flex:0 0 auto;border-top:1px solid #ede9e2;padding-top:8px;display:flex;flex-direction:column;gap:3px">
+              <sc-for list="{{ ins.meta }}" as="mt" hint-placeholder-count="3">
+                <div style="display:flex;align-items:center;gap:6px">
+                  <span style="font-size:10px;color:#a09a8f;flex:1">{{ mt.k }}</span>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#6a665e">{{ mt.v }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+          </sc-if>
+        </div>
+        </sc-if>
+      </div>
+
+      <div style="flex:0 0 23px;height:23px;display:flex;align-items:center;gap:10px;padding:0 12px;background:#f7f5f1;border-top:1px solid #e6e2da;font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#8a857c;white-space:nowrap;overflow:hidden">
+        <span style="flex:0 0 auto;white-space:nowrap">{{ barCount }}</span>
+        <span style="flex:0 0 auto;color:#c0b9ac">|</span>
+        <span style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Tab 하위 · Enter 형제 · Ctrl+Enter 채택 · Del 폐기 · Ctrl+Z 되돌리기 · Ctrl+V 이미지 첨부</span>
+        <span style="flex:0 0 auto;white-space:nowrap">{{ zoomLabel }}</span>
+        <span style="flex:0 0 auto;white-space:nowrap;color:#2f7f57">{{ savedLabel }}</span>
+      </div>
+    </div>
+    </sc-if>
+
+    <sc-if value="{{ isNote }}" hint-placeholder-val="{{ false }}">
+      <div style="flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;background:#fdfcfa;padding:24px">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#8a857c;border:1px solid #e4e0d8;background:#f2efe9;border-radius:5px;padding:5px 9px">{{ noteName }}</div>
+        <div style="font-size:11.5px;color:#a09a8f;text-align:center;line-height:1.8">이 프로토타입은 브레인스토밍 모드만 담고 있습니다.<br>탐색기에서 {{ extLabel }} 파일을 열어보세요.</div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isNoTab }}" hint-placeholder-val="{{ false }}">
+      <div style="flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;background:#fdfcfa">
+        <div style="font-size:12px;color:#8a857c">열려 있는 파일이 없습니다</div>
+        <div style="font-size:10.5px;color:#a09a8f;text-align:center;line-height:1.7">탐색기에서 우클릭 → 새 브레인스토밍으로<br>{{ extLabel }} 파일을 만들어 시작하세요.</div>
+      </div>
+    </sc-if>
+
+  </div>
+</div>
+</div>
+</div>
+
+<sc-if value="{{ ctxOpen }}" hint-placeholder-val="{{ false }}">
+  <div onClick="{{ onCloseCtx }}" onContextMenu="{{ onCloseCtx }}" style="position:fixed;inset:0;z-index:80"></div>
+  <div style="position:fixed;z-index:81;min-width:212px;background:#fff;border:1px solid #d9d4ca;border-radius:6px;box-shadow:0 12px 30px rgba(35,33,30,.20);padding:4px;animation:pIn .12s ease-out;left: {{ ctx.x }}px;top: {{ ctx.y }}px">
+    <div style="display:flex;align-items:center;gap:6px;padding:5px 8px 6px 8px;border-bottom:1px solid #f0ede7;margin-bottom:3px">
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;color:{{ ctx.headFg }};background:{{ ctx.headBg }};border-radius:2px;padding:1px 4px">{{ ctx.badge }}</span>
+      <span style="font-size:10.5px;color:#6a665e;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ ctx.head }}</span>
+    </div>
+    <sc-for list="{{ ctxItems }}" as="it" hint-placeholder-count="5">
+      <div onClick="{{ it.onClick }}" style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:4px;cursor:pointer;border-top:1px solid {{ it.sepBd }};margin-top:{{ it.mt }}px;padding-top:{{ it.pt }}px" style-hover="background:#f4f2ed">
+        <span style="flex:0 0 16px;text-align:center;font-size:10px;color:{{ it.iconFg }}">{{ it.icon }}</span>
+        <span style="flex:1;min-width:0;font-size:11.5px;color:{{ it.fg }};font-weight:{{ it.fw }};white-space:nowrap">{{ it.label }}</span>
+        <span style="flex:0 0 auto;font-family:'IBM Plex Mono',monospace;font-size:9px;color:{{ it.hintFg }};background:{{ it.hintBg }};border-radius:2px;padding:1px 4px">{{ it.hint }}</span>
+      </div>
+    </sc-for>
+  </div>
+</sc-if>
+
+<sc-if value="{{ toastOn }}" hint-placeholder-val="{{ false }}">
+  <div style="position:fixed;left:50%;bottom:32px;transform:translateX(-50%);z-index:90;display:flex;align-items:center;gap:9px;background:#2c2a26;color:#f7f5f1;border-radius:7px;padding:9px 14px;box-shadow:0 12px 30px rgba(35,33,30,.28);animation:pIn .16s ease-out;max-width:560px">
+    <span style="width:7px;height:7px;border-radius:50%;flex:0 0 7px;background:{{ toast.color }}"></span>
+    <span style="font-size:11.5px;font-weight:500">{{ toast.msg }}</span>
+    <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#a9a49a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ toast.sub }}</span>
+  </div>
+</sc-if>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;showChrome&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;셸&quot;},&quot;defaultView&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;canvas&quot;,&quot;outline&quot;,&quot;decision&quot;],&quot;default&quot;:&quot;canvas&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;브레인스토밍&quot;},&quot;density&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;comfortable&quot;,&quot;compact&quot;],&quot;default&quot;:&quot;comfortable&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;브레인스토밍&quot;},&quot;showGrid&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;브레인스토밍&quot;},&quot;extension&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;.bstorm&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;브레인스토밍&quot;}}">
+const BLUE='#3a6fd8',AMBER='#b07520',GREEN='#2f7f57',VIOLET='#6a54c6';
+const ST={
+  explore:{key:'explore',label:'탐색중',dot:'#8a857c',bg:'#f2efe9',fg:'#6a665e',bd:'#e0dcd4',accent:'#c5c0b6'},
+  strong:{key:'strong',label:'유력',dot:VIOLET,bg:'#f6f3fd',fg:'#5a44b4',bd:'#e4dcf8',accent:VIOLET},
+  adopted:{key:'adopted',label:'채택',dot:GREEN,bg:'#f1f7f3',fg:'#256b48',bd:'#cfe6d9',accent:GREEN},
+  hold:{key:'hold',label:'보류',dot:AMBER,bg:'#fdf8ee',fg:'#8f5d17',bd:'#eeddc0',accent:AMBER},
+  dropped:{key:'dropped',label:'폐기',dot:'#b5afa2',bg:'#f6f5f2',fg:'#8a857c',bd:'#e4e0d8',accent:'#d5d0c6'}
+};
+const ORDER=['explore','strong','adopted','hold','dropped'];
+const EVK={'근거':{bg:'#eaf5ee',fg:'#256b48',bd:'#cfe6d9'},'리스크':{bg:'#fdf3e3',fg:'#8f5d17',bd:'#eeddc0'},'질문':{bg:'#eef3fd',fg:'#2f5cbb',bd:'#cddcf8'}};
+const EVKS=['근거','리스크','질문'];
+const BRANCH=['#3a6fd8','#6a54c6','#2f7f57','#b07520','#3f8ea3','#a3557c'];
+const BSDOC='/Vault/01_아이디어/온보딩 이탈 개선';
+
+function nd(o){return Object.assign({p:null,t:'',d:'',s:'explore',reason:'',tags:[],ev:[],imgs:[],dx:0,dy:0,col:false},o);}
+const SEED=[
+  nd({id:'n1',t:'신규 사용자 온보딩 이탈 40% 개선',d:'첫 7일 리텐션 22% → 35%. 이탈은 대부분 첫 실행 후 10분 안에 발생한다.',tags:['목표','Q3'],ev:[{k:'근거',t:'퍼널 로그: 3단계 위저드 구간에서 38% 이탈'}]}),
+  nd({id:'n2',p:'n1',t:'첫 실행 경험을 단순화한다',d:'설정을 뒤로 미루고, 열자마자 무언가 보이게 한다.',s:'strong',tags:['UX'],imgs:[{id:'g1',label:'퍼널 스케치'}]}),
+  nd({id:'n3',p:'n2',t:'3단계 위저드 → 단일 화면',d:'Vault 위치만 묻고 나머지는 기본값. 설정은 배너로 나중에 유도.',s:'strong',ev:[{k:'근거',t:'경쟁 앱 5종 중 4종이 단일 화면'},{k:'리스크',t:'고급 사용자가 초기 설정 위치를 못 찾을 수 있음'}],imgs:[{id:'g2',label:'와이어프레임 v2'}]}),
+  nd({id:'n4',p:'n2',t:'샘플 Vault 자동 생성',d:'예시 업무 3개와 브레인스토밍 파일 1개를 미리 넣어둔다.',s:'adopted',tags:['확정'],ev:[{k:'근거',t:'프로토타입 테스트 8명 중 7명이 "이해가 빨라졌다"'}]}),
+  nd({id:'n5',p:'n2',t:'튜토리얼 강제 진행',s:'dropped',reason:'이탈 데이터가 정반대를 가리킴 · 강제 흐름 구간이 이탈 최고치'}),
+  nd({id:'n6',p:'n1',t:'가치 인식 시점을 앞당긴다',d:'첫 10분 안에 "내 일이 정리된다"를 체감하게 만든다.'}),
+  nd({id:'n7',p:'n6',t:'기존 폴더에서 업무 자동 임포트',d:'최근 수정된 폴더를 스캔해 업무 후보를 제안한다.',s:'adopted',tags:['확정'],ev:[{k:'근거',t:'설치 사용자 62%가 이미 파일 기반으로 일함'}]}),
+  nd({id:'n8',p:'n6',t:'AI 요약으로 첫 결과 즉시 제공',d:'임포트한 문서를 3줄로 요약해 첫 화면에 띄운다.',tags:['AI'],ev:[{k:'리스크',t:'요약 품질이 낮으면 신뢰가 먼저 깨진다'},{k:'질문',t:'로컬 모델만으로 품질이 나올까?'}]}),
+  nd({id:'n9',p:'n8',t:'요약 신뢰도 표시 + 원문 점프'}),
+  nd({id:'n10',p:'n1',t:'재방문 습관을 만든다',s:'hold',reason:''}),
+  nd({id:'n11',p:'n10',t:'일일 컨텍스트 다이제스트',d:'어제 남긴 미저장 메모와 열린 탭을 아침에 요약해 보여준다.',s:'hold'}),
+  nd({id:'n12',p:'n10',t:'이메일 리마인더',s:'dropped',reason:'로컬 우선 · 오프라인 제품 정체성과 충돌'})
+];
+const TPL={
+  blank:{label:'빈 캔버스',desc:'중심 생각 하나만 두고 자유롭게 확장',kids:[]},
+  problem:{label:'문제 → 원인 → 해결',desc:'원인 가설 · 해결 방향 · 검증 방법',kids:['원인 가설','해결 방향','어떻게 검증할까']},
+  decide:{label:'의사결정 비교',desc:'옵션 A/B와 판단 기준을 나란히',kids:['옵션 A','옵션 B','판단 기준']},
+  diverge:{label:'기능 발산',desc:'사용자 문제 · 아이디어 · 리스크',kids:['사용자 문제','아이디어 묶음','리스크와 제약']}
+};
+
+class Component extends DCLogic {
+  constructor(props){
+    super(props);
+    const bs=BSDOC+(props.extension||'.bstorm');
+    this.state={
+      files:[
+        {p:'/Vault',dir:true,open:true},
+        {p:'/Vault/01_아이디어',dir:true,open:true},
+        {p:bs},
+        {p:'/Vault/01_아이디어/경쟁 제품 리서치.md'},
+        {p:'/Vault/01_아이디어/스케치',dir:true,open:false},
+        {p:'/Vault/01_아이디어/스케치/wizard-v2.png'},
+        {p:'/Vault/01_아이디어/스케치/funnel.excalidraw'},
+        {p:'/Vault/02_업무',dir:true,open:true},
+        {p:'/Vault/02_업무/Q3 로드맵.md'},
+        {p:'/Vault/02_업무/릴리스 노트 v0.3.md'},
+        {p:'/Vault/_index',dir:true,open:false},
+        {p:'/Vault/_index/Archive.md'}
+      ],
+      docs:{},
+      tabs:[bs],active:bs,sel:bs,
+      view:props.defaultView||'canvas',
+      selNode:'n3',ctx:null,mk:null,
+      zoom:1,tx:34,ty:18,
+      hideDropped:false,inspector:true,focus:null,
+      toast:null,undo:[],evK:'근거',evT:'',tagT:'',newT:'',saved:'저장됨'
+    };
+    this.state.docs[bs]={title:'온보딩 이탈 개선',nodes:SEED.map(n=>JSON.parse(JSON.stringify(n))),next:13,
+      cards:[{id:'c1',x:760,y:392,w:196,h:138,label:'온보딩 퍼널 스케치',ph:'다이어그램 붙여넣기',link:'n6'}]};
+  }
+  ext(){return this.props.extension||'.bstorm';}
+  isBsPath(p){return !!p&&p.slice(-this.ext().length)===this.ext();}
+  doc(){return this.state.docs[this.state.active]||null;}
+  node(id){const d=this.doc();return d?d.nodes.filter(function(n){return n.id===id;})[0]:null;}
+  toast(msg,sub,color){
+    if(this._tt)clearTimeout(this._tt);
+    this.setState({toast:{msg:msg,sub:sub||'',color:color||'#5fbf8d'}});
+    this._tt=setTimeout(()=>this.setState({toast:null}),2600);
+  }
+  patch(fn,label){
+    const p=this.state.active;
+    this.setState(s=>{
+      const cur=s.docs[p];if(!cur)return {};
+      const snap=JSON.parse(JSON.stringify(cur));
+      const next=fn(JSON.parse(JSON.stringify(cur)))||cur;
+      const docs=Object.assign({},s.docs);docs[p]=next;
+      return {docs:docs,undo:s.undo.concat([{p:p,d:snap,label:label||'변경'}]).slice(-40),saved:'방금 저장'};
+    });
+  }
+  quiet(fn){
+    const p=this.state.active;
+    this.setState(s=>{
+      const cur=s.docs[p];if(!cur)return {};
+      const next=fn(JSON.parse(JSON.stringify(cur)))||cur;
+      const docs=Object.assign({},s.docs);docs[p]=next;return {docs:docs,saved:'방금 저장'};
+    });
+  }
+  undo(){
+    const u=this.state.undo;if(!u.length){this.toast('되돌릴 변경이 없습니다','','#b5afa2');return;}
+    const last=u[u.length-1];
+    this.setState(s=>{const docs=Object.assign({},s.docs);docs[last.p]=last.d;return {docs:docs,undo:s.undo.slice(0,-1),active:last.p};});
+    this.toast('되돌렸습니다',last.label,'#c9a24a');
+  }
+  upd(id,patch,quiet){
+    const f=d=>{d.nodes=d.nodes.map(function(n){return n.id===id?Object.assign({},n,patch):n;});return d;};
+    if(quiet)this.quiet(f);else this.patch(f,'생각 수정');
+  }
+  addChild(pid,title){
+    const d=this.doc();if(!d)return;
+    const id='n'+d.next;
+    this.patch(function(dd){
+      dd.next++;dd.nodes.push(nd({id:id,p:pid,t:title||''}));
+      dd.nodes=dd.nodes.map(function(n){return n.id===pid?Object.assign({},n,{col:false}):n;});
+      return dd;},'하위 생각 추가');
+    this._focusIns=true;
+    this.setState({selNode:id,inspector:true,hideDropped:false});
+  }
+  addSibling(id){
+    const n=this.node(id);if(!n)return;this.addChild(n.p,'');
+  }
+  setStatus(id,s){
+    const n=this.node(id);if(!n)return;
+    this.upd(id,{s:s});
+    this.toast(ST[s].label+'으로 표시했습니다',(n.t||'제목 없는 생각').slice(0,28),ST[s].dot);
+  }
+  del(id){
+    const d=this.doc();if(!d)return;
+    const kill={};kill[id]=1;let grew=true;
+    while(grew){grew=false;d.nodes.forEach(function(n){if(n.p&&kill[n.p]&&!kill[n.id]){kill[n.id]=1;grew=true;}});}
+    const parent=(this.node(id)||{}).p;
+    this.patch(function(dd){dd.nodes=dd.nodes.filter(function(n){return !kill[n.id];});return dd;},'생각 삭제');
+    this.setState({selNode:parent||null,ctx:null});
+    this.toast('생각과 하위 가지를 삭제했습니다',Object.keys(kill).length+'개','#c98b7a');
+  }
+  dup(id){
+    const d=this.doc();if(!d)return;const src=this.node(id);if(!src)return;
+    const nid='n'+d.next;
+    this.patch(function(dd){dd.next++;
+      const c=JSON.parse(JSON.stringify(src));c.id=nid;c.t=src.t+' (복제)';c.dy=(src.dy||0)+10;
+      dd.nodes.push(c);return dd;},'생각 복제');
+    this.setState({selNode:nid,ctx:null});
+  }
+  attach(id,src,label){
+    const d=this.doc();if(!d)return;
+    const iid='g'+d.next+'_'+Math.floor(Math.random()*99);
+    this.patch(function(dd){dd.next++;
+      dd.nodes=dd.nodes.map(function(n){
+        if(n.id!==id)return n;
+        const imgs=(n.imgs||[]).concat([{id:iid,label:label||('첨부 '+((n.imgs||[]).length+1)),src:src||''}]);
+        return Object.assign({},n,{imgs:imgs});});
+      return dd;},'첨부 추가');
+    if(!src)this.toast('이미지 자리를 만들었습니다','Ctrl+V로 실제 그림을 붙여넣을 수 있습니다','#8fa8e0');
+  }
+  addCard(src,label){
+    const d=this.doc();if(!d)return;const s=this.state;
+    const x=Math.round((-s.tx+320)/s.zoom),y=Math.round((-s.ty+120)/s.zoom);
+    const id='c'+Date.now();
+    this.patch(function(dd){dd.cards=(dd.cards||[]).concat([{id:id,x:x,y:y,w:200,h:142,label:label||'붙여넣은 이미지',ph:'이미지',src:src||'',link:null}]);return dd;},'보드 카드 추가');
+    this.toast('캔버스에 붙였습니다','드래그해 원하는 위치에 배치하세요','#5fbf8d');
+  }
+  // ---- explorer
+  startMk(parent,kind){
+    this.setState({ctx:null,mk:{parent:parent,kind:kind,name:kind==='bstorm'?'새 브레인스토밍':(kind==='folder'?'':'')}});
+    this._mkFocused=false;
+  }
+  commitMk(){
+    const mk=this.state.mk;if(!mk)return;
+    const name=(mk.name||'').trim();
+    if(!name){this.setState({mk:null});return;}
+    if(mk.kind==='folder'){
+      const p=mk.parent+'/'+name;
+      this.setState(s=>({files:s.files.concat([{p:p,dir:true,open:true}]),mk:null}));
+      this.toast('폴더를 만들었습니다',p,'#c9a24a');return;
+    }
+    if(mk.kind==='note'){
+      const p=mk.parent+'/'+(name.indexOf('.')<0?name+'.md':name);
+      this.setState(s=>({files:s.files.concat([{p:p}]),mk:null,sel:p}));
+      this.toast('노트를 만들었습니다',p,'#8fa8e0');return;
+    }
+    const path=mk.parent+'/'+name+this.ext();
+    this.setState(s=>{
+      const docs=Object.assign({},s.docs);
+      docs[path]={title:name,nodes:[],next:1,cards:[]};
+      return {files:s.files.concat([{p:path}]),docs:docs,mk:null,sel:path,
+        tabs:s.tabs.indexOf(path)<0?s.tabs.concat([path]):s.tabs,active:path,
+        selNode:null,view:'canvas',focus:null,zoom:1,tx:34,ty:18,newT:''};
+    });
+    this._focusNew=true;
+    this.toast('브레인스토밍 파일을 만들었습니다',path,'#a58ae8');
+  }
+  open(path){
+    if(this.isBsPath(path)){
+      this.setState(s=>{
+        const docs=Object.assign({},s.docs);
+        if(!docs[path])docs[path]={title:path.split('/').pop().replace(this.ext(),''),nodes:[],next:1,cards:[]};
+        const nodes=docs[path].nodes;
+        return {docs:docs,tabs:s.tabs.indexOf(path)<0?s.tabs.concat([path]):s.tabs,active:path,sel:path,ctx:null,
+          selNode:nodes.length?nodes[0].id:null,focus:null,view:'canvas'};
+      });
+    }else{
+      this.setState(s=>({tabs:s.tabs.indexOf(path)<0?s.tabs.concat([path]):s.tabs,active:path,sel:path,ctx:null}));
+    }
+  }
+  closeTab(path){
+    this.setState(s=>{
+      const tabs=s.tabs.filter(function(t){return t!==path;});
+      return {tabs:tabs,active:s.active===path?(tabs[tabs.length-1]||null):s.active};
+    });
+  }
+  seedTemplate(kind){
+    const title=(this.state.newT||'').trim()||'중심 생각';
+    const tpl=TPL[kind]||TPL.blank;
+    this.patch(function(dd){
+      dd.nodes=[nd({id:'n1',t:title})];let i=2;
+      tpl.kids.forEach(function(k){dd.nodes.push(nd({id:'n'+i,p:'n1',t:k}));i++;});
+      dd.next=i;return dd;},'문서 시작');
+    this.setState({selNode:'n1',newT:''});
+    this.toast('캔버스를 시작했습니다',tpl.label,'#a58ae8');
+  }
+  exportSummary(){
+    const d=this.doc();if(!d)return;
+    const a=d.nodes.filter(function(n){return n.s==='adopted';}).length;
+    const x=d.nodes.filter(function(n){return n.s==='dropped';}).length;
+    this.toast('결정 요약을 마크다운으로 복사했습니다','채택 '+a+' · 폐기 '+x+' · 전체 '+d.nodes.length,'#5fbf8d');
+  }
+  // ---- pointer
+  dragNode(e,id){
+    if(e.button!==0)return;
+    e.stopPropagation();
+    this.setState({selNode:id,ctx:null});
+    const n=this.node(id);if(!n)return;
+    const z=this.state.zoom,sx=e.clientX,sy=e.clientY,d0x=n.dx||0,d0y=n.dy||0;let moved=false;
+    const mv=ev=>{
+      const nx=d0x+(ev.clientX-sx)/z,ny=d0y+(ev.clientY-sy)/z;
+      if(Math.abs(ev.clientX-sx)+Math.abs(ev.clientY-sy)>3)moved=true;
+      if(moved)this.upd(id,{dx:nx,dy:ny},true);
+    };
+    const up=()=>{document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',up);};
+    document.addEventListener('mousemove',mv);document.addEventListener('mouseup',up);
+  }
+  dragCard(e,id){
+    if(e.button!==0)return;
+    e.stopPropagation();
+    const d=this.doc();if(!d)return;
+    const c=(d.cards||[]).filter(function(k){return k.id===id;})[0];if(!c)return;
+    const z=this.state.zoom,sx=e.clientX,sy=e.clientY,x0=c.x,y0=c.y;
+    const mv=ev=>{
+      const nx=x0+(ev.clientX-sx)/z,ny=y0+(ev.clientY-sy)/z;
+      this.quiet(function(dd){dd.cards=dd.cards.map(function(k){return k.id===id?Object.assign({},k,{x:nx,y:ny}):k;});return dd;});
+    };
+    const up=()=>{document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',up);};
+    document.addEventListener('mousemove',mv);document.addEventListener('mouseup',up);
+  }
+  panStart(e){
+    if(e.button!==0)return;
+    const sx=e.clientX,sy=e.clientY,t0=this.state.tx,t1=this.state.ty;let moved=false;
+    const mv=ev=>{moved=true;this.setState({tx:t0+(ev.clientX-sx),ty:t1+(ev.clientY-sy)});};
+    const up=()=>{document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',up);if(!moved)this.setState({selNode:null});};
+    document.addEventListener('mousemove',mv);document.addEventListener('mouseup',up);
+  }
+  fit(){
+    const el=this._canvas;const d=this.doc();if(!el||!d||!d.nodes.length)return;
+    const cw=this._cw||600,ch=this._ch||400;
+    const z=Math.max(.4,Math.min(1,Math.min((el.clientWidth-32)/cw,(el.clientHeight-32)/ch)));
+    this.setState({zoom:Math.round(z*100)/100,tx:18,ty:16});
+  }
+  componentDidMount(){
+    this._key=e=>{
+      const tag=((e.target&&e.target.tagName)||'').toLowerCase();
+      if(tag==='input'||tag==='textarea'){if(e.key==='Escape')e.target.blur();return;}
+      if(!this.isBsPath(this.state.active))return;
+      const id=this.state.selNode;const mod=e.ctrlKey||e.metaKey;
+      if(mod&&(e.key==='z'||e.key==='Z')){e.preventDefault();this.undo();return;}
+      if(mod&&e.key==='Enter'){e.preventDefault();if(id){const n=this.node(id);this.setStatus(id,n&&n.s==='adopted'?'explore':'adopted');}return;}
+      if(e.key==='Tab'){e.preventDefault();if(id)this.addChild(id);return;}
+      if(e.key==='Enter'){e.preventDefault();if(id)this.addSibling(id);return;}
+      if(e.key==='Delete'||e.key==='Backspace'){
+        if(!id)return;e.preventDefault();
+        if(e.shiftKey)this.del(id);else{const n=this.node(id);this.setStatus(id,n&&n.s==='dropped'?'explore':'dropped');}
+        return;}
+      if(e.key==='Escape'){this.setState({ctx:null,focus:null});return;}
+      if(e.key==='+'||e.key==='='){this.setState(s=>({zoom:Math.min(1.6,Math.round((s.zoom+.1)*100)/100)}));}
+      if(e.key==='-'){this.setState(s=>({zoom:Math.max(.45,Math.round((s.zoom-.1)*100)/100)}));}
+      if(e.key==='0'){this.setState({zoom:1,tx:34,ty:18});}
+      if((e.key==='f'||e.key==='F')&&id){this.setState({focus:id});}
+    };
+    this._paste=e=>{
+      const tag=((e.target&&e.target.tagName)||'').toLowerCase();
+      if(tag==='input'||tag==='textarea')return;
+      if(!this.isBsPath(this.state.active))return;
+      const items=(e.clipboardData&&e.clipboardData.items)||[];
+      for(let i=0;i<items.length;i++){
+        if(items[i].type&&items[i].type.indexOf('image')===0){
+          const f=items[i].getAsFile();
+          if(f){e.preventDefault();this.addCard(URL.createObjectURL(f),'붙여넣은 이미지');return;}
+        }
+      }
+      const txt=e.clipboardData&&e.clipboardData.getData('text');
+      if(txt&&txt.trim()&&this.state.selNode){e.preventDefault();this.addChild(this.state.selNode,txt.trim().slice(0,90));
+        this.toast('붙여넣은 텍스트를 하위 생각으로 만들었습니다','','#8fa8e0');}
+    };
+    document.addEventListener('keydown',this._key);
+    document.addEventListener('paste',this._paste);
+    this._fitT=setTimeout(()=>this.fit(),80);
+    this._ro=window.ResizeObserver?new ResizeObserver(()=>{
+      if(this._fitT2)clearTimeout(this._fitT2);
+      this._fitT2=setTimeout(()=>{if(!this._userZoom)this.fit();},140);
+    }):null;
+    this._roT=setTimeout(()=>{if(this._ro&&this._canvas)this._ro.observe(this._canvas);},120);
+  }
+  componentWillUnmount(){
+    document.removeEventListener('keydown',this._key);
+    document.removeEventListener('paste',this._paste);
+    if(this._ro)this._ro.disconnect();
+    [this._tt,this._fitT,this._fitT2,this._roT].forEach(function(t){if(t)clearTimeout(t);});
+    if(this._tt)clearTimeout(this._tt);
+  }
+
+  renderVals(){
+    const s=this.state,self=this,EXT=this.ext();
+    const compact=(this.props.density||'comfortable')==='compact';
+    const NW=200,GAP=compact?12:16,BASE=compact?62:78,COLW=compact?236:258;
+    const doc=this.doc();
+    const nodesAll=doc?doc.nodes:[];
+    const byId={};nodesAll.forEach(function(n){byId[n.id]=n;});
+    const kids={};nodesAll.forEach(function(n){if(n.p){(kids[n.p]=kids[n.p]||[]).push(n.id);}});
+    const branchOf={};
+    (function(){
+      const roots=nodesAll.filter(function(n){return !n.p;}).map(function(n){return n.id;});
+      roots.forEach(function(r){
+        (kids[r]||[]).forEach(function(k,i){
+          const c=BRANCH[i%BRANCH.length];
+          const walk=function(id){branchOf[id]=c;(kids[id]||[]).forEach(walk);};
+          walk(k);
+        });
+      });
+    })();
+    const adoptedPath={};
+    nodesAll.forEach(function(n){
+      if(n.s!=='adopted')return;let cur=n;
+      while(cur){adoptedPath[cur.id]=1;cur=cur.p?byId[cur.p]:null;}
+    });
+
+    // layout
+    const hOf=function(n){return BASE+((n.imgs&&n.imgs.length)?36:0);};
+    const pos={},vis=[];let cursor=0;
+    const place=function(id,depth){
+      const n=byId[id];if(!n)return 0;
+      const h=hOf(n);
+      let ks=(kids[id]||[]).filter(function(k){return !(s.hideDropped&&byId[k].s==='dropped');});
+      if(n.col)ks=[];
+      let cy;
+      if(!ks.length){cy=cursor+h/2;cursor+=h+GAP;}
+      else{const cs=ks.map(function(k){return place(k,depth+1);});cy=(cs[0]+cs[cs.length-1])/2;}
+      pos[id]={x:depth*COLW+(n.dx||0),cy:cy+(n.dy||0),h:h,depth:depth};
+      vis.push(id);
+      return cy+(n.dy||0);
+    };
+    const roots=s.focus&&byId[s.focus]?[s.focus]:nodesAll.filter(function(n){return !n.p;}).map(function(n){return n.id;});
+    roots.filter(function(r){return !(s.hideDropped&&byId[r]&&byId[r].s==='dropped');}).forEach(function(r){place(r,0);});
+
+    let mx=560,my=380;
+    vis.forEach(function(id){const p=pos[id];mx=Math.max(mx,p.x+NW+120);my=Math.max(my,p.cy+p.h/2+120);});
+    (doc&&doc.cards||[]).forEach(function(c){mx=Math.max(mx,c.x+c.w+80);my=Math.max(my,c.y+c.h+80);});
+    this._cw=mx;this._ch=my;
+    const imgOf=function(src){return src?React.createElement('img',{src:src,style:{width:'100%',height:'100%',objectFit:'cover'}}):null;};
+
+    const chipsFor=function(n){
+      const out=[];
+      if(n.d)out.push({label:'서술',fg:'#6a665e',bg:'#f0ede7'});
+      if(n.ev&&n.ev.length)out.push({label:'근거 '+n.ev.length,fg:'#2f5cbb',bg:'#eef3fd'});
+      if(n.tags&&n.tags.length)out.push({label:'#'+n.tags[0],fg:'#5a44b4',bg:'#f4f0fd'});
+      return out.slice(0,2);
+    };
+
+    const nodeVals=vis.map(function(id){
+      const n=byId[id],p=pos[id],st=ST[n.s]||ST.explore,selected=s.selNode===id;
+      const kidCount=(kids[id]||[]).length;
+      return {
+        id:id,x:Math.round(p.x),y:Math.round(p.cy-p.h/2),w:NW,h:p.h,
+        t:n.t||'제목 없는 생각',
+        titleH:compact?34:34,
+        hasSnippet:!!n.d&&!compact,snippet:n.d||'',
+        stLabel:st.label,stBg:st.bg,stFg:st.fg,accent:selected?BLUE:st.accent,
+        bg:n.s==='dropped'?'#f8f7f4':'#fff',
+        bd:selected?BLUE:st.bd,
+        shadow:selected?'0 0 0 2px #dce7fb, 0 4px 14px rgba(35,33,30,.12)':'0 1px 3px rgba(35,33,30,.08)',
+        op:n.s==='dropped'?.62:1,
+        titleFg:n.s==='dropped'?'#8a857c':'#23211e',
+        deco:n.s==='dropped'?'line-through':'none',
+        chips:chipsFor(n),
+        hasImg:!!(n.imgs&&n.imgs.length),
+        thumbs:(n.imgs||[]).slice(0,3).map(function(im){
+          return {id:im.id,noSrc:!im.src,imgEl:imgOf(im.src),
+            onClick:function(e){e.stopPropagation();self.setState({selNode:id,inspector:true});}};}),
+        hasKids:kidCount>0,
+        kidLabel:(n.col?'▸ ':'▾ ')+kidCount,
+        onDown:function(e){self.dragNode(e,id);},
+        onDbl:function(e){e.stopPropagation();self.setState({focus:id,tx:34,ty:18});},
+        onCtx:function(e){e.preventDefault();e.stopPropagation();self.setState({ctx:{kind:'node',id:id,x:Math.min(e.clientX,window.innerWidth-240),y:Math.min(e.clientY,window.innerHeight-330)}});},
+        onAdd:function(e){e.stopPropagation();self.addChild(id);},
+        onCollapse:function(e){e.stopPropagation();self.upd(id,{col:!n.col},true);}
+      };
+    });
+
+    const edges=[];
+    vis.forEach(function(id){
+      const n=byId[id];if(!n.p||!pos[n.p])return;
+      const a=pos[n.p],b=pos[id];
+      const x1=a.x+NW,y1=a.cy,x2=b.x,y2=b.cy;
+      const hot=adoptedPath[id]&&adoptedPath[n.p];
+      edges.push({id:id,d:'M'+x1+','+y1+' C'+(x1+46)+','+y1+' '+(x2-46)+','+y2+' '+x2+','+y2,
+        stroke:byId[id].s==='dropped'?'#d5d0c6':(hot?GREEN:(branchOf[id]||'#c5c0b6')),
+        w:hot?2.2:1.4,dash:byId[id].s==='dropped'?'4 4':'none'});
+    });
+    const leaders=(doc&&doc.cards||[]).filter(function(c){return c.link&&pos[c.link];}).map(function(c){
+      const p=pos[c.link];
+      return {id:c.id,d:'M'+(p.x+NW/2)+','+(p.cy+p.h/2)+' L'+(c.x+c.w/2)+','+c.y};});
+
+    const cardVals=(doc&&doc.cards||[]).map(function(c){
+      return {id:c.id,x:Math.round(c.x),y:Math.round(c.y),w:c.w,h:c.h,label:c.label,ph:c.ph||'이미지',
+        noSrc:!c.src,imgEl:imgOf(c.src),
+        onDown:function(e){self.dragCard(e,c.id);},
+        onDel:function(e){e.stopPropagation();self.patch(function(dd){dd.cards=dd.cards.filter(function(k){return k.id!==c.id;});return dd;},'카드 삭제');}};
+    });
+
+    // explorer tree
+    const openMap={};s.files.forEach(function(f){if(f.dir)openMap[f.p]=f.open;});
+    const treeRows=s.files.filter(function(f){
+      const parts=f.p.split('/');
+      for(let i=2;i<parts.length;i++){const anc=parts.slice(0,i).join('/');if(openMap[anc]===false)return false;}
+      return true;
+    }).map(function(f){
+      const name=f.p.split('/').pop(),depth=f.p.split('/').length-2;
+      const isBs=self.isBsPath(f.p),isOpenTab=s.tabs.indexOf(f.p)>=0;
+      const extName=name.indexOf('.')>0?name.split('.').pop():'';
+      return {p:f.p,name:isBs?name.replace(EXT,''):name,pad:9+depth*13,
+        isDir:!!f.dir,isFile:!f.dir,chevron:f.open?'▼':'▶',
+        badge:f.dir?'DIR':(isBs?'BS':extName.toUpperCase().slice(0,4)),
+        badgeFg:f.dir?'#8f5d17':(isBs?'#5a44b4':'#6a665e'),
+        badgeBg:f.dir?'#fbf3e6':(isBs?'#f2eefc':'#f0ede7'),
+        fg:s.active===f.p?'#23211e':(f.dir?'#4e4a43':'#5d594f'),
+        fw:s.active===f.p||isBs?600:400,
+        bg:s.sel===f.p?'#e6e2da':'transparent',
+        isOpenTab:isOpenTab,
+        onClick:function(){if(f.dir)self.setState(st=>({files:st.files.map(function(x){return x.p===f.p?Object.assign({},x,{open:!x.open}):x;}),sel:f.p}));else self.setState({sel:f.p});},
+        onDbl:function(){if(!f.dir)self.open(f.p);},
+        onCtx:function(e){e.preventDefault();self.setState({sel:f.p,mk:null,ctx:{kind:'tree',path:f.p,isDir:!!f.dir,x:Math.min(e.clientX,window.innerWidth-250),y:Math.min(e.clientY,window.innerHeight-300)}});}};
+    });
+
+    const dirOf=function(p,isDir){return isDir?p:p.split('/').slice(0,-1).join('/');};
+    let ctxItems=[],ctxHead={badge:'',head:'',headFg:'',headBg:'',x:0,y:0};
+    if(s.ctx&&s.ctx.kind==='tree'){
+      const parent=dirOf(s.ctx.path,s.ctx.isDir);
+      const isBs=self.isBsPath(s.ctx.path);
+      ctxHead={badge:s.ctx.isDir?'DIR':(isBs?'BS':'FILE'),head:s.ctx.path.split('/').pop(),
+        headFg:isBs?'#5a44b4':'#6a665e',headBg:isBs?'#f2eefc':'#f0ede7',x:s.ctx.x,y:s.ctx.y};
+      ctxItems=[
+        {key:'bs',label:'새 브레인스토밍',hint:EXT,icon:'✦',iconFg:VIOLET,fg:'#3a2f5c',fw:600,hintFg:'#5a44b4',hintBg:'#f2eefc',sep:false,
+          onClick:function(){self.startMk(parent,'bstorm');}},
+        {key:'note',label:'새 노트',hint:'.md',icon:'＋',iconFg:'#8a857c',fg:'#3a3630',fw:400,hintFg:'#8a857c',hintBg:'#f0ede7',sep:false,
+          onClick:function(){self.startMk(parent,'note');}},
+        {key:'dir',label:'새 폴더',hint:'',icon:'＋',iconFg:'#8f5d17',fg:'#3a3630',fw:400,hintFg:'',hintBg:'transparent',sep:false,
+          onClick:function(){self.startMk(parent,'folder');}}
+      ];
+      if(!s.ctx.isDir)ctxItems.push({key:'open',label:isBs?'브레인스토밍 모드로 열기':'열기',hint:'Enter',icon:'↗',iconFg:'#8a857c',fg:'#3a3630',fw:400,hintFg:'#a09a8f',hintBg:'transparent',sep:true,
+        onClick:function(){self.open(s.ctx.path);}});
+      ctxItems.push({key:'copy',label:'경로 복사',hint:'',icon:'⧉',iconFg:'#8a857c',fg:'#3a3630',fw:400,hintFg:'',hintBg:'transparent',sep:true,
+        onClick:function(){self.setState({ctx:null});self.toast('경로를 복사했습니다','D:'+s.ctx.path,'#8fa8e0');}});
+      ctxItems.push({key:'del',label:'삭제',hint:'Del',icon:'✕',iconFg:'#c07a6e',fg:'#a55a4c',fw:400,hintFg:'#a09a8f',hintBg:'transparent',sep:false,
+        onClick:function(){const p=s.ctx.path;self.setState(st=>({files:st.files.filter(function(f){return f.p!==p&&f.p.indexOf(p+'/')!==0;}),tabs:st.tabs.filter(function(t){return t!==p;}),active:st.active===p?null:st.active,ctx:null}));self.toast('삭제했습니다',p,'#c98b7a');}});
+    }else if(s.ctx&&s.ctx.kind==='node'){
+      const n=byId[s.ctx.id]||{};
+      ctxHead={badge:(ST[n.s]||ST.explore).label,head:n.t||'제목 없는 생각',headFg:(ST[n.s]||ST.explore).fg,headBg:(ST[n.s]||ST.explore).bg,x:s.ctx.x,y:s.ctx.y};
+      const nid=s.ctx.id;
+      ctxItems=[
+        {key:'child',label:'하위 생각 추가',hint:'Tab',icon:'＋',iconFg:BLUE,fg:'#3a3630',fw:600,hintFg:'#a09a8f',hintBg:'transparent',sep:false,
+          onClick:function(){self.setState({ctx:null});self.addChild(nid);}},
+        {key:'sib',label:'형제 생각 추가',hint:'Enter',icon:'＝',iconFg:'#8a857c',fg:'#3a3630',fw:400,hintFg:'#a09a8f',hintBg:'transparent',sep:false,
+          onClick:function(){self.setState({ctx:null});self.addSibling(nid);}},
+        {key:'adopt',label:'채택으로 확정',hint:'⌘↵',icon:'✓',iconFg:GREEN,fg:'#256b48',fw:600,hintFg:'#a09a8f',hintBg:'transparent',sep:true,
+          onClick:function(){self.setState({ctx:null});self.setStatus(nid,'adopted');}},
+        {key:'hold',label:'보류로 미루기',hint:'',icon:'⏸',iconFg:AMBER,fg:'#8f5d17',fw:400,hintFg:'',hintBg:'transparent',sep:false,
+          onClick:function(){self.setState({ctx:null});self.setStatus(nid,'hold');}},
+        {key:'drop',label:'폐기하고 이유 남기기',hint:'Del',icon:'⌫',iconFg:'#a09a8f',fg:'#6a665e',fw:400,hintFg:'#a09a8f',hintBg:'transparent',sep:false,
+          onClick:function(){self.setState({ctx:null,selNode:nid,inspector:true});self.setStatus(nid,'dropped');}},
+        {key:'img',label:'그림 · 다이어그램 첨부',hint:'⌘V',icon:'▣',iconFg:'#8a857c',fg:'#3a3630',fw:400,hintFg:'#a09a8f',hintBg:'transparent',sep:true,
+          onClick:function(){self.setState({ctx:null});self.attach(nid);}},
+        {key:'focus',label:'이 가지만 집중',hint:'F',icon:'◎',iconFg:VIOLET,fg:'#3a3630',fw:400,hintFg:'#a09a8f',hintBg:'transparent',sep:false,
+          onClick:function(){self.setState({ctx:null,focus:nid,tx:34,ty:18});}},
+        {key:'dup',label:'복제',hint:'',icon:'⧉',iconFg:'#8a857c',fg:'#3a3630',fw:400,hintFg:'',hintBg:'transparent',sep:false,
+          onClick:function(){self.dup(nid);}},
+        {key:'del',label:'가지 전체 삭제',hint:'⇧Del',icon:'✕',iconFg:'#c07a6e',fg:'#a55a4c',fw:400,hintFg:'#a09a8f',hintBg:'transparent',sep:true,
+          onClick:function(){self.del(nid);}}
+      ];
+    }
+    ctxItems=ctxItems.map(function(i){return Object.assign({},i,{sepBd:i.sep?'#f0ede7':'transparent',mt:i.sep?3:0,pt:i.sep?9:6});});
+
+    // outline / decision
+    const outline=[];
+    (function(){
+      const walk=function(id,depth){
+        const n=byId[id];if(!n)return;
+        if(s.hideDropped&&n.s==='dropped')return;
+        const st=ST[n.s]||ST.explore;
+        outline.push({id:id,pad:9+depth*22,t:n.t||'제목 없는 생각',d:n.d,hasD:!!n.d,
+          reason:n.reason,hasReason:n.s==='dropped'&&!!n.reason,
+          dot:st.dot,stLabel:st.label,stBg:st.bg,stFg:st.fg,chips:chipsFor(n),
+          fg:n.s==='dropped'?'#8a857c':'#23211e',fw:depth===0?700:(n.s==='adopted'?600:500),
+          deco:n.s==='dropped'?'line-through':'none',
+          bg:s.selNode===id?'#f4f8ff':'#fff',bd:s.selNode===id?'#cddcf8':'#f0ede7',
+          onClick:function(){self.setState({selNode:id,inspector:true});},
+          onAdd:function(e){e.stopPropagation();self.addChild(id);}});
+        (kids[id]||[]).forEach(function(k){walk(k,depth+1);});
+      };
+      nodesAll.filter(function(n){return !n.p;}).forEach(function(n){walk(n.id,0);});
+    })();
+
+    const pathOf=function(n){
+      const out=[];let cur=n.p?byId[n.p]:null;
+      while(cur){out.unshift(cur.t||'제목 없음');cur=cur.p?byId[cur.p]:null;}
+      return out.length?out.join('  ›  '):'루트';
+    };
+    const mkGroup=function(key,label){
+      const items=nodesAll.filter(function(n){return n.s===key;}).map(function(n){
+        const st=ST[key];
+        return {id:n.id,t:n.t||'제목 없는 생각',path:pathOf(n),d:n.d,hasD:!!n.d,
+          reason:n.reason,hasReason:key==='dropped'&&!!n.reason,
+          bd:st.bd,accent:st.accent,fg:key==='dropped'?'#8a857c':'#23211e',
+          deco:key==='dropped'?'line-through':'none',op:key==='dropped'?.8:1,
+          ev:(n.ev||[]).map(function(e){return {k:e.k,t:e.t,bg:(EVK[e.k]||EVK['근거']).bg,fg:(EVK[e.k]||EVK['근거']).fg};}),
+          onClick:function(){self.setState({selNode:n.id,view:'canvas',inspector:true});}};
+      });
+      return {key:key,label:label,dot:ST[key].dot,n:items.length,items:items,empty:!items.length};
+    };
+    const groups=[mkGroup('adopted','채택한 결정'),mkGroup('strong','유력한 후보'),mkGroup('hold','보류'),mkGroup('dropped','폐기 · 아이디어 묘지')];
+
+    // inspector
+    const sn=s.selNode?byId[s.selNode]:null;
+    const insSt=sn?(ST[sn.s]||ST.explore):ST.explore;
+    const ins=sn?{
+      has:true,none:false,idLabel:sn.id,path:pathOf(sn),t:sn.t,d:sn.d,
+      isDropped:sn.s==='dropped',reason:sn.reason||'',
+      evCount:(sn.ev||[]).length,
+      states:ORDER.map(function(k){
+        const st=ST[k],on=sn.s===k;
+        return {key:k,label:st.label,dot:st.dot,bg:on?st.bg:'#fff',fg:on?st.fg:'#8a857c',bd:on?st.bd:'#e4e0d8',fw:on?600:400,
+          onClick:function(){self.setStatus(sn.id,k);}};}),
+      ev:(sn.ev||[]).map(function(e,i){
+        const c=EVK[e.k]||EVK['근거'];
+        return {k:e.k,t:e.t,bg:c.bg,fg:c.fg,
+          onDel:function(){self.patch(function(dd){dd.nodes=dd.nodes.map(function(n){return n.id===sn.id?Object.assign({},n,{ev:n.ev.filter(function(x,j){return j!==i;})}):n;});return dd;},'근거 삭제');}};}),
+      evK:s.evK,evT:s.evT,evKBg:(EVK[s.evK]||EVK['근거']).bg,evKFg:(EVK[s.evK]||EVK['근거']).fg,evKBd:(EVK[s.evK]||EVK['근거']).bd,
+      imgs:(sn.imgs||[]).map(function(im,i){
+        return {label:im.label,noSrc:!im.src,imgEl:imgOf(im.src),
+          onDel:function(){self.patch(function(dd){dd.nodes=dd.nodes.map(function(n){return n.id===sn.id?Object.assign({},n,{imgs:n.imgs.filter(function(x,j){return j!==i;})}):n;});return dd;},'첨부 삭제');}};}),
+      tags:(sn.tags||[]).map(function(t,i){
+        return {t:t,onDel:function(){self.patch(function(dd){dd.nodes=dd.nodes.map(function(n){return n.id===sn.id?Object.assign({},n,{tags:n.tags.filter(function(x,j){return j!==i;})}):n;});return dd;},'태그 삭제');}};}),
+      tagT:s.tagT,
+      actions:[
+        {label:'하위 생각',key:'Tab',bd:'#cddcf8',bg:'#eef3fd',fg:'#2f5cbb',fw:600,onClick:function(){self.addChild(sn.id);}},
+        {label:'형제 생각',key:'↵',bd:'#ddd8cf',bg:'#fff',fg:'#4e4a43',fw:400,onClick:function(){self.addSibling(sn.id);}},
+        {label:sn.s==='adopted'?'채택 해제':'채택 확정',key:'⌘↵',bd:'#cfe6d9',bg:'#f1f7f3',fg:'#256b48',fw:600,onClick:function(){self.setStatus(sn.id,sn.s==='adopted'?'explore':'adopted');}},
+        {label:sn.s==='dropped'?'되살리기':'폐기',key:'Del',bd:'#e4e0d8',bg:'#f6f5f2',fg:'#6a665e',fw:400,onClick:function(){self.setStatus(sn.id,sn.s==='dropped'?'explore':'dropped');}},
+        {label:'이 가지만 집중',key:'F',bd:'#e4dcf8',bg:'#f6f3fd',fg:'#5a44b4',fw:400,onClick:function(){self.setState({focus:sn.id,tx:34,ty:18,view:'canvas'});}},
+        {label:'가지 삭제',key:'⇧Del',bd:'#eddad4',bg:'#fdf6f4',fg:'#a55a4c',fw:400,onClick:function(){self.del(sn.id);}}
+      ],
+      meta:[
+        {k:'깊이',v:(pos[sn.id]?pos[sn.id].depth:0)+1+'단계'},
+        {k:'하위 생각',v:(kids[sn.id]||[]).length+'개'},
+        {k:'첨부',v:(sn.imgs||[]).length+'개'},
+        {k:'상태',v:insSt.label}
+      ]
+    }:{has:false,none:true,idLabel:'—',path:'',t:'',d:'',isDropped:false,reason:'',evCount:0,states:[],ev:[],evK:s.evK,evT:'',evKBg:'',evKFg:'',evKBd:'',imgs:[],tags:[],tagT:'',actions:[],meta:[]};
+
+    const cnt=function(k){return nodesAll.filter(function(n){return n.s===k;}).length;};
+    const isBs=this.isBsPath(s.active);
+
+    return {
+      showChrome:this.props.showChrome!==false,
+      chromeTitle:(doc?doc.title+EXT:'—')+'  ·  브레인스토밍 모드',
+      menus:['파일','편집','생각','보기','도움말'],
+      extLabel:EXT,
+      bsCount:s.files.filter(function(f){return self.isBsPath(f.p);}).length,
+      treeRows:treeRows,
+      mkOpen:!!s.mk,
+      mk:s.mk?{name:s.mk.name,pad:22,
+        badge:s.mk.kind==='folder'?'DIR':(s.mk.kind==='bstorm'?'BS':'MD'),
+        badgeFg:s.mk.kind==='bstorm'?'#5a44b4':(s.mk.kind==='folder'?'#8f5d17':'#2f5cbb'),
+        badgeBg:s.mk.kind==='bstorm'?'#f2eefc':(s.mk.kind==='folder'?'#fbf3e6':'#eef3fd'),
+        placeholder:s.mk.kind==='bstorm'?'브레인스토밍 이름':(s.mk.kind==='folder'?'새 폴더 이름':'노트 이름'),
+        suffix:s.mk.kind==='bstorm'?EXT:(s.mk.kind==='note'?'.md':''),
+        parentLabel:s.mk.parent}:{name:'',pad:22,badge:'',badgeFg:'',badgeBg:'',placeholder:'',suffix:'',parentLabel:''},
+      mkRef:function(el){if(el&&!self._mkFocused){self._mkFocused=true;el.focus();el.select&&el.select();}},
+      onMkName:function(e){const v=e.target.value;self.setState(st=>({mk:Object.assign({},st.mk,{name:v})}));},
+      onMkKey:function(e){if(e.key==='Enter')self.commitMk();if(e.key==='Escape')self.setState({mk:null});},
+      onNewBsTop:function(){self.startMk('/Vault/01_아이디어','bstorm');},
+      tabs:s.tabs.map(function(p){
+        const on=s.active===p,bs=self.isBsPath(p);
+        return {p:p,name:bs?p.split('/').pop().replace(EXT,''):p.split('/').pop(),
+          mode:bs?'BS':'MD',modeFg:bs?'#5a44b4':'#6a665e',modeBg:bs?'#f2eefc':'#f0ede7',
+          bg:on?'#fff':'#f2efe9',fg:on?'#23211e':'#8a857c',line:on?'inset 0 2px 0 '+(bs?VIOLET:BLUE):'none',
+          onClick:function(){self.open(p);},
+          onClose:function(e){e.stopPropagation();self.closeTab(p);}};}),
+      isBs:isBs,isNote:!!s.active&&!isBs,isNoTab:!s.active,
+      noteName:s.active?s.active.split('/').pop():'',
+      docTitle:doc?doc.title:'',
+      stats:[{label:'전체',n:nodesAll.length,dot:'#c5c0b6'},{label:'채택',n:cnt('adopted'),dot:GREEN},{label:'유력',n:cnt('strong'),dot:VIOLET},{label:'보류',n:cnt('hold'),dot:AMBER},{label:'폐기',n:cnt('dropped'),dot:'#b5afa2'}],
+      viewTabs:[['canvas','캔버스'],['outline','개요'],['decision','결정 로그']].map(function(v){
+        const on=s.view===v[0];
+        return {label:v[1],bg:on?'#eef3fd':'#fff',fg:on?'#2f5cbb':'#6a665e',fw:on?600:400,
+          onClick:function(){self.setState({view:v[0]});}};}),
+      viewCanvas:s.view==='canvas'&&nodesAll.length>0,
+      viewOutline:s.view==='outline'&&nodesAll.length>0,
+      viewDecision:s.view==='decision'&&nodesAll.length>0,
+      isEmptyDoc:isBs&&nodesAll.length===0,
+      newT:s.newT,
+      newRef:function(el){if(el&&self._focusNew){self._focusNew=false;el.focus();}},
+      onNewT:function(e){self.setState({newT:e.target.value});},
+      onNewKey:function(e){if(e.key==='Enter')self.seedTemplate('blank');},
+      onCreateRoot:function(){self.seedTemplate('blank');},
+      templates:Object.keys(TPL).map(function(k){return {label:TPL[k].label,desc:TPL[k].desc,onClick:function(){self.seedTemplate(k);}};}),
+      dropBtn:{label:s.hideDropped?'폐기 숨김':'폐기 표시',bd:s.hideDropped?'#e4e0d8':'#ddd8cf',bg:s.hideDropped?'#f2efe9':'#fff',fg:s.hideDropped?'#8a857c':'#4e4a43'},
+      onToggleDropped:function(){self.setState(st=>({hideDropped:!st.hideDropped}));},
+      onTidy:function(){self.patch(function(dd){dd.nodes=dd.nodes.map(function(n){return Object.assign({},n,{dx:0,dy:0});});return dd;},'자동 정렬');self.setState({tx:34,ty:18});self.toast('가지를 자동 정렬했습니다','수동으로 옮긴 위치를 초기화','#8fa8e0');},
+      onExport:function(){self.exportSummary();},
+      insBtn:{bd:s.inspector?'#cddcf8':'#ddd8cf',bg:s.inspector?'#eef3fd':'#fff',fg:s.inspector?'#2f5cbb':'#6a665e'},
+      onToggleInspector:function(){self.setState(st=>({inspector:!st.inspector}));},
+      inspectorOn:s.inspector,
+      gridImage:this.props.showGrid===false?'none':'radial-gradient(#e2ded6 1px,transparent 1px)',
+      canvasRef:function(el){self._canvas=el;},
+      tx:s.tx,ty:s.ty,zoom:s.zoom,cw:Math.round(mx),ch:Math.round(my),
+      nodes:nodeVals,edges:edges,leaders:leaders,cards:cardVals,
+      onPanStart:function(e){self.panStart(e);},
+      onCanvasCtx:function(e){e.preventDefault();},
+      focusOn:!!(s.focus&&byId[s.focus]),focusTitle:s.focus&&byId[s.focus]?(byId[s.focus].t||'제목 없는 생각'):'',
+      onUnfocus:function(){self.setState({focus:null,tx:34,ty:18});},
+      onZoomIn:function(){self._userZoom=true;self.setState(st=>({zoom:Math.min(1.6,Math.round((st.zoom+.1)*100)/100)}));},
+      onZoomOut:function(){self._userZoom=true;self.setState(st=>({zoom:Math.max(.4,Math.round((st.zoom-.1)*100)/100)}));},
+      onFit:function(){self._userZoom=false;self.fit();},
+      zoomLabel:Math.round(s.zoom*100)+'%',
+      legend:[{label:'채택 경로',dot:GREEN},{label:'유력',dot:VIOLET},{label:'보류',dot:AMBER},{label:'탐색중',dot:'#c5c0b6'},{label:'폐기',dot:'#e0dcd4'}],
+      outline:outline,groups:groups,
+      ins:ins,
+      onInsTitle:function(e){const v=e.target.value;if(sn)self.upd(sn.id,{t:v},true);},
+      onInsDetail:function(e){const v=e.target.value;if(sn)self.upd(sn.id,{d:v},true);},
+      onInsReason:function(e){const v=e.target.value;if(sn)self.upd(sn.id,{reason:v},true);},
+      onCycleEvK:function(){self.setState(st=>({evK:EVKS[(EVKS.indexOf(st.evK)+1)%EVKS.length]}));},
+      onEvT:function(e){self.setState({evT:e.target.value});},
+      onEvKey:function(e){
+        if(e.key!=='Enter'||!sn)return;
+        const t=(s.evT||'').trim();if(!t)return;
+        const k=s.evK;
+        self.patch(function(dd){dd.nodes=dd.nodes.map(function(n){return n.id===sn.id?Object.assign({},n,{ev:(n.ev||[]).concat([{k:k,t:t}])}):n;});return dd;},'근거 추가');
+        self.setState({evT:''});
+      },
+      onTagT:function(e){self.setState({tagT:e.target.value});},
+      onTagKey:function(e){
+        if(e.key!=='Enter'||!sn)return;
+        const t=(s.tagT||'').trim().replace(/^#/,'');if(!t)return;
+        self.patch(function(dd){dd.nodes=dd.nodes.map(function(n){return n.id===sn.id?Object.assign({},n,{tags:(n.tags||[]).concat([t])}):n;});return dd;},'태그 추가');
+        self.setState({tagT:''});
+      },
+      onAttach:function(){if(sn)self.attach(sn.id);},
+      ctxOpen:!!s.ctx,ctx:ctxHead,ctxItems:ctxItems,
+      onCloseCtx:function(e){e.preventDefault();self.setState({ctx:null});},
+      barCount:'생각 '+nodesAll.length+' · 채택 '+cnt('adopted')+' · 폐기 '+cnt('dropped')+' · 첨부 '+nodesAll.reduce(function(a,n){return a+((n.imgs||[]).length);},0),
+      savedLabel:s.saved,
+      toastOn:!!s.toast,toast:s.toast||{msg:'',sub:'',color:''}
+    };
+  }
+}
+</script>
+</body>
+</html>
