@@ -8,6 +8,8 @@ interface MenuItem {
   label: string;
   hint?: string;
   run: () => void;
+  /** 지금 할 수 없는 항목. 흐리게 그리고 눌러도 아무 일도 하지 않는다. */
+  off?: boolean;
 }
 
 /** The design's menu strip, wired to the actions it names. */
@@ -15,14 +17,31 @@ export default function MenuBar() {
   const [open, setOpen] = useState<string | null>(null);
   const s = useStore();
 
+  /**
+   * 고른 업무가 없다 — 완료로 창을 닫은 직후(`setStatus`)이거나 Vault 가 비었을 때다.
+   * 그때 업무 하나를 집어야 하는 항목들은 폴더 경로가 빈 문자열이라, 그대로 누르면
+   * 백엔드가 거절하고 실패 토스트만 뜬다. 눌리지 않는 것으로 먼저 보여 준다.
+   */
+  const noTask = !s.activeFolder;
+
   const menus: Record<string, MenuItem[]> = {
     파일: [
       { label: "새 업무…", hint: "Ctrl+N", run: () => s.set({ newOpen: true }) },
-      { label: "새 파일", hint: "Ctrl+Alt+N", run: () => s.set({ mk: { kind: "file", parent: "", name: "" } }) },
-      { label: "새 폴더", run: () => s.set({ mk: { kind: "folder", parent: "", name: "" } }) },
-      { label: "저장", hint: "Ctrl+S", run: () => void s.saveAll() },
+      {
+        label: "새 파일",
+        hint: "Ctrl+Alt+N",
+        off: noTask,
+        run: () => s.set({ mk: { kind: "file", parent: "", name: "" } }),
+      },
+      {
+        label: "새 폴더",
+        off: noTask,
+        run: () => s.set({ mk: { kind: "folder", parent: "", name: "" } }),
+      },
+      { label: "저장", hint: "Ctrl+S", off: noTask, run: () => void s.saveAll() },
       {
         label: "업무 폴더 열기",
+        off: noTask,
         run: () => {
           if (s.activeFolder) void api.revealPath(s.activeFolder);
         },
@@ -31,6 +50,7 @@ export default function MenuBar() {
     편집: [
       {
         label: "경로 복사",
+        off: !s.ui.sel,
         run: () => {
           if (!s.ui.sel) return;
           void navigator.clipboard.writeText(`${s.activeFolder}/${s.ui.sel}`);
@@ -44,14 +64,17 @@ export default function MenuBar() {
       { label: "메모장 접기/펼치기", run: () => s.set({ noteMin: !s.noteMin }) },
     ],
     업무: [
-      { label: "진행 중으로", run: () => void s.setStatus("in-progress") },
-      { label: "보류", run: () => void s.setStatus("on-hold") },
-      { label: "완료", run: () => void s.setStatus("completed") },
-      { label: "지금 보관함으로", run: () => void s.archiveNow(s.activeFolder) },
+      { label: "진행 중으로", off: noTask, run: () => void s.setStatus("in-progress") },
+      { label: "보류", off: noTask, run: () => void s.setStatus("on-hold") },
+      // 완료는 그 자리에서 보관하고 창을 닫는다(`setStatus`).
+      { label: "완료 (보관함으로)", off: noTask, run: () => void s.setStatus("completed") },
+      { label: "지금 보관함으로", off: noTask, run: () => void s.archiveNow(s.activeFolder) },
       // 한 번 끌어 옮기면 그 순서가 계속 이긴다 — 돌아가는 길이 있어야 한다.
+      // 업무 하나가 아니라 목록 전체를 다루므로 고른 업무가 없어도 쓸 수 있다.
       { label: "정렬 초기화 (최근 수정순)", run: () => void s.clearTaskOrder() },
       {
         label: "Obsidian에서 열기",
+        off: noTask,
         run: () => void s.openTaskInObsidian(s.activeFolder),
       },
     ],
@@ -122,19 +145,21 @@ export default function MenuBar() {
               {menus[m].map((item) => (
                 <Box
                   key={item.label}
+                  title={item.off ? "먼저 왼쪽 업무 리스트에서 업무를 선택하세요" : undefined}
                   style={{
                     display: "flex",
                     alignItems: "center",
                     gap: 8,
                     fontSize: 12.5,
-                    color: "#3a3630",
+                    color: item.off ? "#b5afa2" : "#3a3630",
                     padding: "5px 8px",
                     borderRadius: 4,
-                    cursor: "pointer",
+                    cursor: item.off ? "default" : "pointer",
                     whiteSpace: "nowrap",
                   }}
-                  hover={{ background: "#f2efe9" }}
+                  hover={item.off ? undefined : { background: "#f2efe9" }}
                   onClick={() => {
+                    if (item.off) return;
                     setOpen(null);
                     item.run();
                   }}

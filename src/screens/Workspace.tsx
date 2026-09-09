@@ -9,7 +9,8 @@ import { isArchived, useStore } from "../store/useStore";
 const STATUS_OPTIONS: [string, string, string][] = [
   ["in-progress", "진행 중", "작업 재개"],
   ["on-hold", "보류", "스냅샷 저장"],
-  ["completed", "완료", "이력 확정"],
+  // 완료는 그 자리에서 보관까지 간다(`setStatus`) — 누르기 전에 그 사실이 보여야 한다.
+  ["completed", "완료", "보관함으로"],
 ];
 
 export default function Workspace() {
@@ -44,6 +45,9 @@ export default function Workspace() {
   };
 
   if (!task) {
+    // 업무가 하나도 없는 것과, 있는데 아무것도 고르지 않은 것은 다른 상태다.
+    // 완료로 창을 닫은 직후가 후자이고, 그때 "업무가 없습니다"는 사실이 아니다.
+    const live = s.tasks.filter((t) => !isArchived(t, s.settings.archDays));
     return (
       <div
         style={{
@@ -56,11 +60,23 @@ export default function Workspace() {
           background: "#fdfcfa",
         }}
       >
-        <div style={{ fontSize: 14, color: "#8a857c" }}>업무가 없습니다</div>
+        <div style={{ fontSize: 14, color: "#8a857c" }}>
+          {live.length ? "선택된 업무가 없습니다" : "업무가 없습니다"}
+        </div>
         <div style={{ fontSize: 12, color: "#a09a8f", textAlign: "center", lineHeight: 1.8 }}>
-          왼쪽 아래 [+ 새 업무 추가]로 첫 업무를 만들어 보세요.
-          <br />
-          업무마다 전용 폴더가 Vault 안에 생성됩니다.
+          {live.length ? (
+            <>
+              왼쪽 업무 리스트에서 이어서 할 업무를 선택하세요.
+              <br />
+              완료한 업무는 보관함에 있고, [여기서 재개]로 다시 열 수 있습니다.
+            </>
+          ) : (
+            <>
+              왼쪽 아래 [+ 새 업무 추가]로 첫 업무를 만들어 보세요.
+              <br />
+              업무마다 전용 폴더가 Vault 안에 생성됩니다.
+            </>
+          )}
         </div>
       </div>
     );

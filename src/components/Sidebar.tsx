@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Box, Input } from "../lib/ui";
 import { BLUE, normalizeStatus, statusOf } from "../lib/design";
 import { useDropGuard, useLongPress } from "../lib/longPress";
-import { shortStamp } from "../lib/format";
+import { shortStamp, today } from "../lib/format";
 import { isArchived, useStore, type Screen } from "../store/useStore";
 
 const FILTERS: [string, string][] = [
@@ -18,6 +18,205 @@ const NAV: [Screen, string][] = [
   ["archive", "보관함"],
   ["settings", "설정"],
 ];
+
+/**
+ * 오늘의 한일 — 오늘 손댄 업무의 제목만 모아 둔 하루짜리 목록.
+ *
+ * 업무 리스트 위에 겹치지 않는다: 저쪽은 "지금 하는 일"이고 이쪽은 "오늘 한 일"이라
+ * 필터도 정렬도 다르다. 특히 완료한 업무는 그 즉시 업무 리스트에서 빠지므로
+ * (`setStatus`), 하루를 돌아볼 자리는 저 목록이 아니라 여기다.
+ *
+ * 항목은 눌러 그 업무로 갈 수 있고, 오른쪽 ✕ 로 지운다. 지운 뒤 그 업무를 다시
+ * 건드리면 다시 올라온다 — 이 목록은 기록이 아니라 오늘의 메모다.
+ */
+function TodayDock() {
+  const s = useStore();
+  const { todayLog, tasks, settings } = s;
+  // 날이 바뀌었는데 앱이 계속 떠 있었을 수도 있다 — 그리는 쪽에서 한 번 더 본다.
+  const items = todayLog.date === today() ? todayLog.items : [];
+
+  /**
+   * 자정에 목록을 끊는다.
+   *
+   * 위의 걸러 내기만으로는 부족하다 — 앱을 켜 둔 채 밤을 넘기면 다시 그릴 일이 없어서
+   * 어제 목록이 화면에 그대로 남는다. 이 앱은 하루 종일 켜 두는 종류라 드문 경우가
+   * 아니다. `tick` 은 타이머를 다시 걸기 위한 것이고(부른 뒤 날짜가 이미 맞아도 다음
+   * 자정을 다시 예약해야 한다), `getState` 로 부르므로 스토어가 바뀔 때마다 타이머가
+   * 새로 걸리지는 않는다.
+   */
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const now = new Date();
+    // 자정 5초 뒤 — 경계에서 `today()` 가 아직 어제로 읽히는 일을 피한다.
+    const next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 5);
+    const timer = window.setTimeout(
+      () => {
+        useStore.getState().rollToday();
+        setTick((n) => n + 1);
+      },
+      Math.max(1000, next.getTime() - now.getTime()),
+    );
+    return () => window.clearTimeout(timer);
+  }, [tick]);
+
+  return (
+    <div
+      style={{
+        border: "1px solid #e6e2da",
+        borderRadius: 5,
+        background: "#faf9f6",
+        overflow: "hidden",
+        flex: "0 0 auto",
+      }}
+    >
+      <Box
+        onClick={() => s.set({ todayMin: !s.todayMin })}
+        title={s.todayMin ? "오늘의 한일 펼치기" : "오늘의 한일 접기"}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          height: 23,
+          padding: "0 6px 0 8px",
+          cursor: "pointer",
+        }}
+        hover={{ background: "#f2efe9" }}
+      >
+        <span
+          style={{
+            fontSize: 11,
+            fontWeight: 600,
+            letterSpacing: ".4px",
+            color: "#6a665e",
+            flex: 1,
+            minWidth: 0,
+          }}
+        >
+          오늘의 한일
+        </span>
+        <span
+          style={{
+            fontFamily: "'Roboto Mono',monospace",
+            fontSize: 10.5,
+            color: items.length ? "#6a665e" : "#b5afa2",
+            flex: "0 0 auto",
+          }}
+        >
+          {items.length}건
+        </span>
+        <span style={{ fontSize: 9, color: "#a09a8f", flex: "0 0 auto" }}>
+          {s.todayMin ? "▲" : "▼"}
+        </span>
+      </Box>
+
+      {!s.todayMin && !items.length && (
+        <div
+          style={{
+            padding: "5px 8px 7px 8px",
+            fontSize: 10.5,
+            color: "#a09a8f",
+            lineHeight: 1.5,
+            borderTop: "1px solid #efece5",
+          }}
+        >
+          업무를 고치면 여기에 쌓이고, 날이 바뀌면 비워집니다
+        </div>
+      )}
+
+      {!s.todayMin && items.length > 0 && (
+        <div style={{ maxHeight: 116, overflowY: "auto", borderTop: "1px solid #efece5" }}>
+          {items.map((it) => {
+            const task = tasks.find((t) => t.folder === it.folder);
+            const archived = !!task && isArchived(task, settings.archDays);
+            return (
+              <Box
+                key={it.folder}
+                onClick={() => {
+                  // 사라진 업무(Vault 밖에서 지웠다)는 열 곳이 없다. 제목은 남겨 둔다 —
+                  // 오늘 그 일을 한 것은 사실이다.
+                  if (!task) return;
+                  if (archived) void s.peekArchived(task.folder);
+                  else void s.selectTask(task.folder);
+                }}
+                title={task ? it.folder : `${it.folder} · 지금은 없는 업무입니다`}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "3px 4px 3px 8px",
+                  cursor: task ? "pointer" : "default",
+                }}
+                hover={task ? { background: "#f2efe9" } : undefined}
+              >
+                <span
+                  style={{
+                    fontSize: 11.5,
+                    lineHeight: "16px",
+                    color: task ? "#3a3630" : "#a09a8f",
+                    flex: "1 1 auto",
+                    minWidth: 0,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    textDecoration: task ? "none" : "line-through",
+                  }}
+                >
+                  {it.title}
+                </span>
+                {archived && (
+                  <span
+                    style={{
+                      fontSize: 9.5,
+                      color: "#8a857c",
+                      background: "#ece8e0",
+                      borderRadius: 3,
+                      padding: "0 3px",
+                      lineHeight: "13px",
+                      flex: "0 0 auto",
+                    }}
+                  >
+                    보관
+                  </span>
+                )}
+                <span
+                  style={{
+                    fontFamily: "'Roboto Mono',monospace",
+                    fontSize: 10,
+                    color: "#b5afa2",
+                    flex: "0 0 auto",
+                  }}
+                >
+                  {it.at}
+                </span>
+                <Box
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    s.dropToday(it.folder);
+                  }}
+                  title="오늘의 한일에서 제거"
+                  style={{
+                    flex: "0 0 15px",
+                    width: 15,
+                    height: 15,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    borderRadius: 3,
+                    fontSize: 9.5,
+                    color: "#c5c0b6",
+                  }}
+                  hover={{ background: "#e0dcd4", color: "#4e4a43" }}
+                >
+                  ✕
+                </Box>
+              </Box>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function Sidebar() {
   const s = useStore();
@@ -461,9 +660,24 @@ export default function Sidebar() {
               lineHeight: 1.6,
             }}
           >
-            조건에 맞는 업무가 없습니다.
-            <br />
-            보관함까지 찾으려면 아래 보관함을 열어보세요.
+            {/*
+              완료 필터는 이제 거의 늘 비어 있다 — 앱에서 완료한 업무는 그 자리에서
+              보관되기 때문이다(`setStatus`). 빈 목록만 보여 주면 막다른 길이라,
+              그 업무들이 어디로 갔는지 여기서 말해 준다.
+            */}
+            {filter === "completed" ? (
+              <>
+                완료한 업무는 그 즉시 보관함으로 갑니다.
+                <br />
+                아래 [보관함] 에서 볼 수 있고, [여기서 재개] 로 다시 엽니다.
+              </>
+            ) : (
+              <>
+                조건에 맞는 업무가 없습니다.
+                <br />
+                보관함까지 찾으려면 아래 보관함을 열어보세요.
+              </>
+            )}
           </div>
         )}
 
@@ -575,6 +789,7 @@ export default function Sidebar() {
           gap: 6,
         }}
       >
+        <TodayDock />
         <Box
           onClick={() =>
             s.set({

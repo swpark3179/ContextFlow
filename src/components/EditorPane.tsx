@@ -7,6 +7,7 @@ import { cutLine } from "../lib/editing";
 import { basename, joinPath } from "../lib/format";
 import { useStore, viewerFor, type TabMode } from "../store/useStore";
 import BrainstormPane, { BrainstormViewTabs } from "./BrainstormPane";
+import MarkdownView from "./MarkdownView";
 
 const MODE_BADGE: Record<TabMode, { label: string; fg: string; bg: string; bar: string }> = {
   md: { label: "MD", fg: "#5a44b4", bg: "#f2eefc", bar: "#6a54c6" },
@@ -375,119 +376,19 @@ export default function EditorPane() {
         <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", background: "#fff" }}>
           <PaneHeader
             label="마크다운 뷰어"
-            hint="읽기 전용 · 위키링크 활성"
+            hint="체크박스 클릭 · 위키링크 활성"
             action="텍스트로 편집"
             onAction={() => void s.setTabMode(tab.path, "md", "text")}
           />
-          <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "14px 20px 24px 20px" }}>
-            {blocks.map((b) => {
-              if (b.isH2)
-                return (
-                  <div
-                    key={b.key}
-                    style={{
-                      fontSize: 16,
-                      fontWeight: 600,
-                      letterSpacing: "-.2px",
-                      color: "#23211e",
-                      margin: "16px 0 6px 0",
-                      paddingBottom: 4,
-                      borderBottom: "1px solid #f0ede7",
-                    }}
-                  >
-                    {b.text}
-                  </div>
-                );
-              if (b.isH3)
-                return (
-                  <div
-                    key={b.key}
-                    style={{ fontSize: 13.5, fontWeight: 600, color: "#3a3630", margin: "12px 0 4px 0" }}
-                  >
-                    {b.text}
-                  </div>
-                );
-              if (b.isHr)
-                return <div key={b.key} style={{ height: 1, background: "#e6e2da", margin: "12px 0" }} />;
-              return (
-                <div
-                  key={b.key}
-                  style={{ display: "flex", gap: 7, marginTop: 3, paddingLeft: b.indent }}
-                >
-                  {b.hasMark && (
-                    <span
-                      style={{ flex: "0 0 auto", fontSize: 12.5, lineHeight: 1.8, color: b.markFg }}
-                    >
-                      {b.mark}
-                    </span>
-                  )}
-                  <div
-                    style={{
-                      flex: 1,
-                      minWidth: 0,
-                      fontSize: 13.5,
-                      lineHeight: 1.8,
-                      color: b.fg,
-                    }}
-                  >
-                    {b.segs.map((g) => {
-                      if (g.isB)
-                        return (
-                          <span key={g.key} style={{ fontWeight: 600, color: "#23211e" }}>
-                            {g.text}
-                          </span>
-                        );
-                      if (g.isStrike)
-                        // 그어 지운 글은 이미 지나간 이야기다. 완료된 체크 항목과
-                        // 같은 회색으로 낮춰 본문의 시선을 뺏지 않게 둔다.
-                        return (
-                          <span
-                            key={g.key}
-                            style={{ textDecoration: "line-through", color: "#8a857c" }}
-                          >
-                            {g.text}
-                          </span>
-                        );
-                      if (g.isCode)
-                        return (
-                          <span
-                            key={g.key}
-                            style={{
-                              fontFamily: "'Roboto Mono',monospace",
-                              fontSize: 12,
-                              background: "#f4f2ed",
-                              border: "1px solid #e6e2da",
-                              borderRadius: 3,
-                              padding: "1px 4px",
-                            }}
-                          >
-                            {g.text}
-                          </span>
-                        );
-                      if (g.isLink)
-                        // 위키링크는 아직 이동을 지원하지 않는다. 눌렀을 때 링크 텍스트를
-                        // 그대로 되읽어 주는 토스트를 띄우느니, 누를 수 있는 것처럼
-                        // 보이지 않게 두는 편이 정직하다.
-                        return (
-                          <span
-                            key={g.key}
-                            title={g.text}
-                            style={{
-                              display: "inline",
-                              color: "#3a6fd8",
-                              borderBottom: "1px solid #cddcf8",
-                            }}
-                          >
-                            {g.text}
-                          </span>
-                        );
-                      return <span key={g.key}>{g.text}</span>;
-                    })}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+          {/*
+            블록의 `line` 은 **본문** 기준이라 본문이 시작하는 줄을 더해야 문서의 줄이
+            된다. 뷰어가 문서 전체를 모르는 채로 두는 것이 요점이다 — 프런트마터를
+            건너뛴 것은 여기이므로, 되돌려 맞추는 것도 여기서 한다.
+          */}
+          <MarkdownView
+            blocks={blocks}
+            onToggle={(line) => void s.toggleTask(tab.path, split.bodyLine + line)}
+          />
         </div>
       )}
 

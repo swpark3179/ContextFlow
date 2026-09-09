@@ -2,8 +2,19 @@ import { create } from "zustand";
 import * as api from "../lib/api";
 import type { TaskMeta, TemplateMeta, Recommendation } from "../lib/api";
 import type { FileEntry } from "../lib/tree";
-import { TOAST } from "../lib/design";
-import { daysSince, hhmm, joinPath, nowStamp } from "../lib/format";
+import { normalizeStatus, TOAST } from "../lib/design";
+import { basename, daysSince, hhmm, joinPath, nowStamp, today } from "../lib/format";
+import { toggleTaskLine } from "../lib/markdown";
+import {
+  addItem,
+  EMPTY_LOG,
+  moveItem,
+  pruneLog,
+  readLog,
+  removeItem,
+  writeLog,
+  type TodayLog,
+} from "../lib/today";
 import { BSTORM_EXT, seedBstorm } from "../lib/bstorm";
 import { sanitizeFolderName } from "../lib/vaultPaths";
 import { aiRecommend } from "../lib/aiRecommend";
@@ -281,7 +292,14 @@ interface State {
   sidebarMin: boolean;
   explorerMin: boolean;
   noteMin: boolean;
+  todayMin: boolean;
   statusMenuOpen: boolean;
+
+  /**
+   * 오늘 손댄 업무들(`src/lib/today.ts`). Vault 가 아니라 브라우저 저장소에 살고
+   * 날이 바뀌면 비워진다 — 하루짜리 목록이라 노트로 남길 것이 없다.
+   */
+  todayLog: TodayLog;
 
   files: FileEntry[];
   ui: TaskUi;
@@ -333,10 +351,12 @@ interface Actions {
   selectTask: (folder: string, opts?: { keepScreen?: boolean }) => Promise<void>;
   renameTask: (folder: string, title: string) => Promise<void>;
   setStatus: (status: string) => Promise<void>;
-  archiveNow: (folder: string) => Promise<void>;
+  /** `close` 를 생략하면 지금 열려 있는 업무일 때만 창을 닫는다. */
+  archiveNow: (folder: string, opts?: { close?: boolean }) => Promise<void>;
   restoreTask: (folder: string) => Promise<void>;
   peekArchived: (folder: string) => Promise<void>;
   closeArchived: () => void;
+  closeTask: () => void;
   openTaskInObsidian: (folder: string) => Promise<void>;
   reorderTask: (folder: string, at: number) => Promise<void>;
   clearTaskOrder: () => Promise<void>;
@@ -351,6 +371,8 @@ interface Actions {
   setTabMode: (path: string, from: TabMode, to: TabMode) => Promise<void>;
   closeTab: (key: string) => void;
   editDoc: (path: string, text: string) => void;
+  /** 마크다운 뷰어에서 체크박스를 눌렀다. `line` 은 **문서** 기준 줄 번호다. */
+  toggleTask: (path: string, line: number) => Promise<void>;
   saveDoc: (path: string) => Promise<void>;
   saveAll: () => Promise<void>;
   persistSnapshot: (folder?: string) => Promise<void>;
@@ -372,6 +394,15 @@ interface Actions {
   reloadTemplates: () => Promise<void>;
   createTemplate: () => Promise<void>;
   syncMoc: () => Promise<void>;
+
+  /** 오늘의 한일에 이 업무를 올린다(같은 업무는 한 줄, 시각만 갱신). */
+  noteToday: (folder?: string, title?: string) => void;
+  dropToday: (folder: string) => void;
+  /** 업무 폴더 경로가 바뀐 것을 오늘의 한일에도 반영한다. */
+  relocateToday: (from: string, to: string, title: string) => void;
+  /** 날이 바뀌었으면 목록을 비운다. 자정에 걸어 둔 타이머가 부른다. */
+  rollToday: () => void;
+  clearToday: () => void;
 }
 
 let toastSeq = 0;
@@ -401,7 +432,10 @@ export const useStore = create<State & Actions>((set, get) => ({
   sidebarMin: false,
   explorerMin: false,
   noteMin: false,
+  todayMin: false,
   statusMenuOpen: false,
+
+  todayLog: EMPTY_LOG,
 
   files: [],
   ui: emptyUi(),
@@ -469,7 +503,8 @@ export const useStore = create<State & Actions>((set, get) => ({
       await api.initVault(settings.vault, fresh);
       await api.saveSettings(settings);
       const obsidianOk = await api.obsidianAvailable();
-      set({ settings, obsidianOk });
+      // 어제까지의 목록은 읽는 순간 버린다(`pruneLog`).
+      set({ settings, obsidianOk, todayLog: pruneLog(readLog(), today()) });
       await get().reloadVault(false);
       await get().reloadTemplates();
       set({ ready: true });
@@ -493,6 +528,7 @@ export const useStore = create<State & Actions>((set, get) => ({
     try {
       await api.initVault(vault, false);
       set({ activeFolder: "", uiCache: {}, ui: emptyUi(), files: [] });
+      get().clearToday();
       await get().reloadVault(false);
       await get().reloadTemplates();
       get().toast("Vault를 변경했습니다", vault, TOAST.ok);
@@ -506,8 +542,10 @@ export const useStore = create<State & Actions>((set, get) => ({
     try {
       const tasks = await api.scanVault(settings.vault);
       set({ tasks });
+      // 아무 업무도 고르지 않은 것도 하나의 상태다 — 완료로 창을 닫은 직후가 그렇고,
+      // 그때 목록을 새로 읽는다고 엉뚱한 업무가 열려서는 안 된다.
       const stillThere = tasks.some((t) => t.folder === activeFolder);
-      if (keepActive && stillThere) return;
+      if (keepActive && (stillThere || !activeFolder)) return;
       const live = tasks.filter((t) => !isArchived(t, settings.archDays));
       const next = (live[0] ?? tasks[0])?.folder;
       if (next) await get().selectTask(next);
@@ -597,6 +635,8 @@ export const useStore = create<State & Actions>((set, get) => ({
           ren: null,
         };
       });
+      get().relocateToday(folder, updated.folder, updated.title);
+      get().noteToday(updated.folder, updated.title);
       // 열린 탭 · 미저장 버퍼는 폴더 상대 경로라 그대로 살아 있다. 새 경로를 이미
       // activeFolder 에 넣었으므로 재조회는 목록만 새로 읽고(keepActive) 파일 트리만 다시 센다.
       await get().reloadVault(true);
@@ -609,6 +649,15 @@ export const useStore = create<State & Actions>((set, get) => ({
     }
   },
 
+  /**
+   * 상태를 바꾼다. **완료는 거기서 끝나지 않는다** — 그 자리에서 보관까지 가고 창이 닫힌다.
+   *
+   * 예전에는 완료로 바꾼 업무가 배지만 초록으로 바뀐 채 목록 맨 위에 남아 있었다.
+   * 끝낸 일을 다시 지우는 손이 한 번 더 필요했고, 보관 기준일(`archDays`)이 지나야
+   * 조용히 사라졌다 — 그 사이의 목록은 "지금 하는 일"이 아니라 "한 일이 섞인 목록"이다.
+   * 완료를 누른 순간이 곧 그 업무를 손에서 놓는 순간이므로, 목록에서 빼고 창도 닫는다.
+   * 다시 손대야 할 일이 남았다면 보관함의 [여기서 재개] 가 그대로 있다.
+   */
   setStatus: async (status) => {
     const { settings, activeFolder } = get();
     if (!activeFolder) return;
@@ -620,7 +669,12 @@ export const useStore = create<State & Actions>((set, get) => ({
         statusMenuOpen: false,
         snapAt: hhmm(),
       }));
+      get().noteToday(activeFolder, updated.title);
       await get().persistSnapshot(activeFolder);
+      if (normalizeStatus(status) === "completed") {
+        await get().archiveNow(activeFolder, { close: true });
+        return;
+      }
       // 바뀐 상태는 헤더의 상태 배지에 즉시 나타난다.
       await get().reloadTemplates();
       await get().syncMoc();
@@ -629,10 +683,22 @@ export const useStore = create<State & Actions>((set, get) => ({
     }
   },
 
-  archiveNow: async (folder) => {
-    const { settings, tasks } = get();
+  archiveNow: async (folder, opts) => {
+    const { settings, tasks, activeFolder } = get();
+    // 고른 업무가 없을 때 메뉴에서 들어오면 빈 경로가 온다 — 백엔드에 물어볼 것이 없다.
+    if (!folder) return;
     const target = tasks.find((t) => t.folder === folder);
+    // 보관된 업무는 업무 리스트에 없다. 그 창을 열어 둔 채로 두면 목록에서 아무것도
+    // 선택되지 않은 화면에 남의 작업공간이 떠 있는 셈이라, 지금 열려 있던 업무를
+    // 보관했으면 창까지 닫는다.
+    const close = opts?.close ?? folder === activeFolder;
     try {
+      if (folder === activeFolder) {
+        // 'move' 방식은 디스크에서 폴더를 옮긴다 — 미저장 버퍼와 스냅샷은 그 전에
+        // 내려놓아야 옛 경로에 쓰이지 않는다.
+        await get().saveAll();
+        await get().persistSnapshot(folder);
+      }
       const updated = await api.setTaskArchived(
         settings.vault,
         folder,
@@ -640,17 +706,32 @@ export const useStore = create<State & Actions>((set, get) => ({
         settings.archMode,
         false,
       );
-      set((s) => ({
-        tasks: s.tasks.map((t) => (t.folder === folder ? updated : t)),
-        statusMenuOpen: false,
-      }));
+      // 'move' 는 폴더 경로를 바꾼다 — 오늘의 한일과 열어 둔 탭 캐시도 함께 옮긴다.
+      get().relocateToday(folder, updated.folder, updated.title);
+      get().noteToday(updated.folder, updated.title);
+      set((s) => {
+        const { [folder]: moved, ...rest } = s.uiCache;
+        return {
+          tasks: s.tasks.map((t) => (t.folder === folder ? updated : t)),
+          uiCache: moved && updated.folder !== folder ? { ...rest, [updated.folder]: moved } : s.uiCache,
+          statusMenuOpen: false,
+        };
+      });
       // 'move' 는 디스크에서 폴더를 실제로 옮긴다 — 어디로 갔는지는 화면에 나오지 않는다.
-      // 'tag' 는 파일을 건드리지 않고 목록에서 사라지는 것으로 충분히 드러난다.
       if (settings.archMode === "move") {
         get().toast("Archive 폴더로 이동", target?.title ?? "", TOAST.muted);
+      } else if (close) {
+        // 창이 닫히는 것은 보이지만, 그 업무가 어디로 갔는지는 화면에 남지 않는다.
+        get().toast(
+          "보관함으로 옮겼습니다",
+          `${target?.title ?? ""} · 보관함에서 다시 열 수 있습니다`,
+          TOAST.muted,
+        );
       }
-      // The folder may have moved, so re-scan and land on a live task.
-      await get().reloadVault(false);
+      if (close) get().closeTask();
+      // 목록만 새로 읽는다. 창을 닫았을 때 `reloadVault(false)` 를 쓰면 살아 있는 업무
+      // 하나를 자동으로 골라 열어 버려, 방금 닫은 자리에 엉뚱한 업무가 나타난다.
+      await get().reloadVault(close);
       await get().syncMoc();
     } catch (e) {
       get().fail(e, "보관하지 못했습니다");
@@ -669,6 +750,8 @@ export const useStore = create<State & Actions>((set, get) => ({
       );
       set((s) => ({ tasks: s.tasks.map((t) => (t.folder === folder ? updated : t)) }));
       set({ archQuery: "", query: "" });
+      get().relocateToday(folder, updated.folder, updated.title);
+      get().noteToday(updated.folder, updated.title);
       await get().reloadVault(false);
       await get().selectTask(updated.folder);
       await get().reloadTemplates();
@@ -697,8 +780,26 @@ export const useStore = create<State & Actions>((set, get) => ({
   /** 상세에서 보관함 목록으로. 연 업무는 그대로 두므로 다시 누르면 즉시 열린다. */
   closeArchived: () => set({ archOpen: "", ctx: null, statusMenuOpen: false }),
 
+  /**
+   * 지금 열려 있는 업무 창을 닫는다 — 아무 업무도 고르지 않은 상태로 되돌린다.
+   *
+   * `uiCache` 는 비우지 않는다. 열어 둔 탭 · 미저장 버퍼가 그대로 남아 있어야
+   * 보관함에서 그 업무를 다시 열었을 때 있던 자리에서 이어진다.
+   */
+  closeTask: () =>
+    set({
+      activeFolder: "",
+      ui: emptyUi(),
+      files: [],
+      archOpen: "",
+      ctx: null,
+      mk: null,
+      statusMenuOpen: false,
+    }),
+
   openTaskInObsidian: async (folder) => {
     const { settings } = get();
+    if (!folder) return;
     try {
       reportObsidianOpen(await api.openInObsidian(settings.vault, joinPath(folder, "index.md")));
     } catch (e) {
@@ -815,6 +916,21 @@ export const useStore = create<State & Actions>((set, get) => ({
     saveTimer = window.setTimeout(() => void get().saveDoc(path), 900);
   },
 
+  /**
+   * 마크다운 뷰어에서 체크박스를 눌렀다. 문서의 그 줄 하나만 고쳐 쓴다.
+   *
+   * 900ms 자동 저장을 기다리지 않고 곧바로 내려쓴다 — 글자를 치는 것과 달리 체크는
+   * **한 번의 완결된 동작**이고, 눌러 놓고 창을 닫았을 때 사라지면 안 된다.
+   */
+  toggleTask: async (path, line) => {
+    const doc = get().ui.docs[path];
+    if (!doc) return;
+    const next = toggleTaskLine(doc.text, line);
+    if (next === null || next === doc.text) return;
+    get().editDoc(path, next);
+    await get().saveDoc(path);
+  },
+
   saveDoc: async (path) => {
     const { activeFolder, ui } = get();
     const doc = ui.docs[path];
@@ -825,6 +941,8 @@ export const useStore = create<State & Actions>((set, get) => ({
       const now = cur.docs[path];
       get().setUi({ docs: { ...cur.docs, [path]: { text: now.text, saved: doc.text } } });
       set({ snapAt: hhmm() });
+      // 파일이 실제로 쓰였다 — 오늘의 한일에서 가장 흔한 입구다.
+      get().noteToday(activeFolder);
       // index.md carries the frontmatter, so its metadata may have changed.
       if (path === "index.md") {
         const tasks = await api.scanVault(get().settings.vault);
@@ -863,6 +981,7 @@ export const useStore = create<State & Actions>((set, get) => ({
   commitMk: async () => {
     const { mk, activeFolder } = get();
     if (!mk) return;
+    if (!activeFolder) return set({ mk: null });
     const name = mk.name.trim();
     if (!name) return set({ mk: null });
     try {
@@ -870,6 +989,7 @@ export const useStore = create<State & Actions>((set, get) => ({
       if (mk.kind === "folder") {
         const rel = await api.createTaskDir(activeFolder, mk.parent + name);
         set({ mk: null });
+        get().noteToday(activeFolder);
         await get().refreshFiles();
         get().setUi({ treeOpen: { ...get().ui.treeOpen, [rel]: true } });
       } else if (mk.kind === "bstorm") {
@@ -884,11 +1004,13 @@ export const useStore = create<State & Actions>((set, get) => ({
         // `create_file` 은 빈 파일을 만든다. 빈 캔버스 대신 중심 생각 하나를 심어 둔다.
         await api.writeTextFile(joinPath(activeFolder, rel), seedBstorm(base, nowStamp()));
         set({ mk: null });
+        get().noteToday(activeFolder);
         await get().refreshFiles();
         await get().openFile(rel, "bstorm");
       } else {
         const rel = await api.createTaskFile(activeFolder, mk.parent + name);
         set({ mk: null });
+        get().noteToday(activeFolder);
         await get().refreshFiles();
         await get().openFile(rel, "text");
       }
@@ -927,6 +1049,7 @@ export const useStore = create<State & Actions>((set, get) => ({
     const task = get().tasks.find((t) => t.folder === activeFolder);
     try {
       await api.deleteTaskPath(activeFolder, del.path);
+      get().noteToday(activeFolder);
       const gone = (p: string) => (del.isDir ? p.startsWith(del.path) : p === del.path);
       const openTabs = ui.openTabs.filter((t) => !gone(t.path));
       const docs = Object.fromEntries(Object.entries(ui.docs).filter(([p]) => !gone(p)));
@@ -973,6 +1096,7 @@ export const useStore = create<State & Actions>((set, get) => ({
     try {
       const res = await api.importIntoTask(activeFolder, drop.target, drop.paths, drop.mode);
       set({ drop: null });
+      get().noteToday(activeFolder);
       await get().refreshFiles();
       if (res.added.length) get().setUi({ sel: res.added[0] });
       // 가져온 항목은 트리에 바로 보인다. 알려야 하는 것은 **요청과 다르게 처리된** 경우다.
@@ -1015,6 +1139,9 @@ export const useStore = create<State & Actions>((set, get) => ({
         await api.openPathDefault(abs);
       }
       get().setUi({ extOpened: { ...get().ui.extOpened, [ow.path]: "OS" } });
+      // 밖에서 고친 것은 앱이 알 수 없다. 연결 프로그램으로 여는 것이 곧 그 파일을
+      // 작업하는 것이라, 그 업무는 오늘 건드린 업무다.
+      get().noteToday(activeFolder);
     } catch (e) {
       get().fail(e, "열지 못했습니다");
     }
@@ -1038,6 +1165,7 @@ export const useStore = create<State & Actions>((set, get) => ({
     if (isDir && dest.startsWith(rel)) return; // 자기 자신 아래로는 옮길 수 없다
     try {
       const next = await api.moveTaskPath(activeFolder, rel, dest);
+      get().noteToday(activeFolder);
       const rewrite = (p: string) =>
         p === rel ? next : isDir && p.startsWith(rel) ? next + p.slice(rel.length) : p;
       const [mode, path] = ui.activeTab.split("|");
@@ -1107,6 +1235,7 @@ export const useStore = create<State & Actions>((set, get) => ({
     if (!activeFolder || !rel) return;
     try {
       const res = await api.exportToDesktop(activeFolder, rel, mode);
+      get().noteToday(activeFolder);
       if (res.fellBackToCopy) {
         get().toast(
           "심볼릭 링크를 만들 수 없어 복사했습니다",
@@ -1201,6 +1330,7 @@ export const useStore = create<State & Actions>((set, get) => ({
       );
 
       set({ newOpen: false, ntRecs: [], recTag: {}, ntRefs: [] });
+      get().noteToday(created.folder, created.title);
 
       // [참고만 하기] 로 고른 업무들의 파일을 새 업무 안으로 복사한다. 추천 카드의 `id` 는
       // 그 업무의 절대 폴더 경로이고(`runRecommend` 가 그렇게 만든다), `importIntoTask` 는
@@ -1255,6 +1385,13 @@ export const useStore = create<State & Actions>((set, get) => ({
         picked.map((c) => c.id),
         settings.archMode,
       );
+      // 접힌 노드들은 대표 노드 안으로 들어갔다. 오늘의 한일에서도 대표 하나로 합친다 —
+      // 'move' 방식에서는 그 폴더들이 Archive 아래로 옮겨져 죽은 줄이 되고, 'tag'
+      // 방식에서도 같은 일을 두 줄로 세는 셈이다.
+      for (const c of picked) {
+        if (c.id !== primary.id) get().dropToday(c.id);
+      }
+      get().noteToday(primary.id, primary.title);
       set((s) => ({
         merge: null,
         recTag: { ...s.recTag, [merge.rec.id]: "merged" },
@@ -1324,6 +1461,68 @@ export const useStore = create<State & Actions>((set, get) => ({
     } catch {
       /* the MOC is a convenience index; failing to refresh it is not fatal */
     }
+  },
+
+  // -------------------------------------------------------------------------
+
+  /**
+   * 오늘의 한일에 이 업무를 올린다.
+   *
+   * 부르는 자리는 **업무를 고친 지점들**이다 — 파일 저장 · 상태 변경 · 파일 만들기 ·
+   * 지우기 · 옮기기 · 가져오기 · 내보내기 · 이름 변경 · 보관 · 재개 · 병합 · 메모.
+   * 업무를 **열어 본 것**은 여기 들어오지 않는다: 그것까지 세면 잠깐 확인한 업무가
+   * 전부 목록에 쌓여 "오늘 무엇을 했는지"가 아니라 "오늘 무엇을 봤는지"가 된다.
+   */
+  noteToday: (folder, title) => {
+    const target = folder ?? get().activeFolder;
+    if (!target) return;
+    const name =
+      title ?? get().tasks.find((t) => t.folder === target)?.title ?? basename(target);
+    const next = addItem(get().todayLog, today(), {
+      folder: target,
+      title: name,
+      at: hhmm(),
+    });
+    set({ todayLog: next });
+    writeLog(next);
+  },
+
+  dropToday: (folder) => {
+    const next = removeItem(get().todayLog, folder);
+    set({ todayLog: next });
+    writeLog(next);
+  },
+
+  relocateToday: (from, to, title) => {
+    const next = moveItem(get().todayLog, from, to, title);
+    set({ todayLog: next });
+    writeLog(next);
+  },
+
+  /**
+   * 자정을 넘겼으면 목록을 비운다.
+   *
+   * 그리는 쪽도 날짜를 보고 걸러 내지만(`TodayDock`), 앱을 켜 둔 채로 밤을 넘기면
+   * 다시 그릴 일이 없어 어제 목록이 화면에 그대로 남는다 — 하루짜리 목록이 하루를
+   * 넘기는 유일한 경로라 타이머로 끊어 준다.
+   */
+  rollToday: () => {
+    const day = today();
+    if (get().todayLog.date === day) return;
+    const next = pruneLog(get().todayLog, day);
+    set({ todayLog: next });
+    writeLog(next);
+  },
+
+  /**
+   * 목록을 비운다. Vault 를 갈아탈 때 부른다 — 항목이 든 것은 폴더 **경로**라,
+   * 다른 Vault 로 옮기면 전부 없는 업무를 가리키는 죽은 줄이 된다. 열어 둔 탭 ·
+   * 활성 업무 · 파일 트리를 그때 같이 비우는 것과 같은 이유다.
+   */
+  clearToday: () => {
+    const next: TodayLog = { date: today(), items: [] };
+    set({ todayLog: next });
+    writeLog(next);
   },
 }));
 

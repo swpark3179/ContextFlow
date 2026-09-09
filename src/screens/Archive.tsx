@@ -204,14 +204,20 @@ export default function Archive() {
     resetKey: `${archYear}|${archMonth}|${archScope}|${archQuery.trim()}|${rows.length}`,
   });
 
-  const rule =
+  /**
+   * 이 화면의 규칙 한 줄. 보관으로 들어오는 길이 둘이라 둘 다 말해야 한다 — 앱에서 누른
+   * [완료]는 그 자리에서 보관하고(`setStatus`), Obsidian 등 앱 밖에서 완료로 바뀐 업무는
+   * `archDays` 가 지나면 접힌다(`isArchived`).
+   */
+  const rule = `앱에서 [완료]를 누르면 그 즉시 보관됩니다. ${
     settings.archDays > 0
-      ? `완료 후 ${settings.archDays}일이 지나면 목록에서 자동으로 접힙니다. ${
-          settings.archMode === "move"
-            ? "Archive/[연도]/ 로 실제 이동합니다."
-            : "파일은 이동하지 않고 frontmatter에 archived 표시만 남기므로 Obsidian 링크와 그래프는 그대로 유지됩니다."
-        }`
-      : "자동 보관이 꺼져 있습니다. 완료 업무는 [지금 보관함으로]를 눌러 직접 접을 수 있습니다.";
+      ? `Obsidian 등 앱 밖에서 완료로 바꾼 업무는 ${settings.archDays}일이 지나면 목록에서 접힙니다.`
+      : "앱 밖에서 완료로 바꾼 업무는 자동으로 접히지 않으므로 [지금 보관함으로]로 직접 접습니다."
+  } ${
+    settings.archMode === "move"
+      ? "Archive/[연도]/ 로 실제 이동합니다."
+      : "파일은 이동하지 않고 frontmatter에 archived 표시만 남기므로 Obsidian 링크와 그래프는 그대로 유지됩니다."
+  }`;
 
   const stats = [
     { key: "n", value: archived.length, label: "보관된 업무", color: "#3a3630" },
