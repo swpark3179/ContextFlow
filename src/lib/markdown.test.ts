@@ -73,6 +73,15 @@ describe("mdParse", () => {
   it("drops blank lines instead of emitting empty blocks", () => {
     expect(mdParse("한 줄\n\n\n두 줄")).toHaveLength(2);
   });
+
+  it("reads a rule at any indentation, and in its other spellings", () => {
+    for (const line of ["---", "      ---", "***", "___", "-----"]) {
+      expect(mdParse(line)[0].isHr).toBe(true);
+    }
+    // 세 글자가 안 되거나 사이에 글자가 섞이면 구분선이 아니다.
+    expect(mdParse("--")[0].isHr).toBe(false);
+    expect(mdParse("--- 끝")[0].isHr).toBe(false);
+  });
 });
 
 describe("splitFrontmatter", () => {

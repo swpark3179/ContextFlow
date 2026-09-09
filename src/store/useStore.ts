@@ -681,6 +681,8 @@ export const useStore = create<State & Actions>((set, get) => ({
 
   archiveNow: async (folder, opts) => {
     const { settings, tasks, activeFolder } = get();
+    // 고른 업무가 없을 때 메뉴에서 들어오면 빈 경로가 온다 — 백엔드에 물어볼 것이 없다.
+    if (!folder) return;
     const target = tasks.find((t) => t.folder === folder);
     // 보관된 업무는 업무 리스트에 없다. 그 창을 열어 둔 채로 두면 목록에서 아무것도
     // 선택되지 않은 화면에 남의 작업공간이 떠 있는 셈이라, 지금 열려 있던 업무를
@@ -793,6 +795,7 @@ export const useStore = create<State & Actions>((set, get) => ({
 
   openTaskInObsidian: async (folder) => {
     const { settings } = get();
+    if (!folder) return;
     try {
       reportObsidianOpen(await api.openInObsidian(settings.vault, joinPath(folder, "index.md")));
     } catch (e) {
@@ -974,6 +977,7 @@ export const useStore = create<State & Actions>((set, get) => ({
   commitMk: async () => {
     const { mk, activeFolder } = get();
     if (!mk) return;
+    if (!activeFolder) return set({ mk: null });
     const name = mk.name.trim();
     if (!name) return set({ mk: null });
     try {

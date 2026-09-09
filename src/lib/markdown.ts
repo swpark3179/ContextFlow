@@ -199,7 +199,9 @@ export function mdParse(src: string): Block[] {
     const line = raw.replace(/\s+$/, "");
     if (!line.trim()) continue;
 
-    if (/^\s{0,3}(-{3,}|_{3,}|\*{3,})$/.test(line)) {
+    // 들여쓴 `---` 도 구분선으로 읽는다. CommonMark 는 네 칸부터 코드 블록으로 보지만
+    // 이 뷰어에는 그런 문법이 없어서, 그대로 두면 본문에 `---` 세 글자가 남는다.
+    if (/^\s*(-{3,}|_{3,}|\*{3,})$/.test(line)) {
       stack.length = 0;
       out.push({ ...base(key, at), isHr: true });
       continue;

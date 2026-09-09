@@ -188,8 +188,15 @@ export default function Settings() {
           <div style={rowStyle}>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 12.5, fontWeight: 500 }}>자동 보관 기간</div>
-              <div style={{ fontSize: 11.5, color: "#8a857c", marginTop: 2 }}>
-                완료 후 이 기간이 지나면 업무 리스트에서 접힙니다
+              {/*
+                앱에서 [완료]를 누르면 이 기간과 무관하게 그 즉시 보관된다(`setStatus`).
+                이 값이 다스리는 것은 **앱 밖에서** 완료로 바뀐 업무뿐이다 — Obsidian 에서
+                frontmatter 를 직접 고친 경우가 그렇고, 그때는 `archived` 키가 없어서
+                `isArchived` 가 이 기간으로 판단한다. 설정이 무엇을 정하는지 그대로 적는다.
+              */}
+              <div style={{ fontSize: 11.5, color: "#8a857c", marginTop: 2, lineHeight: 1.5 }}>
+                Obsidian 등 앱 밖에서 완료로 바꾼 업무는 이 기간이 지나면 업무 리스트에서
+                접힙니다. 앱에서 [완료]를 누르면 기다리지 않고 그 즉시 보관됩니다.
               </div>
             </div>
             <div style={{ display: "flex", gap: 4 }}>
