@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { Box } from "../lib/ui";
 import { useStore } from "../store/useStore";
 
@@ -9,6 +10,12 @@ export default function Notepad() {
   const s = useStore();
   const { ui } = s;
   const peek = (ui.notepad || "").split("\n")[0] || "비어 있음";
+  /**
+   * 메모를 **실제로 고쳤는지** 는 포커스가 떠날 때 들어온 값과 비교해서 안다.
+   * 글자마다 오늘의 한일을 다시 쓰지 않으려는 것이고, 그냥 지나가며 클릭한 메모장이
+   * 목록에 업무를 올리지 않게 하려는 것이다.
+   */
+  const entry = useRef("");
 
   return (
     <div
@@ -94,7 +101,13 @@ export default function Notepad() {
         <textarea
           value={ui.notepad}
           onChange={(e) => s.setUi({ notepad: e.target.value })}
-          onBlur={() => void s.persistSnapshot()}
+          onFocus={() => {
+            entry.current = ui.notepad;
+          }}
+          onBlur={() => {
+            if (ui.notepad !== entry.current) s.noteToday();
+            void s.persistSnapshot();
+          }}
           spellCheck={false}
           placeholder="휘발성 메모 — 업무 전환 시 .context_snapshot.json에 그대로 보존됩니다."
           style={{
