@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Box, Input } from "../lib/ui";
 import { BLUE, normalizeStatus, statusOf } from "../lib/design";
 import { useDropGuard, useLongPress } from "../lib/longPress";
@@ -34,6 +34,30 @@ function TodayDock() {
   const { todayLog, tasks, settings } = s;
   // 날이 바뀌었는데 앱이 계속 떠 있었을 수도 있다 — 그리는 쪽에서 한 번 더 본다.
   const items = todayLog.date === today() ? todayLog.items : [];
+
+  /**
+   * 자정에 목록을 끊는다.
+   *
+   * 위의 걸러 내기만으로는 부족하다 — 앱을 켜 둔 채 밤을 넘기면 다시 그릴 일이 없어서
+   * 어제 목록이 화면에 그대로 남는다. 이 앱은 하루 종일 켜 두는 종류라 드문 경우가
+   * 아니다. `tick` 은 타이머를 다시 걸기 위한 것이고(부른 뒤 날짜가 이미 맞아도 다음
+   * 자정을 다시 예약해야 한다), `getState` 로 부르므로 스토어가 바뀔 때마다 타이머가
+   * 새로 걸리지는 않는다.
+   */
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const now = new Date();
+    // 자정 5초 뒤 — 경계에서 `today()` 가 아직 어제로 읽히는 일을 피한다.
+    const next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 5);
+    const timer = window.setTimeout(
+      () => {
+        useStore.getState().rollToday();
+        setTick((n) => n + 1);
+      },
+      Math.max(1000, next.getTime() - now.getTime()),
+    );
+    return () => window.clearTimeout(timer);
+  }, [tick]);
 
   return (
     <div
@@ -636,9 +660,24 @@ export default function Sidebar() {
               lineHeight: 1.6,
             }}
           >
-            조건에 맞는 업무가 없습니다.
-            <br />
-            보관함까지 찾으려면 아래 보관함을 열어보세요.
+            {/*
+              완료 필터는 이제 거의 늘 비어 있다 — 앱에서 완료한 업무는 그 자리에서
+              보관되기 때문이다(`setStatus`). 빈 목록만 보여 주면 막다른 길이라,
+              그 업무들이 어디로 갔는지 여기서 말해 준다.
+            */}
+            {filter === "completed" ? (
+              <>
+                완료한 업무는 그 즉시 보관함으로 갑니다.
+                <br />
+                아래 [보관함] 에서 볼 수 있고, [여기서 재개] 로 다시 엽니다.
+              </>
+            ) : (
+              <>
+                조건에 맞는 업무가 없습니다.
+                <br />
+                보관함까지 찾으려면 아래 보관함을 열어보세요.
+              </>
+            )}
           </div>
         )}
 

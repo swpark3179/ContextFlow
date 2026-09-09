@@ -400,6 +400,9 @@ interface Actions {
   dropToday: (folder: string) => void;
   /** 업무 폴더 경로가 바뀐 것을 오늘의 한일에도 반영한다. */
   relocateToday: (from: string, to: string, title: string) => void;
+  /** 날이 바뀌었으면 목록을 비운다. 자정에 걸어 둔 타이머가 부른다. */
+  rollToday: () => void;
+  clearToday: () => void;
 }
 
 let toastSeq = 0;
@@ -525,6 +528,7 @@ export const useStore = create<State & Actions>((set, get) => ({
     try {
       await api.initVault(vault, false);
       set({ activeFolder: "", uiCache: {}, ui: emptyUi(), files: [] });
+      get().clearToday();
       await get().reloadVault(false);
       await get().reloadTemplates();
       get().toast("Vault를 변경했습니다", vault, TOAST.ok);
@@ -1381,6 +1385,12 @@ export const useStore = create<State & Actions>((set, get) => ({
         picked.map((c) => c.id),
         settings.archMode,
       );
+      // 접힌 노드들은 대표 노드 안으로 들어갔다. 오늘의 한일에서도 대표 하나로 합친다 —
+      // 'move' 방식에서는 그 폴더들이 Archive 아래로 옮겨져 죽은 줄이 되고, 'tag'
+      // 방식에서도 같은 일을 두 줄로 세는 셈이다.
+      for (const c of picked) {
+        if (c.id !== primary.id) get().dropToday(c.id);
+      }
       get().noteToday(primary.id, primary.title);
       set((s) => ({
         merge: null,
@@ -1485,6 +1495,32 @@ export const useStore = create<State & Actions>((set, get) => ({
 
   relocateToday: (from, to, title) => {
     const next = moveItem(get().todayLog, from, to, title);
+    set({ todayLog: next });
+    writeLog(next);
+  },
+
+  /**
+   * 자정을 넘겼으면 목록을 비운다.
+   *
+   * 그리는 쪽도 날짜를 보고 걸러 내지만(`TodayDock`), 앱을 켜 둔 채로 밤을 넘기면
+   * 다시 그릴 일이 없어 어제 목록이 화면에 그대로 남는다 — 하루짜리 목록이 하루를
+   * 넘기는 유일한 경로라 타이머로 끊어 준다.
+   */
+  rollToday: () => {
+    const day = today();
+    if (get().todayLog.date === day) return;
+    const next = pruneLog(get().todayLog, day);
+    set({ todayLog: next });
+    writeLog(next);
+  },
+
+  /**
+   * 목록을 비운다. Vault 를 갈아탈 때 부른다 — 항목이 든 것은 폴더 **경로**라,
+   * 다른 Vault 로 옮기면 전부 없는 업무를 가리키는 죽은 줄이 된다. 열어 둔 탭 ·
+   * 활성 업무 · 파일 트리를 그때 같이 비우는 것과 같은 이유다.
+   */
+  clearToday: () => {
+    const next: TodayLog = { date: today(), items: [] };
     set({ todayLog: next });
     writeLog(next);
   },
