@@ -5,11 +5,15 @@ import { useDropGuard, useLongPress } from "../lib/longPress";
 import { shortStamp, today } from "../lib/format";
 import { isArchived, useStore, type Screen } from "../store/useStore";
 
+/**
+ * 상태 필터. `완료` 칸은 두지 않는다 — 앱에서 완료로 바꾼 업무는 그 자리에서 보관되어
+ * 업무 리스트를 떠나므로(`setStatus`), 늘 비어 있는 칸이 셋을 넷으로 좁힐 뿐이었다.
+ * 밖에서 완료로 고쳐 둔 업무는 보관 기준일이 지나기 전까지 `전체` 에 그대로 보인다.
+ */
 const FILTERS: [string, string][] = [
   ["all", "전체"],
   ["in-progress", "진행중"],
   ["on-hold", "보류"],
-  ["completed", "완료"],
 ];
 
 const NAV: [Screen, string][] = [
@@ -233,12 +237,7 @@ export default function Sidebar() {
     const q = query.trim().toLowerCase();
     const live = tasks.filter((t) => !isArchived(t, settings.archDays));
     const archived = tasks.filter((t) => isArchived(t, settings.archDays));
-    const counts: Record<string, number> = {
-      all: live.length,
-      "in-progress": 0,
-      "on-hold": 0,
-      completed: 0,
-    };
+    const counts: Record<string, number> = { all: live.length, "in-progress": 0, "on-hold": 0 };
     live.forEach((t) => {
       const k = normalizeStatus(t.status);
       if (counts[k] !== undefined) counts[k]++;
@@ -257,17 +256,27 @@ export default function Sidebar() {
   /**
    * 순서를 바꿀 수 있는 상태인가.
    *
-   * 걸러진 목록의 인덱스는 전체 목록의 인덱스가 아니다 — 필터나 검색이 걸린 채로 옮기면
-   * 화면에 없는 업무들의 자리가 조용히 틀어진다. 그래서 그때는 아예 끌 수 없게 한다.
+   * 상태 필터가 걸려 있어도 끌 수 있다 — 놓은 자리를 **보이는 목록의 새 이웃**으로
+   * 넘기므로(`reorderTask` 의 `scope`), 사이에 숨어 있던 업무들은 있던 자리에 남는다.
+   *
+   * 검색 중에는 막는다. 검색 결과는 목록의 한 조각이 아니라 여기저기서 걷어 온 것이라,
+   * 옆에 보이는 업무가 실제 이웃이라는 보장이 없어 놓은 자리가 곧 결과가 되지 않는다.
    */
-  const sortable = listActive && filter === "all" && !query.trim();
+  const sortable = listActive && !query.trim();
   const drag = s.taskDrag;
 
   const listRef = useRef<HTMLDivElement | null>(null);
 
+  /**
+   * 지금 화면에 늘어서 있는 행들. 삽입 인덱스와 그 인덱스가 가리키는 목록을 **같은
+   * 곳에서** 읽어야 둘이 어긋나지 않는다 — 렌더 클로저의 `visible` 은 드래그 중에
+   * 낡을 수 있다.
+   */
+  const rowsOnScreen = () => Array.from(document.querySelectorAll<HTMLElement>("[data-task-folder]"));
+
   /** 드롭 지점을 **삽입 인덱스**로 바꾼다. 행 중점을 넘었으면 그 아래 자리다. */
   const insertAt = (y: number): number => {
-    const rows = Array.from(document.querySelectorAll<HTMLElement>("[data-task-folder]"));
+    const rows = rowsOnScreen();
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i].getBoundingClientRect();
       if (y < r.top + r.height / 2) return i;
@@ -300,9 +309,12 @@ export default function Sidebar() {
     const up = () => {
       const st = useStore.getState();
       const d = st.taskDrag;
+      // 놓은 자리(`at`)가 가리키는 것은 **보이던 목록**의 칸이다. 상태 필터가 걸려 있으면
+      // 그것이 전체의 부분집합이라, 그 목록을 함께 넘겨야 자리를 옳게 읽는다.
+      const scope = rowsOnScreen().map((el) => el.getAttribute("data-task-folder") ?? "");
       st.set({ taskDrag: null });
       markDropped();
-      if (d) void st.reorderTask(d.folder, d.at);
+      if (d) void st.reorderTask(d.folder, d.at, scope);
     };
 
     // 목록 가장자리에서는 스스로 스크롤한다. 사이드바 목록은 스크롤 컨테이너라
@@ -506,11 +518,11 @@ export default function Sidebar() {
             );
           })}
         </div>
-        {/* 순서를 정해 둔 사용자가 필터를 켠 채 끌어 보고 "왜 안 되지" 하는 것을 막는다.
+        {/* 순서를 정해 둔 사용자가 검색을 켠 채 끌어 보고 "왜 안 되지" 하는 것을 막는다.
             한 번도 순서를 바꾼 적 없으면 알릴 것도 없으므로 띄우지 않는다. */}
         {listActive && !sortable && live.some((t) => t.order !== null) && (
           <div style={{ fontSize: 10.5, color: "#a09a8f", lineHeight: 1.5 }}>
-            검색·필터 중에는 순서를 바꿀 수 없습니다
+            검색 중에는 순서를 바꿀 수 없습니다
           </div>
         )}
       </div>
@@ -660,24 +672,9 @@ export default function Sidebar() {
               lineHeight: 1.6,
             }}
           >
-            {/*
-              완료 필터는 이제 거의 늘 비어 있다 — 앱에서 완료한 업무는 그 자리에서
-              보관되기 때문이다(`setStatus`). 빈 목록만 보여 주면 막다른 길이라,
-              그 업무들이 어디로 갔는지 여기서 말해 준다.
-            */}
-            {filter === "completed" ? (
-              <>
-                완료한 업무는 그 즉시 보관함으로 갑니다.
-                <br />
-                아래 [보관함] 에서 볼 수 있고, [여기서 재개] 로 다시 엽니다.
-              </>
-            ) : (
-              <>
-                조건에 맞는 업무가 없습니다.
-                <br />
-                보관함까지 찾으려면 아래 보관함을 열어보세요.
-              </>
-            )}
+            조건에 맞는 업무가 없습니다.
+            <br />
+            보관함까지 찾으려면 아래 보관함을 열어보세요.
           </div>
         )}
 

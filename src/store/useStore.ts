@@ -16,6 +16,7 @@ import {
   type TodayLog,
 } from "../lib/today";
 import { BSTORM_EXT, seedBstorm } from "../lib/bstorm";
+import { reorderedList } from "../lib/reorder";
 import { sanitizeFolderName } from "../lib/vaultPaths";
 import { aiRecommend } from "../lib/aiRecommend";
 import { activeRun, useAi } from "./aiStore";
@@ -134,6 +135,15 @@ export interface MkState {
   kind: "file" | "folder" | "bstorm";
   parent: string;
   name: string;
+}
+
+/** 트리 안에서 이름을 고치는 중인 항목. 한 번에 하나만 고칠 수 있다. */
+export interface FileRenameState {
+  /** 대상의 업무 폴더 기준 상대 경로 — 폴더는 `/` 로 끝난다. */
+  path: string;
+  /** 입력 중인 새 이름. 처음에는 지금 이름 그대로 채워 둔다. */
+  name: string;
+  isDir: boolean;
 }
 
 export interface DelState {
@@ -310,6 +320,7 @@ interface State {
   toasts: Toast[];
   ctx: CtxTarget | null;
   mk: MkState | null;
+  fileRen: FileRenameState | null;
   del: DelState | null;
   drop: DropState | null;
   dragOver: boolean;
@@ -358,7 +369,12 @@ interface Actions {
   closeArchived: () => void;
   closeTask: () => void;
   openTaskInObsidian: (folder: string) => Promise<void>;
-  reorderTask: (folder: string, at: number) => Promise<void>;
+  /**
+   * `at` 은 **화면에 보이던 목록** 기준의 삽입 인덱스이고, `scope` 는 그 목록의 폴더
+   * 경로들이다. 상태 필터가 걸려 있으면 보이는 것이 전체의 부분집합이라 둘이 함께
+   * 와야 자리를 옳게 읽을 수 있다. 생략하면 살아 있는 업무 전체가 곧 그 목록이다.
+   */
+  reorderTask: (folder: string, at: number, scope?: string[]) => Promise<void>;
   clearTaskOrder: () => Promise<void>;
 
   setScreen: (s: Screen) => void;
@@ -378,6 +394,7 @@ interface Actions {
   persistSnapshot: (folder?: string) => Promise<void>;
 
   commitMk: () => Promise<void>;
+  commitFileRename: () => Promise<void>;
   askDelete: (target: CtxTarget) => Promise<void>;
   commitDelete: () => Promise<void>;
   beginDrop: (paths: string[]) => void;
@@ -403,6 +420,34 @@ interface Actions {
   /** 날이 바뀌었으면 목록을 비운다. 자정에 걸어 둔 타이머가 부른다. */
   rollToday: () => void;
   clearToday: () => void;
+}
+
+/**
+ * 파일이 디스크에서 옮겨지거나 이름이 바뀐 뒤, 그 파일을 가리키던 화면 상태를 새 경로로
+ * 갈아 끼운다.
+ *
+ * 열린 탭 · 미저장 버퍼 · 트리 펼침 · 캔버스 보기 상태는 전부 **업무 폴더 기준 상대
+ * 경로를 키로** 들고 있다. 디스크만 건드리면 그 키들이 한꺼번에 없는 파일을 가리키게
+ * 되어, 탭 이름은 옛 이름 그대로 남고 미저장 버퍼는 갈 곳을 잃는다.
+ *
+ * `isDir` 이면 그 아래 모든 경로의 접두사까지 함께 옮긴다 — 폴더 하나를 바꾸면 그 안의
+ * 탭이 전부 따라와야 한다.
+ */
+function relocateUi(ui: TaskUi, from: string, to: string, isDir: boolean): Partial<TaskUi> {
+  const rewrite = (p: string) =>
+    p === from ? to : isDir && p.startsWith(from) ? to + p.slice(from.length) : p;
+  const remap = <T,>(m: Record<string, T>) =>
+    Object.fromEntries(Object.entries(m).map(([p, v]) => [rewrite(p), v]));
+  const [mode, path] = ui.activeTab.split("|");
+  return {
+    openTabs: ui.openTabs.map((t) => ({ ...t, path: rewrite(t.path) })),
+    activeTab: path ? `${mode}|${rewrite(path)}` : ui.activeTab,
+    sel: rewrite(ui.sel),
+    docs: remap(ui.docs),
+    treeOpen: remap(ui.treeOpen),
+    extOpened: remap(ui.extOpened),
+    bsView: remap(ui.bsView),
+  };
 }
 
 let toastSeq = 0;
@@ -446,6 +491,7 @@ export const useStore = create<State & Actions>((set, get) => ({
   toasts: [],
   ctx: null,
   mk: null,
+  fileRen: null,
   del: null,
   drop: null,
   dragOver: false,
@@ -596,6 +642,7 @@ export const useStore = create<State & Actions>((set, get) => ({
       statusMenuOpen: false,
       ctx: null,
       mk: null,
+      fileRen: null,
       ...(opts?.keepScreen ? {} : { screen: "workspace" as Screen, archOpen: "" }),
       snapAt: hhmm(),
     });
@@ -1023,6 +1070,41 @@ export const useStore = create<State & Actions>((set, get) => ({
     }
   },
 
+  /**
+   * 탐색기에서 고른 파일·폴더의 이름을 바꾼다.
+   *
+   * 자리는 그대로이고 이름만 가는 것이라 백엔드 쪽은 단순하지만, 앱 안에서는 `moveFile`
+   * 과 정확히 같은 일이 벌어진다 — 상대 경로가 달라지므로 그 경로를 키로 들고 있던
+   * 열린 탭 · 미저장 버퍼 · 트리 펼침을 새 경로로 옮겨야 상단 탭 이름까지 함께 바뀐다.
+   */
+  commitFileRename: async () => {
+    const { fileRen, activeFolder } = get();
+    if (!fileRen) return;
+    if (!activeFolder) return set({ fileRen: null });
+    const name = fileRen.name.trim();
+    const current = fileRen.path.replace(/\/$/, "").split("/").pop() ?? "";
+    // 빈 이름이나 그대로인 이름은 취소와 같다 — 굳이 오류로 알릴 것이 없다.
+    if (!name || name === current) return set({ fileRen: null });
+    // 자동 저장은 900ms 뒤에 **경로를 잡아 둔 채** 도는데, 그 사이에 이름이 바뀌면
+    // 없는 키를 찾아 아무것도 하지 않는다. 이름을 바꾸기 전에 먼저 내려쓴다.
+    await get().saveAll();
+    try {
+      const next = await api.renameTaskPath(activeFolder, fileRen.path, name);
+      set({ fileRen: null });
+      get().noteToday(activeFolder);
+      get().setUi(relocateUi(get().ui, fileRen.path, next, fileRen.isDir));
+      // 바뀐 이름은 트리와 탭에 곧바로 나타난다 — 성공은 알리지 않는다.
+      await get().refreshFiles();
+    } catch (e) {
+      set({ fileRen: null });
+      get().toast(
+        api.errKind(e) === "already_exists" ? "이미 있는 이름입니다" : "이름을 바꾸지 못했습니다",
+        api.errMessage(e),
+        TOAST.warn,
+      );
+    }
+  },
+
   askDelete: async (target) => {
     const folder = get().activeFolder;
     try {
@@ -1166,19 +1248,7 @@ export const useStore = create<State & Actions>((set, get) => ({
     try {
       const next = await api.moveTaskPath(activeFolder, rel, dest);
       get().noteToday(activeFolder);
-      const rewrite = (p: string) =>
-        p === rel ? next : isDir && p.startsWith(rel) ? next + p.slice(rel.length) : p;
-      const [mode, path] = ui.activeTab.split("|");
-      get().setUi({
-        openTabs: ui.openTabs.map((t) => ({ ...t, path: rewrite(t.path) })),
-        activeTab: path ? `${mode}|${rewrite(path)}` : ui.activeTab,
-        sel: rewrite(ui.sel),
-        docs: Object.fromEntries(Object.entries(ui.docs).map(([p, d]) => [rewrite(p), d])),
-        treeOpen: Object.fromEntries(Object.entries(ui.treeOpen).map(([p, v]) => [rewrite(p), v])),
-        extOpened: Object.fromEntries(
-          Object.entries(ui.extOpened).map(([p, v]) => [rewrite(p), v]),
-        ),
-      });
+      get().setUi(relocateUi(ui, rel, next, isDir));
       await get().refreshFiles();
     } catch (e) {
       get().fail(e, "옮기지 못했습니다");
@@ -1188,23 +1258,19 @@ export const useStore = create<State & Actions>((set, get) => ({
   /**
    * 업무 리스트에서 `folder` 를 화면상 `at` 번째 자리로 옮긴다.
    *
-   * 프런트는 원하는 최종 순서만 만들어 넘기고 `order` 값 계산은 Rust 가 한다.
-   * **보이는 목록이 아니라 살아 있는 업무 전체**로 순서를 만든다 — 필터나 검색이 걸린
-   * 채로 보이는 것만 넘기면 화면에 없는 업무들의 자리가 조용히 뒤섞인다(사이드바가
-   * 그럴 때 아예 드래그를 막지만, 규칙을 여기서도 지킨다).
+   * 프런트는 원하는 최종 순서만 만들어 넘기고 `order` 값 계산은 Rust 가 한다. 상태
+   * 필터가 걸렸을 때 보이던 목록의 자리를 전체 순서로 옮기는 규칙은 `lib/reorder.ts` 에
+   * 있다 — 순수 함수라 거기서 따로 시험한다.
    */
-  reorderTask: async (folder, at) => {
+  reorderTask: async (folder, at, scope) => {
     const { settings, tasks } = get();
-    const live = tasks.filter((t) => !isArchived(t, settings.archDays));
-    const from = live.findIndex((t) => t.folder === folder);
-    if (from < 0) return;
-    // 자기 자신을 뺀 자리 기준으로 삽입 지점을 다시 센다.
-    const rest = live.filter((t) => t.folder !== folder);
-    const to = Math.max(0, Math.min(at > from ? at - 1 : at, rest.length));
-    if (to === from) return;
-    const next = [...rest.slice(0, to), live[from], ...rest.slice(to)];
+    const live = tasks.filter((t) => !isArchived(t, settings.archDays)).map((t) => t.folder);
+    // 끌고 있는 사이에 보관된 업무가 섞여 들어왔을 수 있다 — 살아 있는 것만 남긴다.
+    const liveSet = new Set(live);
+    const next = reorderedList(live, (scope ?? live).filter((f) => liveSet.has(f)), folder, at);
+    if (!next) return;
     try {
-      set({ tasks: await api.reorderTasks(settings.vault, next.map((t) => t.folder)) });
+      set({ tasks: await api.reorderTasks(settings.vault, next) });
     } catch (e) {
       get().fail(e, "순서를 바꾸지 못했습니다");
     }

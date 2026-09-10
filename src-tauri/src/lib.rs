@@ -261,6 +261,11 @@ fn move_task_path(folder: String, rel: String, target_dir: String) -> Result<Str
 }
 
 #[tauri::command]
+fn rename_task_path(folder: String, rel: String, name: String) -> Result<String> {
+    fsops::rename_path(&p(&folder), &rel, &name)
+}
+
+#[tauri::command]
 fn export_to_desktop(
     app: tauri::AppHandle,
     folder: String,
@@ -619,6 +624,7 @@ pub fn run() {
             delete_task_path,
             import_into_task,
             move_task_path,
+            rename_task_path,
             export_to_desktop,
             load_snapshot,
             save_snapshot,

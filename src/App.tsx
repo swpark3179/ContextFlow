@@ -78,6 +78,7 @@ export default function App() {
         if (st.fileDrag) st.set({ fileDrag: null });
         else if (st.ctx) st.set({ ctx: null });
         else if (st.mk) st.set({ mk: null });
+        else if (st.fileRen) st.set({ fileRen: null });
         else if (st.del) st.set({ del: null });
         else if (st.ow) st.set({ ow: null });
         else if (st.ren) st.set({ ren: null });
