@@ -476,7 +476,10 @@ pub fn create_task(root: &Path, spec: NewTask<'_>) -> Result<TaskMeta> {
         folder = root.join(TASKS_DIR).join(format!("{} ({})", base, n));
         n += 1;
     }
-    fs::create_dir_all(folder.join("attachments"))?;
+    // 빈 폴더도 미리 만들지 않는다. 예전에는 `attachments/` 를 함께 팠지만, 쓰지 않는
+    // 업무에서는 영영 비어 있는 칸이 트리 맨 위를 차지했다. 파일을 그리로 가져오는
+    // 순간 `import_files` 가 만들어 준다 — 필요할 때 생기는 것이 곧 있는 것이다.
+    fs::create_dir_all(&folder)?;
 
     let stamp = now_stamp();
     let id = format!(
@@ -1246,9 +1249,11 @@ mod tests {
 
         let folder = Path::new(&t.folder);
         assert!(folder.join("index.md").is_file());
-        // 기본 노트는 index.md 하나다 — 빈 notes.md 를 되살리지 않는다.
+        // 만들어지는 것은 index.md 하나뿐이다 — 빈 notes.md 도, 빈 attachments/ 도
+        // 미리 파 두지 않는다(템플릿이 담고 있을 때만 생긴다).
         assert!(!folder.join("notes.md").exists());
-        assert!(folder.join("attachments").is_dir());
+        assert!(!folder.join("attachments").exists());
+        assert_eq!(fs::read_dir(folder).unwrap().count(), 1);
         assert!(t.rel_folder.starts_with("Tasks/["));
         assert!(t.rel_folder.ends_with("Tauri 2.0 마이그레이션/"));
 
@@ -1412,7 +1417,7 @@ mod tests {
         assert!(!old.exists(), "old folder should be gone");
         assert_eq!(renamed.title, "새 이름");
         assert!(renamed.rel_folder.ends_with(&format!("{}새 이름/", prefix)));
-        assert!(Path::new(&renamed.folder).join("attachments").is_dir());
+        assert!(Path::new(&renamed.folder).join("index.md").is_file());
         // frontmatter 와 폴더가 함께 움직였는지 스캔으로 되읽어 확인한다.
         let tasks = scan(v.path()).unwrap();
         assert_eq!(tasks.len(), 1);

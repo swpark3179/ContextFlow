@@ -328,6 +328,83 @@ pub fn move_path(folder: &Path, rel: &str, target_dir: &str) -> Result<String> {
     Ok(out)
 }
 
+/// 이름에 쓸 수 없는 글자. Windows 가 막는 것들에 경로 구분자를 더한다 — 여기서 받는
+/// 것은 **이름 하나**이지 경로가 아니다.
+const BAD_NAME_CHARS: &[char] = &['\\', '/', ':', '*', '?', '"', '<', '>', '|'];
+
+/// 업무 폴더 안에서 파일·폴더의 **이름만** 바꾼다. 있던 자리는 그대로다.
+///
+/// 돌려주는 새 상대 경로는 `move_path` 와 같은 규약을 따른다 — 폴더는 `/` 로 끝난다.
+/// 이름을 고쳐 쓰지 않고 **거절하는** 쪽을 고른 이유는, 조용히 다른 이름으로 만들어 두면
+/// 사용자가 적은 이름과 트리에 나타난 이름이 갈라지기 때문이다.
+pub fn rename_path(folder: &Path, rel: &str, new_name: &str) -> Result<String> {
+    // 끝의 점과 공백은 Windows 가 파일 이름에서 잘라 버린다 — 적힌 대로 만들어지지
+    // 않을 이름이라 여기서 미리 다듬는다.
+    let name = new_name.trim().trim_end_matches('.').trim();
+    if name.is_empty() {
+        return Err(AppError::new("invalid", "새 이름이 비어 있습니다"));
+    }
+    if name.contains(BAD_NAME_CHARS) || name.chars().any(|c| (c as u32) < 0x20) {
+        return Err(AppError::new(
+            "invalid_path",
+            r#"이름에 \ / : * ? " < > | 는 쓸 수 없습니다."#,
+        ));
+    }
+    // 점으로 시작하는 이름은 `list_tree` 가 건너뛴다 — 바꾸는 순간 트리에서 사라진다.
+    if name.starts_with('.') {
+        return Err(AppError::new(
+            "invalid_path",
+            "점으로 시작하는 이름은 탐색기에 나타나지 않습니다.",
+        ));
+    }
+
+    let trimmed = rel.trim_end_matches('/');
+    let src = safe_join(folder, trimmed)?;
+    if !src.exists() {
+        return Err(AppError::new("not_found", format!("대상을 찾을 수 없습니다: {}", rel)));
+    }
+    // index.md 는 업무의 메타데이터 노트다. 이름이 바뀌면 `scan` 이 그 업무를 통째로
+    // 놓치므로 삭제·이동과 같은 이유로 막는다.
+    if src.file_name().and_then(|n| n.to_str()) == Some("index.md") && src.parent() == Some(folder) {
+        return Err(AppError::new(
+            "protected",
+            "index.md 는 업무의 메타데이터 노트라 이름을 바꿀 수 없습니다.",
+        ));
+    }
+
+    let current = src
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .ok_or_else(|| AppError::io(format!("이름을 읽을 수 없습니다: {}", rel)))?;
+    if current == name {
+        return Ok(rel.to_string()); // 바뀐 것이 없다
+    }
+    let parent = src
+        .parent()
+        .ok_or_else(|| AppError::io(format!("상위 폴더를 찾을 수 없습니다: {}", rel)))?;
+    let dest = parent.join(name);
+    // 대소문자만 바꾸는 것은 자기 자신을 가리킨다. 대소문자를 구분하지 않는
+    // 파일시스템(Windows)에서는 `exists()` 가 참이 되지만 막을 이유가 없다.
+    if dest.exists() && !current.eq_ignore_ascii_case(name) {
+        return Err(AppError::new(
+            "already_exists",
+            format!("같은 이름이 이미 있습니다: {}", name),
+        ));
+    }
+    let is_dir = src.is_dir();
+    fs::rename(&src, &dest)?;
+
+    let mut out = dest
+        .strip_prefix(folder)
+        .unwrap_or(&dest)
+        .to_string_lossy()
+        .replace('\\', "/");
+    if is_dir {
+        out.push('/');
+    }
+    Ok(out)
+}
+
 /// 업무 폴더 밖(바탕화면)으로 복사하거나 심볼릭 링크를 건다. 링크를 만들 수 없으면
 /// `import_files` 와 같은 이유로 복사로 떨어지고, 그 사실을 함께 돌려준다.
 pub fn export_path(folder: &Path, rel: &str, dest_dir: &Path, mode: &str) -> Result<ExportResult> {
@@ -589,6 +666,67 @@ mod tests {
 
         assert_eq!(move_path(d.path(), "refs/a.md", "refs/").unwrap(), "refs/a.md");
         assert_eq!(fs::read_to_string(d.path().join("refs/a.md")).unwrap(), "내용");
+    }
+
+    #[test]
+    fn rename_keeps_the_entry_where_it_is() {
+        let d = TempDir::new("ren");
+        fs::create_dir_all(d.path().join("refs")).unwrap();
+        fs::write(d.path().join("refs/a.md"), "본문").unwrap();
+
+        assert_eq!(rename_path(d.path(), "refs/a.md", "회의록.md").unwrap(), "refs/회의록.md");
+        assert!(!d.path().join("refs/a.md").exists());
+        assert_eq!(fs::read_to_string(d.path().join("refs/회의록.md")).unwrap(), "본문");
+    }
+
+    #[test]
+    fn rename_reports_folders_with_a_trailing_slash_and_carries_children() {
+        let d = TempDir::new("rendir");
+        fs::create_dir_all(d.path().join("refs/deep")).unwrap();
+        fs::write(d.path().join("refs/deep/b.md"), "b").unwrap();
+
+        assert_eq!(rename_path(d.path(), "refs/", "참고자료").unwrap(), "참고자료/");
+        assert!(d.path().join("참고자료/deep/b.md").is_file());
+        assert!(!d.path().join("refs").exists());
+    }
+
+    #[test]
+    fn rename_onto_an_existing_name_is_refused_not_overwritten() {
+        let d = TempDir::new("renclash");
+        fs::write(d.path().join("a.md"), "새 내용").unwrap();
+        fs::write(d.path().join("b.md"), "이미 있는 내용").unwrap();
+
+        assert_eq!(rename_path(d.path(), "a.md", "b.md").unwrap_err().kind, "already_exists");
+        assert_eq!(fs::read_to_string(d.path().join("a.md")).unwrap(), "새 내용");
+        assert_eq!(fs::read_to_string(d.path().join("b.md")).unwrap(), "이미 있는 내용");
+    }
+
+    #[test]
+    fn rename_refuses_the_index_note_and_unusable_names() {
+        let d = TempDir::new("renguard");
+        fs::write(d.path().join("index.md"), "메타데이터").unwrap();
+        fs::write(d.path().join("a.md"), "본문").unwrap();
+
+        assert_eq!(rename_path(d.path(), "index.md", "메모.md").unwrap_err().kind, "protected");
+        assert!(d.path().join("index.md").is_file());
+
+        // 경로 구분자가 섞이면 이름이 아니라 이동이다 — 여기서는 받지 않는다.
+        assert_eq!(rename_path(d.path(), "a.md", "refs/a.md").unwrap_err().kind, "invalid_path");
+        // 점으로 시작하면 `list_tree` 가 건너뛰어 트리에서 사라진다.
+        assert_eq!(rename_path(d.path(), "a.md", ".hidden.md").unwrap_err().kind, "invalid_path");
+        assert_eq!(rename_path(d.path(), "a.md", "   ").unwrap_err().kind, "invalid");
+        assert!(d.path().join("a.md").is_file());
+    }
+
+    #[test]
+    fn rename_to_the_same_name_is_a_no_op() {
+        let d = TempDir::new("rensame");
+        fs::write(d.path().join("a.md"), "본문").unwrap();
+
+        assert_eq!(rename_path(d.path(), "a.md", "a.md").unwrap(), "a.md");
+        // 끝의 점과 공백은 Windows 가 어차피 잘라낸다 — 같은 이름으로 본다.
+        assert_eq!(rename_path(d.path(), "a.md", " a.md. ").unwrap(), "a.md");
+        assert_eq!(fs::read_to_string(d.path().join("a.md")).unwrap(), "본문");
     }
 
     #[test]

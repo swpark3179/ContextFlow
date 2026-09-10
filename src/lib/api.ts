@@ -197,6 +197,9 @@ export const importIntoTask = (
 /** 업무 폴더 안에서 옮긴다. 새 상대 경로를 돌려주며, 폴더는 입력과 같이 `/` 로 끝난다. */
 export const moveTaskPath = (folder: string, rel: string, targetDir: string) =>
   invoke<string>("move_task_path", { folder, rel, targetDir });
+/** 업무 폴더 안에서 이름만 바꾼다. 새 상대 경로를 돌려주며, 폴더는 `/` 로 끝난다. */
+export const renameTaskPath = (folder: string, rel: string, name: string) =>
+  invoke<string>("rename_task_path", { folder, rel, name });
 export const exportToDesktop = (folder: string, rel: string, mode: string) =>
   invoke<ExportResult>("export_to_desktop", { folder, rel, mode });
 

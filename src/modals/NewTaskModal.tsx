@@ -244,9 +244,9 @@ export default function NewTaskModal() {
               >
                 {folderPreview}
                 <br />
-                &nbsp;&nbsp;├── index.md
-                <br />
-                &nbsp;&nbsp;{tplFolder || ntRefs.length ? "├" : "└"}── attachments/
+                {/* 만들어지는 것은 index.md 하나뿐이다 — 빈 attachments/ 를 미리 파 두지
+                    않는다. 파일이 들어오는 순간 그 폴더가 생긴다. */}
+                &nbsp;&nbsp;{tplFolder || ntRefs.length ? "├" : "└"}── index.md
                 {tplFolder && (
                   <>
                     <br />

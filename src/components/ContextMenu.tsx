@@ -60,6 +60,26 @@ export default function ContextMenu() {
     },
   };
 
+  // index.md 는 업무의 메타데이터 노트라 이름을 바꿀 수 없다(fsops::rename_path).
+  // 눌러도 실패할 항목은 회색으로 남기지 않고 아예 빼 둔다 — 이 메뉴의 규칙이다.
+  const canRename = ctx.path !== "index.md";
+
+  const rename: Item = {
+    key: "ren",
+    label: "이름 바꾸기",
+    hint: ctx.isDir ? "폴더" : "열린 탭도 함께",
+    badge: "✎",
+    badgeFg: "#2f5cbb",
+    badgeBg: "#eef3fd",
+    sep: true,
+    run: () =>
+      s.set({
+        ctx: null,
+        mk: null,
+        fileRen: { path: ctx.path, name: ctx.name, isDir: ctx.isDir },
+      }),
+  };
+
   const del: Item = {
     key: "del",
     label: `${ctx.isDir ? "폴더" : "파일"} 삭제`,
@@ -67,9 +87,13 @@ export default function ContextMenu() {
     badge: "✕",
     badgeFg: "#a83c3c",
     badgeBg: "#fceceb",
-    sep: true,
+    // 이름 바꾸기와 한 무리다 — 둘 다 이 항목 자체를 건드리는 일이라 선은 위에 하나뿐이다.
+    sep: !canRename,
     run: () => void s.askDelete(ctx),
   };
+
+  /** 항목 자체를 바꾸는 일들. 메뉴의 맨 끝에 붙는다. */
+  const editItems: Item[] = canRename ? [rename, del] : [del];
 
   // 드래그로 창 밖에 놓아도 같은 일을 하지만, 그쪽은 놓은 위치를 OS 에 물을 수 없어
   // 언제나 바탕화면으로 간다. 여기가 그 동작의 분명한 이름표다.
@@ -154,7 +178,7 @@ export default function ContextMenu() {
         },
         copyPath,
         ...toDesktop,
-        del,
+        ...editItems,
       ]
     : [
         // 쓸 수 없는 열기 방식은 회색으로 남기지 않고 **아예 빼 둔다** — 목록이 짧을수록
@@ -253,7 +277,7 @@ export default function ContextMenu() {
         },
         copyPath,
         ...toDesktop,
-        del,
+        ...editItems,
       ];
 
   return (

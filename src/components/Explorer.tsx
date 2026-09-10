@@ -33,6 +33,120 @@ const MK_CHIP: Record<MkState["kind"], { label: string; fg: string; bg: string; 
   },
 };
 
+/** 확장자를 뺀 앞부분의 길이. 폴더와 확장자 없는 파일은 이름 전체가 앞부분이다. */
+function stemLength(name: string, isDir: boolean): number {
+  if (isDir) return name.length;
+  if (name.toLowerCase().endsWith(BSTORM_EXT)) return name.length - BSTORM_EXT.length;
+  const dot = name.lastIndexOf(".");
+  // 맨 앞의 점은 확장자가 아니라 숨김 파일의 표시다.
+  return dot > 0 ? dot : name.length;
+}
+
+/**
+ * 트리 안에서 바로 이름을 고치는 행. 대화상자를 띄우지 않는 이유는 바꾸는 것이 **그
+ * 자리에 보이는 이름 하나**여서다 — 새로 만들 때(`mk`)와 같은 모양을 쓴다.
+ *
+ * 열리는 순간 이름 전체를 채워 두고 **확장자를 뺀 앞부분만** 고른다. 전체를 채워야
+ * 확장자가 실수로 날아가지 않고(이름을 적으면 `.md` 를 붙여 주는 새 파일 만들기와 달리
+ * 이름 바꾸기는 적은 그대로 만든다), 앞부분만 골라 두어야 바로 타이핑해 갈아 끼울 수 있다.
+ */
+function RenameRow({ pad }: { pad: number }) {
+  const s = useStore();
+  const ren = s.fileRen;
+  const input = useRef<HTMLInputElement | null>(null);
+  const current = (ren?.path ?? "").replace(/\/$/, "").split("/").pop() ?? "";
+
+  useEffect(() => {
+    const el = input.current;
+    if (!el) return;
+    el.focus();
+    el.setSelectionRange(0, stemLength(current, !!ren?.isDir));
+    // 이 행은 이름을 고치는 동안에만 붙어 있다 — 붙는 순간 한 번만 고르면 된다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (!ren) return null;
+  const es = ren.isDir ? { label: "DIR", fg: "#8f5d17", bg: "#fbf3e6" } : badgeFor(ren.path);
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 6,
+        height: 26,
+        marginBottom: 1,
+        paddingRight: 5,
+        paddingLeft: pad,
+        border: "1px solid #cddcf8",
+        borderRadius: 4,
+        background: "#f7fafe",
+      }}
+    >
+      <span
+        style={{
+          flex: "0 0 auto",
+          fontFamily: "'Roboto Mono',monospace",
+          fontSize: 8.5,
+          fontWeight: 600,
+          color: es.fg,
+          background: es.bg,
+          borderRadius: 2,
+          padding: "1px 3px",
+        }}
+      >
+        {es.label}
+      </span>
+      <input
+        ref={input}
+        value={ren.name}
+        onChange={(e) => s.set({ fileRen: { ...ren, name: e.target.value } })}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") void s.commitFileRename();
+          else if (e.key === "Escape") s.set({ fileRen: null });
+        }}
+        style={{
+          flex: 1,
+          minWidth: 0,
+          border: 0,
+          outline: "none",
+          background: "transparent",
+          fontFamily: "'Roboto Mono',monospace",
+          fontSize: 12,
+          color: "#23211e",
+        }}
+      />
+      <Box
+        onClick={() => void s.commitFileRename()}
+        style={{
+          flex: "0 0 auto",
+          fontSize: 11,
+          fontWeight: 600,
+          color: "#2f5cbb",
+          cursor: "pointer",
+          padding: "2px 5px",
+          borderRadius: 3,
+        }}
+        hover={{ background: "#e2ebfb" }}
+      >
+        바꾸기
+      </Box>
+      <div
+        onClick={() => s.set({ fileRen: null })}
+        style={{
+          flex: "0 0 auto",
+          fontSize: 11,
+          color: "#a09a8f",
+          cursor: "pointer",
+          padding: "2px 4px",
+        }}
+      >
+        취소
+      </div>
+    </div>
+  );
+}
+
 export default function Explorer() {
   const s = useStore();
   const { ui, files, activeFolder } = s;
@@ -138,7 +252,8 @@ export default function Explorer() {
     const parent =
       dir ?? (ui.sel ? ui.sel.split("/").slice(0, -1).join("/") : "");
     s.set({ mk: { kind, parent: parent ? parent.replace(/\/?$/, "/") : "", name: "" } });
-    s.set({ explorerMin: false });
+    // 인라인 편집기는 한 번에 하나다 — 만들기를 열면 고치던 이름은 접는다.
+    s.set({ explorerMin: false, fileRen: null });
   };
 
   const collapseAll = () => {
@@ -461,6 +576,9 @@ export default function Explorer() {
         {rows.map((r) => {
           const pad = 6 + r.depth * 13;
           const dropInto = drag && (drag.over ?? "") === (r.kind === "dir" ? r.path : dirname(r.path));
+          // 이름을 고치는 중이면 그 행 자리에 입력칸이 들어선다 — 어느 항목을 고치고
+          // 있는지가 트리 안의 자리로 그대로 드러난다.
+          if (s.fileRen?.path === r.path) return <RenameRow key={`r${r.path}`} pad={pad} />;
           if (r.kind === "dir") {
             return (
               <Box
@@ -469,6 +587,9 @@ export default function Explorer() {
                 onPointerDown={(e) => startPress(e, { path: r.path, name: r.name, isDir: true })}
                 onClick={() => {
                   if (justDropped()) return;
+                  // 다른 행을 누르면 고치던 이름은 접는다 — 접힌 폴더 안에 입력칸만
+                  // 남아 보이지 않게 되는 것을 막는다.
+                  if (s.fileRen) s.set({ fileRen: null });
                   s.setUi({
                     treeOpen: { ...ui.treeOpen, [r.path]: ui.treeOpen[r.path] === false },
                   });
@@ -557,7 +678,7 @@ export default function Explorer() {
               onClick={() => {
                 if (justDropped()) return;
                 s.setUi({ sel: r.path });
-                s.set({ ctx: null });
+                s.set({ ctx: null, fileRen: null });
               }}
               onDoubleClick={() => void s.defaultOpen(r.path, r.bin)}
               onContextMenu={(e) => {
@@ -797,7 +918,7 @@ export default function Explorer() {
             </span>
           </div>
           <div style={{ fontSize: 10.5, color: "#b5afa2", marginTop: -1, lineHeight: 1.6 }}>
-            더블클릭 = 기본 열기 · 우클릭 = 열기 방식 메뉴
+            더블클릭 = 기본 열기 · 우클릭 = 열기 방식 · 이름 바꾸기
             <br />
             길게 누르면 = 옮기기 · 창 밖으로 = 바탕화면 (Alt = 링크)
           </div>
