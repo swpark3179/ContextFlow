@@ -260,9 +260,52 @@ pub(crate) fn copy_recursive(src: &Path, dest: &Path) -> Result<()> {
     Ok(())
 }
 
+/// 옮기기가 막혔을 때 **왜** 막혔는지 짚어 본다 — 다른 프로그램이 쥐고 있는 파일들의
+/// `root` 기준 상대 경로를 `limit` 개까지 돌려준다.
+///
+/// Windows 는 열려 있는 파일을 쥔 채로는 그 파일도, 그것을 담은 폴더도 옮기지 못한다
+/// (공유 위반). 그것이 사용자가 손쓸 수 있는 거의 유일한 사유이므로, "옮길 수 없습니다"
+/// 로 끝내지 않고 **어느 파일을 닫아야 하는지**까지 말해 준다. 쓰기로 열어 보는 것이
+/// 그 판정이고, 열렸으면 아무것도 쓰지 않고 곧바로 닫는다(`write(true)` 는 자르지 않는다).
+///
+/// **실패한 뒤에만** 부른다. 미리 훑어 막는 데 쓰면 읽기 전용 속성처럼 이동과 무관한
+/// 것까지 걸려 멀쩡한 조작을 막는다. 강제 락이 없는 Unix 에서는 보통 빈 목록이고,
+/// 그래도 부르는 쪽이 OS 오류 메시지를 함께 싣기 때문에 사유가 비지는 않는다.
+pub(crate) fn busy_files(root: &Path, limit: usize) -> Vec<String> {
+    let probe = |path: &Path| -> bool {
+        match fs::OpenOptions::new().write(true).open(path) {
+            Ok(_) => false,
+            // 이미 없는 파일은 이동을 막는 이유가 아니다.
+            Err(e) => e.kind() != std::io::ErrorKind::NotFound,
+        }
+    };
+
+    if root.is_file() {
+        let name = root.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        return if probe(root) { vec![name] } else { Vec::new() };
+    }
+
+    let mut out = Vec::new();
+    for e in walkdir::WalkDir::new(root).min_depth(1).into_iter().flatten() {
+        if out.len() >= limit {
+            break;
+        }
+        if e.file_type().is_file() && probe(e.path()) {
+            out.push(
+                e.path()
+                    .strip_prefix(root)
+                    .unwrap_or(e.path())
+                    .to_string_lossy()
+                    .replace('\\', "/"),
+            );
+        }
+    }
+    out
+}
+
 /// First free `dir/name`, appending ` (2)`, ` (3)`… before the extension.
 /// Shared by every write that must not clobber an existing entry.
-fn unique_dest(dir: &Path, name: &str) -> PathBuf {
+pub(crate) fn unique_dest(dir: &Path, name: &str) -> PathBuf {
     let mut dest = dir.join(name);
     if !dest.exists() {
         return dest;

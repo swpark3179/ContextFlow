@@ -276,6 +276,46 @@ export default function Workspace() {
                 <span style={{ flex: 1 }}>지금 보관함으로</span>
                 <span style={{ fontSize: 11, color: "#a09a8f" }}>목록에서 숨김</span>
               </Box>
+              {/* 업무의 경계를 다시 그리는 두 항목. 상태를 바꾸는 것도 보관하는 것도
+                  아니라 **폴더를 옮기는** 일이라, 선 하나를 두고 아래에 모아 둔다. */}
+              <div style={{ height: 1, background: "#f0ede7", margin: "3px 0" }} />
+              <Box
+                onClick={() => void s.openAbsorb(task.folder)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "6px 8px",
+                  borderRadius: 4,
+                  cursor: "pointer",
+                  fontSize: 12.5,
+                  color: "#3a3630",
+                }}
+                hover={{ background: "#f2efe9" }}
+              >
+                <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#6a54c6" }} />
+                <span style={{ flex: 1 }}>다른 업무에 편입…</span>
+                <span style={{ fontSize: 11, color: "#a09a8f" }}>하위 폴더로</span>
+              </Box>
+              <Box
+                onClick={() => void s.openSplit(task.folder)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "6px 8px",
+                  borderRadius: 4,
+                  cursor: "pointer",
+                  fontSize: 12.5,
+                  color: "#3a3630",
+                }}
+                hover={{ background: "#f2efe9" }}
+              >
+                <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#6a54c6" }} />
+                <span style={{ flex: 1 }}>업무 분할…</span>
+                <span style={{ fontSize: 11, color: "#a09a8f" }}>새 업무로</span>
+              </Box>
+              <div style={{ height: 1, background: "#f0ede7", margin: "3px 0" }} />
               <Box
                 onClick={() => {
                   s.set({ statusMenuOpen: false });

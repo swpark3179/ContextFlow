@@ -174,6 +174,46 @@ export const setTaskArchived = (
 ) => invoke<TaskMeta>("set_task_archived", { root, folder, archived, mode, reopen });
 export const mergeTasks = (root: string, primary: string, sources: string[], mode: string) =>
   invoke<TaskMeta>("merge_tasks", { root, primary, sources, mode });
+
+export interface AbsorbResult {
+  /** 편입을 받은 업무의 새 메타데이터. */
+  task: TaskMeta;
+  /** 편입된 폴더의 **받는 업무 폴더 기준** 상대 경로 — 폴더이므로 `/` 로 끝난다. */
+  rel: string;
+  /** 편입된 업무의 제목. */
+  title: string;
+}
+
+/**
+ * 업무 하나를 다른 업무의 하위 폴더로 옮긴다(편입). `name` 을 생략하면 원본 폴더
+ * 이름 그대로 들어간다. 실패하면 아무것도 옮기지 않고, 사유에 막은 파일 이름이 실린다.
+ */
+export const absorbTask = (
+  root: string,
+  source: string,
+  target: string,
+  name?: string | null,
+) => invoke<AbsorbResult>("absorb_task", { root, source, target, name: name ?? null });
+
+export interface SplitResult {
+  /** 갈라져 나온 새 업무. */
+  task: TaskMeta;
+  /** 실제로 옮겨진 최상위 항목들. 폴더는 `/` 로 끝난다. */
+  moved: string[];
+}
+
+/**
+ * 업무를 둘로 나눈다 — 고른 **최상위** 항목을 새 업무로 옮긴다. 폴더를 고르면 그 아래는
+ * 통째로 따라온다. 하나라도 실패하면 옮긴 것을 되돌린 뒤 오류가 온다.
+ */
+export const splitTask = (
+  root: string,
+  source: string,
+  title: string,
+  summary: string,
+  tags: string[],
+  items: string[],
+) => invoke<SplitResult>("split_task", { root, source, title, summary, tags, items });
 /**
  * 업무 폴더를 통째로 지운다. 파일을 하나도 붙이지 않은 업무를 완료했을 때만 부르며,
  * 제목과 내용은 그 전에 오늘의 한일에 적어 둔다(`useStore.logAndDiscard`).

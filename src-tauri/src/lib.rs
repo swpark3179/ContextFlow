@@ -195,6 +195,44 @@ fn discard_task(root: String, folder: String) -> Result<()> {
     vault::discard_task(&p(&root), &p(&folder))
 }
 
+/// 업무 하나를 다른 업무의 하위 폴더로 옮긴다(편입). `name` 이 비면 원본 폴더 이름 그대로다.
+#[tauri::command]
+fn absorb_task(
+    root: String,
+    source: String,
+    target: String,
+    name: Option<String>,
+) -> Result<vault::AbsorbResult> {
+    vault::absorb_task(
+        &p(&root),
+        &p(&source),
+        &p(&target),
+        name.as_deref().filter(|n| !n.trim().is_empty()),
+    )
+}
+
+/// 고른 최상위 파일·폴더를 새 업무로 옮긴다(분할). 실패하면 아무것도 옮기지 않는다.
+#[tauri::command]
+fn split_task(
+    root: String,
+    source: String,
+    title: String,
+    summary: String,
+    tags: Vec<String>,
+    items: Vec<String>,
+) -> Result<vault::SplitResult> {
+    vault::split_task(
+        &p(&root),
+        &p(&source),
+        vault::SplitTask {
+            title: &title,
+            summary: &summary,
+            tags: &tags,
+            items: &items,
+        },
+    )
+}
+
 #[tauri::command]
 fn merge_tasks(
     root: String,
@@ -624,6 +662,8 @@ pub fn run() {
             clear_task_order,
             set_task_archived,
             merge_tasks,
+            absorb_task,
+            split_task,
             discard_task,
             read_text_file,
             write_text_file,

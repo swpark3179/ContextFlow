@@ -749,6 +749,314 @@ pub fn discard_task(root: &Path, folder: &Path) -> Result<()> {
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// 업무 편입 · 업무 분할
+//
+// 둘 다 **폴더를 옮기는 일**이다. 노트를 섞거나 파일을 합치지 않는다 — 업무의 경계가
+// 폴더 경계와 같다는 이 앱의 규칙을 그대로 쓰면, 편입은 폴더 하나를 남의 업무 안으로
+// 옮기는 것이고 분할은 고른 몇 개를 새 업무 폴더로 옮기는 것이 전부다.
+//
+// 그래서 실패 조건도 하나로 모인다: `fs::rename` 이 막히는 경우다. 가장 흔한 것이 파일
+// 락이고(Windows 는 열려 있는 파일을 담은 폴더도 옮기지 못한다), 그때는 "실패했다" 로
+// 끝내지 않고 어느 파일을 닫아야 하는지까지 사유에 싣는다(`move_error`).
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AbsorbResult {
+    /// 편입을 받은 업무의 새 메타데이터.
+    pub task: TaskMeta,
+    /// 편입된 폴더의 **받는 업무 폴더 기준** 상대 경로. `list_tree` 와 같은 규약이라
+    /// 폴더이므로 `/` 로 끝난다 — 프런트가 트리에서 그 자리를 펼쳐 보여 준다.
+    pub rel: String,
+    /// 편입된 업무의 제목. 토스트와 오늘의 한일이 쓴다.
+    pub title: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SplitResult {
+    /// 갈라져 나온 새 업무.
+    pub task: TaskMeta,
+    /// 실제로 옮겨진 최상위 항목들. 폴더는 `/` 로 끝난다.
+    pub moved: Vec<String>,
+}
+
+/// `scan` 이 업무로 세는 자리인지 확인한다 — `Tasks/` 의 직계 자식이거나
+/// `Archive/<연도>/` 아래이고, `index.md` 를 들고 있어야 한다.
+///
+/// `discard_task` 와 같은 방식의 검사다. 절대 경로를 받으므로 `fsops::safe_join` 을
+/// 쓸 수 없고(그쪽은 상대 경로용이다), 이 검사 하나가 Vault 바깥 · 템플릿 · Vault
+/// 루트 자신을 한꺼번에 막는다.
+fn ensure_task_folder(root: &Path, folder: &Path, what: &str) -> Result<()> {
+    let tasks_dir = root.join(TASKS_DIR);
+    let archive_dir = root.join(ARCHIVE_DIR);
+    let parent = folder.parent();
+    let placed = parent == Some(tasks_dir.as_path())
+        || parent.and_then(|p| p.parent()).map(|p| p == archive_dir.as_path()).unwrap_or(false);
+    if !placed {
+        return Err(AppError::new(
+            "invalid_path",
+            format!("{}이 Vault 의 업무 폴더가 아닙니다: {}", what, folder.display()),
+        ));
+    }
+    if !folder.join("index.md").is_file() {
+        return Err(AppError::new(
+            "invalid_path",
+            format!("{}에 index.md 가 없어 업무로 볼 수 없습니다: {}", what, folder.display()),
+        ));
+    }
+    Ok(())
+}
+
+/// 옮기기가 막혔을 때의 오류. OS 가 준 사유에 **쥐고 있는 파일 이름**을 덧붙인다 —
+/// 파일을 닫는 것은 사용자가 할 수 있는 일이고, 이름이 보이지 않으면 무엇을 닫아야
+/// 할지 알 수 없다.
+fn move_error(what: impl Into<String>, src: &Path, e: std::io::Error) -> AppError {
+    let busy = crate::fsops::busy_files(src, 3);
+    let message = format!("{}: {}", what.into(), e);
+    if busy.is_empty() {
+        // OS 오류의 종류 분류는 `AppError::from` 이 이미 갖고 있다 — 문구만 우리 것을 쓴다.
+        return AppError::new(&AppError::from(e).kind, message);
+    }
+    // "열어 둔" 이라고 단정하지 않는다 — 읽기 전용 속성처럼 이동과 무관한 이유로도
+    // 쓰기가 막힐 수 있고, 그때는 이 이름이 진짜 원인이 아니다. 짚어 볼 곳을 주는 것이
+    // 이 목록의 몫이다.
+    AppError::new(
+        "locked",
+        format!("{} · 열려 있거나 쓰기가 막힌 파일: {}", message, busy.join(" · ")),
+    )
+}
+
+/// 업무 하나를 다른 업무의 **하위 폴더로** 옮긴다(편입).
+///
+/// 옮겨진 폴더는 더 이상 업무가 아니다 — `scan` 은 `Tasks/` 를 한 단계만 보므로 업무
+/// 리스트에서 조용히 사라지고, 파일은 전부 받는 업무 안에 그대로 있다. 그 사실은 노트에도
+/// 남는다: 편입된 `index.md` 의 `parent_task` 에 받는 업무의 id 가 적히고(스키마에 처음부터
+/// 있던 자리다) 양쪽 Run Log 에 한 줄씩 기록된다.
+///
+/// **실패하면 아무것도 옮기지 않는다.** 옮기기가 `fs::rename` 한 번이라 절반만 옮겨진
+/// 상태 자체가 없다.
+///
+/// `name` 은 받는 업무 안에서 쓸 폴더 이름이다. 비워 두면 원본 폴더 이름 그대로 간다 —
+/// 편입은 옮기는 일이고, 이름까지 바꾸면 Obsidian 에서 찾던 이름이 사라진다.
+pub fn absorb_task(
+    root: &Path,
+    source: &Path,
+    target: &Path,
+    name: Option<&str>,
+) -> Result<AbsorbResult> {
+    ensure_task_folder(root, source, "편입할 업무")?;
+    ensure_task_folder(root, target, "받는 업무")?;
+    if source == target {
+        return Err(AppError::new("invalid", "같은 업무에는 편입할 수 없습니다."));
+    }
+    if target.starts_with(source) {
+        return Err(AppError::new("invalid", "자기 안에 있는 업무에는 편입할 수 없습니다."));
+    }
+
+    let source_meta = read_task(root, &source.join("index.md"))?;
+    let target_meta = read_task(root, &target.join("index.md"))?;
+
+    let fallback = source
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| source_meta.title.clone());
+    let wanted =
+        sanitize_name(name.map(str::trim).filter(|n| !n.is_empty()).unwrap_or(&fallback));
+    let dest = crate::fsops::unique_dest(target, &wanted);
+
+    fs::rename(source, &dest).map_err(|e| {
+        move_error(format!("'{}' 을(를) 옮길 수 없습니다", source_meta.title), source, e)
+    })?;
+
+    let stamp = now_stamp();
+    // 편입된 노트에 부모를 적는다. 위키링크가 아니라 id 를 쓰는 이유는 업무 폴더 이름에
+    // `[2026-08] ` 접두사가 있어 `[[...]]` 안에 넣으면 링크가 깨지기 때문이다.
+    // 이 쓰기가 실패해도 편입 자체를 물릴 수는 없다 — 파일은 이미 옮겨졌고, 되돌리면
+    // 그것이 더 큰 사고다. 사유만 남기고 지나간다.
+    if let Err(e) = edit_index_inner(root, &dest, true, |doc| {
+        doc.set("parent_task", &target_meta.id);
+        // `order` 는 업무 리스트의 자리다 — 목록에 서지 않는 노트가 들고 있을 값이 아니다.
+        doc.remove("order");
+        record_run(doc, &stamp, &format!("'{}' 에 편입", target_meta.title));
+    }) {
+        eprintln!("[vault] 편입된 노트를 갱신하지 못했습니다: {}", e);
+    }
+
+    let task = edit_index(root, target, |doc| {
+        record_run(doc, &stamp, &format!("업무 편입: {}", source_meta.title));
+    })?;
+
+    let mut rel = rel_of(target, &dest);
+    if !rel.ends_with('/') {
+        rel.push('/');
+    }
+    Ok(AbsorbResult { task, rel, title: source_meta.title })
+}
+
+pub struct SplitTask<'a> {
+    pub title: &'a str,
+    pub summary: &'a str,
+    pub tags: &'a [String],
+    /// 옮길 **최상위** 항목의 이름들. 폴더는 `/` 로 끝나도 되고 아니어도 된다.
+    pub items: &'a [String],
+}
+
+/// 고른 항목 이름을 검사해 다듬는다. 최상위 이름 하나씩이어야 하고, 실제로 있어야 하며,
+/// `index.md` 와 점으로 시작하는 이름(스냅샷 파일)은 받지 않는다.
+///
+/// 새 업무를 만들기 **전에** 전부 검사한다 — 거절될 요청 때문에 빈 업무 폴더가 목록에
+/// 남으면 사용자가 손으로 지워야 한다.
+fn check_items(source: &Path, items: &[String]) -> Result<Vec<String>> {
+    if items.is_empty() {
+        return Err(AppError::new("invalid", "옮길 항목을 하나 이상 고르세요."));
+    }
+    let mut out: Vec<String> = Vec::new();
+    for raw in items {
+        let name = raw.replace('\\', "/").trim_end_matches('/').to_string();
+        if name.is_empty() || name.contains('/') || name == "." || name == ".." {
+            return Err(AppError::new(
+                "invalid_path",
+                format!("최상위 항목만 옮길 수 있습니다: {}", raw),
+            ));
+        }
+        if name == "index.md" {
+            return Err(AppError::new(
+                "protected",
+                "index.md 는 업무의 메타데이터 노트라 옮길 수 없습니다.",
+            ));
+        }
+        if name.starts_with('.') {
+            return Err(AppError::new(
+                "protected",
+                format!("점으로 시작하는 항목은 옮길 수 없습니다: {}", name),
+            ));
+        }
+        if !source.join(&name).exists() {
+            return Err(AppError::new("not_found", format!("대상을 찾을 수 없습니다: {}", name)));
+        }
+        if out.contains(&name) {
+            return Err(AppError::new("invalid", format!("같은 항목이 두 번 들어왔습니다: {}", name)));
+        }
+        out.push(name);
+    }
+    Ok(out)
+}
+
+/// 옮긴 것을 되돌려 놓고, 되돌리지 못한 것이 있으면 그 사실을 사유에 덧붙인다.
+///
+/// 되돌리기까지 실패한 파일이 어디 있는지는 반드시 말해야 한다 — 원본 업무에서 사라진
+/// 파일을 새 업무 폴더에서 찾을 수 있다는 것을 모르면 잃어버린 것으로 보인다.
+fn rollback_items(source: &Path, dest: &Path, done: &[String], err: AppError) -> AppError {
+    let mut stuck: Vec<String> = Vec::new();
+    for name in done {
+        if fs::rename(dest.join(name), source.join(name)).is_err() {
+            stuck.push(name.clone());
+        }
+    }
+    if stuck.is_empty() {
+        return err;
+    }
+    let message = format!(
+        "{} · 되돌리지 못한 항목이 새 업무 폴더에 남았습니다: {}",
+        err.message,
+        stuck.join(" · ")
+    );
+    AppError::new(&err.kind, message)
+}
+
+/// 고른 항목들을 새 업무 폴더로 옮긴다. **하나라도 실패하면 옮긴 것을 되돌려 놓고**
+/// 오류를 낸다 — 절반만 나뉜 업무는 어느 쪽에서도 온전하지 않다.
+///
+/// 돌려주는 이름은 `list_tree` 규약을 따른다(폴더는 `/` 로 끝난다). 프런트가 옮겨 간
+/// 경로를 가리키던 탭과 미저장 버퍼를 그 이름으로 걷어내기 때문이다.
+fn move_items(source: &Path, dest: &Path, names: &[String]) -> Result<Vec<String>> {
+    let mut done: Vec<String> = Vec::new();
+    for name in names {
+        let from = source.join(name);
+        let to = dest.join(name);
+        // 갓 만든 업무 폴더에는 `index.md` 하나뿐이라 사실상 오지 않는 길이다.
+        if to.exists() {
+            let err = AppError::new(
+                "already_exists",
+                format!("새 업무에 같은 이름이 이미 있습니다: {}", name),
+            );
+            return Err(rollback_items(source, dest, &done, err));
+        }
+        if let Err(e) = fs::rename(&from, &to) {
+            let err = move_error(format!("'{}' 을(를) 옮길 수 없습니다", name), &from, e);
+            return Err(rollback_items(source, dest, &done, err));
+        }
+        done.push(name.clone());
+    }
+    Ok(done
+        .iter()
+        .map(|n| if dest.join(n).is_dir() { format!("{}/", n) } else { n.clone() })
+        .collect())
+}
+
+/// 되돌리기가 끝난 새 업무 폴더에 `index.md` 밖에 없는가.
+///
+/// 실패한 분할이 남긴 빈 업무를 지워도 되는지 가르는 값이다. 되돌리지 못한 파일이 남아
+/// 있으면 지우지 않는다 — 그것을 지우는 것은 정리가 아니라 파일 삭제다.
+fn only_index(folder: &Path) -> bool {
+    match fs::read_dir(folder) {
+        Ok(entries) => entries.flatten().all(|e| e.file_name() == "index.md"),
+        Err(_) => false,
+    }
+}
+
+/// 업무 하나를 둘로 나눈다 — 고른 **최상위** 파일·폴더를 새 업무로 옮긴다.
+///
+/// 폴더를 고르면 그 아래는 통째로 따라온다(옮기는 것이 폴더 하나이므로 저절로 그렇다).
+/// 복사가 아니라 이동이라서, 끝난 뒤 같은 파일이 두 업무에 있는 일은 없다.
+///
+/// 실패하면 **아무것도 옮기지 않은 상태**로 돌아간다. 새 업무 폴더까지 치우므로 목록에
+/// 빈 업무가 남지 않는다(되돌리지 못한 파일이 있으면 그 폴더는 남기고 사유에 적는다).
+pub fn split_task(root: &Path, source: &Path, spec: SplitTask<'_>) -> Result<SplitResult> {
+    ensure_task_folder(root, source, "분할할 업무")?;
+    if spec.title.trim().is_empty() {
+        return Err(AppError::new("invalid", "새 업무 제목이 비어 있습니다."));
+    }
+    let names = check_items(source, spec.items)?;
+    let source_meta = read_task(root, &source.join("index.md"))?;
+
+    let created = create_task(
+        root,
+        NewTask {
+            title: spec.title,
+            summary: spec.summary,
+            tags: spec.tags,
+            template: None,
+        },
+    )?;
+    let dest = PathBuf::from(&created.folder);
+
+    let moved = match move_items(source, &dest, &names) {
+        Ok(moved) => moved,
+        Err(e) => {
+            if only_index(&dest) {
+                let _ = fs::remove_dir_all(&dest);
+            }
+            return Err(e);
+        }
+    };
+
+    let stamp = now_stamp();
+    let n = moved.len();
+    let task = edit_index(root, &dest, |doc| {
+        record_run(doc, &stamp, &format!("업무 분할: '{}' 에서 {}개 항목", source_meta.title, n));
+    })?;
+    // 원본 쪽 기록이 실패해도 분할은 이미 끝났다 — 물리면 파일이 다시 오갈 뿐이다.
+    if let Err(e) = edit_index(root, source, |doc| {
+        record_run(doc, &stamp, &format!("업무 분할: '{}' 로 {}개 항목 이동", task.title, n));
+    }) {
+        eprintln!("[vault] 분할한 원본 노트를 갱신하지 못했습니다: {}", e);
+    }
+    Ok(SplitResult { task, moved })
+}
+
 /// Folds `sources` into `primary`: their Run Log lines move into the primary
 /// note and the source folders are archived (never deleted).
 pub fn merge_tasks(root: &Path, primary: &Path, sources: &[PathBuf], mode: &str) -> Result<TaskMeta> {
@@ -1719,5 +2027,277 @@ mod tests {
 
         discard_task(v.path(), &folder).unwrap();
         assert!(!folder.exists());
+    }
+
+    // -- 업무 편입 -----------------------------------------------------------
+
+    #[test]
+    fn absorbing_moves_the_whole_folder_under_the_target() {
+        let v = TempVault::new("absorb");
+        let child = make(v.path(), "결제 모듈 점검");
+        let parent = make(v.path(), "3분기 인프라 정비");
+        let child_folder = PathBuf::from(&child.folder);
+        fs::create_dir_all(child_folder.join("attachments/로그")).unwrap();
+        fs::write(child_folder.join("attachments/로그/error.log"), "stack trace").unwrap();
+        fs::write(child_folder.join("점검표.md"), "- [ ] 카드사 응답 확인").unwrap();
+
+        let res = absorb_task(v.path(), &child_folder, Path::new(&parent.folder), None).unwrap();
+
+        // 폴더 하나가 통째로 옮겨 갔다 — 파일을 합치거나 지우지 않는다.
+        assert!(!child_folder.exists(), "원본 자리에는 아무것도 남지 않는다");
+        let moved = Path::new(&parent.folder).join(child_folder.file_name().unwrap());
+        assert!(moved.join("index.md").is_file());
+        assert_eq!(
+            fs::read_to_string(moved.join("attachments/로그/error.log")).unwrap(),
+            "stack trace"
+        );
+        assert!(moved.join("점검표.md").is_file());
+        assert_eq!(res.rel, format!("{}/", child_folder.file_name().unwrap().to_string_lossy()));
+        assert_eq!(res.title, "결제 모듈 점검");
+
+        // 업무 리스트에는 받는 업무 하나만 남는다 — `scan` 은 Tasks/ 를 한 단계만 본다.
+        let titles: Vec<String> = scan(v.path()).unwrap().into_iter().map(|t| t.title).collect();
+        assert_eq!(titles, vec!["3분기 인프라 정비"]);
+
+        // 받는 쪽 Run Log 에 무엇이 들어왔는지 남는다.
+        let body = fs::read_to_string(Path::new(&res.task.folder).join("index.md")).unwrap();
+        assert!(body.contains("업무 편입: 결제 모듈 점검"), "{body}");
+    }
+
+    #[test]
+    fn an_absorbed_note_points_back_at_its_new_parent() {
+        let v = TempVault::new("absorb-parent");
+        let child = make(v.path(), "쿠폰 정산");
+        let parent = make(v.path(), "정산 통합");
+        reorder_tasks(
+            v.path(),
+            &[child.folder.clone(), parent.folder.clone()],
+        )
+        .unwrap();
+
+        let res =
+            absorb_task(v.path(), Path::new(&child.folder), Path::new(&parent.folder), None)
+                .unwrap();
+
+        let note = Path::new(&res.task.folder).join(&res.rel).join("index.md");
+        let doc = Doc::parse(&fs::read_to_string(&note).unwrap());
+        assert_eq!(doc.get_str("parent_task").as_deref(), Some(parent.id.as_str()));
+        // 목록에 서지 않는 노트가 업무 리스트의 자리를 들고 있을 이유가 없다.
+        assert_eq!(doc.get_i64("order"), None);
+        assert!(doc.body.contains("'정산 통합' 에 편입"), "{}", doc.body);
+    }
+
+    #[test]
+    fn absorbing_never_overwrites_a_folder_the_target_already_has() {
+        let v = TempVault::new("absorb-dup");
+        let child = make(v.path(), "같은 이름");
+        let parent = make(v.path(), "받는 업무");
+        let taken = Path::new(&parent.folder).join(Path::new(&child.folder).file_name().unwrap());
+        fs::create_dir_all(&taken).unwrap();
+        fs::write(taken.join("먼저 있던 파일.md"), "건드리면 안 된다").unwrap();
+
+        let res =
+            absorb_task(v.path(), Path::new(&child.folder), Path::new(&parent.folder), None)
+                .unwrap();
+
+        assert!(res.rel.ends_with(" (2)/"), "이름을 비켜 간다: {}", res.rel);
+        assert!(taken.join("먼저 있던 파일.md").is_file(), "먼저 있던 폴더는 그대로다");
+        assert!(Path::new(&res.task.folder).join(&res.rel).join("index.md").is_file());
+    }
+
+    #[test]
+    fn absorbing_takes_the_subfolder_name_it_is_given() {
+        let v = TempVault::new("absorb-name");
+        let child = make(v.path(), "원본 제목");
+        let parent = make(v.path(), "받는 업무");
+
+        let res = absorb_task(
+            v.path(),
+            Path::new(&child.folder),
+            Path::new(&parent.folder),
+            // 경로 구분자는 이름이 될 수 없다 — `sanitize_name` 이 깎아 낸다.
+            Some("하위/업무: 원본"),
+        )
+        .unwrap();
+
+        assert_eq!(res.rel, "하위-업무- 원본/");
+        assert!(Path::new(&parent.folder).join("하위-업무- 원본/index.md").is_file());
+    }
+
+    #[test]
+    fn absorbing_refuses_anything_that_is_not_another_task() {
+        let v = TempVault::new("absorb-guard");
+        let a = make(v.path(), "가");
+        let b = make(v.path(), "나");
+        let stray = v.path().join(TASKS_DIR).join("손으로 넣은 폴더");
+        fs::create_dir_all(&stray).unwrap();
+
+        // 자기 자신에게.
+        let err = absorb_task(v.path(), Path::new(&a.folder), Path::new(&a.folder), None).unwrap_err();
+        assert_eq!(err.kind, "invalid");
+        // index.md 가 없는 폴더는 업무가 아니다 — 양쪽 다.
+        for (src, dst) in [
+            (stray.as_path(), Path::new(&b.folder)),
+            (Path::new(&a.folder), stray.as_path()),
+        ] {
+            let err = absorb_task(v.path(), src, dst, None).unwrap_err();
+            assert_eq!(err.kind, "invalid_path");
+        }
+        // Vault 밖 · 템플릿 · Vault 루트 자신.
+        for outside in [v.path().to_path_buf(), v.path().join(TEMPLATES_DIR)] {
+            let err = absorb_task(v.path(), &outside, Path::new(&b.folder), None).unwrap_err();
+            assert_eq!(err.kind, "invalid_path", "{}", outside.display());
+        }
+        // 거절했으면 아무것도 옮기지 않았다.
+        assert_eq!(scan(v.path()).unwrap().len(), 2);
+        assert!(Path::new(&a.folder).join("index.md").is_file());
+    }
+
+    // -- 업무 분할 -----------------------------------------------------------
+
+    /// 분할할 업무 하나를 파일 · 폴더와 함께 만든다.
+    fn task_with_files(root: &Path, title: &str) -> PathBuf {
+        let t = make(root, title);
+        let folder = PathBuf::from(&t.folder);
+        fs::write(folder.join("남는 노트.md"), "여기 그대로").unwrap();
+        fs::write(folder.join("가져갈 노트.md"), "저쪽으로").unwrap();
+        fs::create_dir_all(folder.join("설계/도면")).unwrap();
+        fs::write(folder.join("설계/개요.md"), "설계 개요").unwrap();
+        fs::write(folder.join("설계/도면/1층.svg"), "<svg/>").unwrap();
+        fs::write(folder.join(SNAPSHOT_FILE), "{}").unwrap();
+        folder
+    }
+
+    #[test]
+    fn splitting_moves_the_selected_items_into_a_new_task() {
+        let v = TempVault::new("split");
+        let source = task_with_files(v.path(), "웹 개편");
+
+        let res = split_task(
+            v.path(),
+            &source,
+            SplitTask {
+                title: "웹 개편 — 설계",
+                summary: "도면과 개요만 따로 본다",
+                tags: &["design".to_string()],
+                // 폴더는 `/` 로 끝나도 되고 아니어도 된다.
+                items: &["설계/".to_string(), "가져갈 노트.md".to_string()],
+            },
+        )
+        .unwrap();
+
+        // 이동이지 복사가 아니다 — 같은 파일이 두 업무에 있어서는 안 된다.
+        let dest = PathBuf::from(&res.task.folder);
+        assert!(dest.join("가져갈 노트.md").is_file());
+        assert_eq!(fs::read_to_string(dest.join("설계/도면/1층.svg")).unwrap(), "<svg/>");
+        assert!(!source.join("가져갈 노트.md").exists());
+        assert!(!source.join("설계").exists());
+
+        // 고르지 않은 것과 업무 노트 · 스냅샷은 원본에 남는다.
+        assert!(source.join("남는 노트.md").is_file());
+        assert!(source.join("index.md").is_file());
+        assert!(source.join(SNAPSHOT_FILE).is_file());
+
+        // 폴더는 `/` 로 끝나 돌아온다 — 프런트가 이 이름으로 탭과 버퍼를 걷어낸다.
+        assert_eq!(res.moved, vec!["설계/".to_string(), "가져갈 노트.md".to_string()]);
+
+        // 둘 다 업무로 서 있고, 양쪽 노트에 무슨 일이 있었는지 적혀 있다.
+        let titles: Vec<String> = scan(v.path()).unwrap().into_iter().map(|t| t.title).collect();
+        assert_eq!(titles.len(), 2, "{titles:?}");
+        assert!(titles.contains(&"웹 개편 — 설계".to_string()));
+        let new_body = fs::read_to_string(dest.join("index.md")).unwrap();
+        assert!(new_body.contains("업무 분할: '웹 개편' 에서 2개 항목"), "{new_body}");
+        assert!(new_body.contains("도면과 개요만 따로 본다"), "개요가 실린다: {new_body}");
+        assert_eq!(res.task.tags, vec!["design".to_string()]);
+        let old_body = fs::read_to_string(source.join("index.md")).unwrap();
+        assert!(old_body.contains("업무 분할: '웹 개편 — 설계' 로 2개 항목 이동"), "{old_body}");
+    }
+
+    #[test]
+    fn splitting_refuses_what_it_must_not_move() {
+        let v = TempVault::new("split-guard");
+        let source = task_with_files(v.path(), "웹 개편");
+        let before = scan(v.path()).unwrap().len();
+
+        let cases: [(&[&str], &str); 6] = [
+            (&[], "invalid"),
+            (&["index.md"], "protected"),
+            (&[".context_snapshot.json"], "protected"),
+            (&["설계/도면"], "invalid_path"),
+            (&["없는 파일.md"], "not_found"),
+            (&["설계/", "설계"], "invalid"),
+        ];
+        for (items, kind) in cases {
+            let items: Vec<String> = items.iter().map(|s| s.to_string()).collect();
+            let err = split_task(
+                v.path(),
+                &source,
+                SplitTask { title: "새 업무", summary: "", tags: &[], items: &items },
+            )
+            .unwrap_err();
+            assert_eq!(err.kind, kind, "{items:?}");
+        }
+        let err = split_task(
+            v.path(),
+            &source,
+            SplitTask {
+                title: "   ",
+                summary: "",
+                tags: &[],
+                items: &["가져갈 노트.md".to_string()],
+            },
+        )
+        .unwrap_err();
+        assert_eq!(err.kind, "invalid");
+
+        // 거절된 요청은 업무를 만들지 않는다 — 빈 업무가 목록에 남으면 손으로 지워야 한다.
+        assert_eq!(scan(v.path()).unwrap().len(), before);
+        assert!(source.join("index.md").is_file());
+        assert!(source.join("설계/도면/1층.svg").is_file());
+        assert!(source.join(SNAPSHOT_FILE).is_file());
+    }
+
+    #[test]
+    fn splitting_refuses_a_folder_that_is_not_a_task() {
+        let v = TempVault::new("split-nottask");
+        let stray = v.path().join(TASKS_DIR).join("손으로 넣은 폴더");
+        fs::create_dir_all(&stray).unwrap();
+        fs::write(stray.join("자료.txt"), "그대로 있어야 한다").unwrap();
+
+        let err = split_task(
+            v.path(),
+            &stray,
+            SplitTask { title: "새 업무", summary: "", tags: &[], items: &["자료.txt".to_string()] },
+        )
+        .unwrap_err();
+
+        assert_eq!(err.kind, "invalid_path");
+        assert!(stray.join("자료.txt").is_file());
+        assert!(scan(v.path()).unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_move_that_fails_halfway_puts_everything_back() {
+        // 옮기기는 항목마다 한 번씩이라 중간에 막힐 수 있다(파일 락 · 권한). 그때 절반만
+        // 나뉜 업무를 남기지 않는 것이 `move_items` 의 약속이다. 없는 이름을 섞어 두 번째
+        // 이동을 실패시킨다 — 실제로는 `check_items` 가 앞에서 걸러 내는 입력이다.
+        let v = TempVault::new("split-rollback");
+        let source = task_with_files(v.path(), "웹 개편");
+        let dest = v.path().join(TASKS_DIR).join("[2026-09] 새 업무");
+        fs::create_dir_all(&dest).unwrap();
+
+        let err = move_items(
+            &source,
+            &dest,
+            &["가져갈 노트.md".to_string(), "없는 파일.md".to_string()],
+        )
+        .unwrap_err();
+
+        assert!(!err.message.is_empty(), "사유가 비어 있으면 안 된다");
+        assert!(err.message.contains("없는 파일.md"), "{}", err.message);
+        // 먼저 옮긴 것이 제자리로 돌아왔다.
+        assert_eq!(fs::read_to_string(source.join("가져갈 노트.md")).unwrap(), "저쪽으로");
+        assert!(!dest.join("가져갈 노트.md").exists());
+        assert!(only_index(&dest) || fs::read_dir(&dest).unwrap().count() == 0);
     }
 }

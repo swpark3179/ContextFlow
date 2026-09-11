@@ -5,6 +5,7 @@ import MenuBar from "./components/MenuBar";
 import Sidebar from "./components/Sidebar";
 import Toasts from "./components/Toasts";
 import ContextMenu from "./components/ContextMenu";
+import TabMenu from "./components/TabMenu";
 import Workspace from "./screens/Workspace";
 import Templates from "./screens/Templates";
 import Archive from "./screens/Archive";
@@ -17,6 +18,8 @@ import ImportModal from "./modals/ImportModal";
 import OpenWithModal from "./modals/OpenWithModal";
 import TemplateModal from "./modals/TemplateModal";
 import RenameTaskModal from "./modals/RenameTaskModal";
+import AbsorbModal from "./modals/AbsorbModal";
+import SplitModal from "./modals/SplitModal";
 import { Box } from "./lib/ui";
 import { useStore } from "./store/useStore";
 import { useAi } from "./store/aiStore";
@@ -78,6 +81,7 @@ export default function App() {
         if (e.defaultPrevented) return; // 네이티브 <select> 등이 이미 소비했다
         if (st.fileDrag) st.set({ fileDrag: null });
         else if (st.ctx) st.set({ ctx: null });
+        else if (st.tabCtx) st.set({ tabCtx: null });
         else if (st.mk) st.set({ mk: null });
         else if (st.fileRen) st.set({ fileRen: null });
         else if (st.del) st.set({ del: null });
@@ -86,6 +90,10 @@ export default function App() {
         else if (st.drop) st.set({ drop: null });
         else if (st.tplNew) st.set({ tplNew: null });
         else if (st.dayLogOpen) st.set({ dayLogOpen: null });
+        // 옮기기가 도는 중에는 닫지 않는다 — 대화상자를 치워도 이동은 멈추지 않고,
+        // 실패 사유를 적을 자리만 사라진다.
+        else if (st.absorb && !st.absorb.busy) st.set({ absorb: null });
+        else if (st.split && !st.split.busy) st.set({ split: null });
         else if (st.merge) st.set({ merge: null });
         else if (st.newOpen) st.set({ newOpen: false });
       }
@@ -238,12 +246,15 @@ export default function App() {
       </div>
 
       <ContextMenu />
+      <TabMenu />
       <DeleteModal />
       <ImportModal />
       <OpenWithModal />
       <TemplateModal />
       <RenameTaskModal />
       <NewTaskModal />
+      <AbsorbModal />
+      <SplitModal />
       <MergeModal />
       <DayLogModal />
       <Toasts />

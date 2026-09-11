@@ -207,6 +207,12 @@ export default function EditorPane() {
               <div
                 key={key}
                 onClick={() => s.setUi({ activeTab: key })}
+                // 우클릭한 탭이 곧 메뉴의 대상이다 — 활성 탭이 아니어도 그 탭을 가리킨다
+                // (탐색기에서 우클릭이 선택을 옮기지 않는 것과 같다).
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  s.set({ tabCtx: { key, x: e.clientX, y: e.clientY }, ctx: null });
+                }}
                 style={{
                   display: "flex",
                   alignItems: "center",
