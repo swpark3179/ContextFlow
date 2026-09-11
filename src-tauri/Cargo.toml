@@ -30,6 +30,11 @@ wait-timeout = "0.2"
 # (IPC 스레드에서는 절대 호출하지 않는다), native-tls 는 Windows 에서 schannel 이라
 # OS 인증서 저장소 — 사내 TLS 검사 프록시의 CA 가 사는 곳 — 를 그대로 신뢰한다.
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "native-tls"] }
+# 오늘의 한일 저장소(`daylog.rs`). `bundled` 은 SQLite C 소스를 함께 컴파일하므로 실행
+# 환경에 시스템 SQLite 가 없어도 된다 — msi/nsis 로 배포하는 앱에 외부 전제를 만들지 않는다.
+# 기본 기능을 끄는 이유는 그 안에 `ffi-sqlite-wasm-rs` 가 들어 있어서다: 웹 타깃용 FFI 라
+# 데스크탑 빌드에는 쓸모가 없고 `bundled` 와 목적이 겹친다.
+rusqlite = { version = "0.40.2", default-features = false, features = ["bundled"] }
 
 [profile.release]
 panic = "abort"
