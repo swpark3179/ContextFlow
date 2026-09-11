@@ -1,5 +1,6 @@
 /** Typed wrappers over the Rust commands in src-tauri/src/lib.rs. */
 import { Channel, invoke } from "@tauri-apps/api/core";
+import type { DayEntry } from "./daylog";
 import type { FileEntry } from "./tree";
 import type {
   AgentInfo,
@@ -309,16 +310,6 @@ export const pathExists = (path: string) => invoke<boolean>("path_exists", { pat
 // 실패를 삼키는 쪽은 여기가 아니라 부르는 자리다 — 업무를 손댈 때의 기록은 스토어가
 // 조용히 흘리고(파일 저장마다 경고가 뜨면 안 된다), 사용자가 직접 연 팝업에서는 보여야 한다.
 
-export interface DayEntryRow {
-  id: number;
-  day: string;
-  /** `null` = 업무와 연결되지 않은 자유 항목. */
-  folder: string | null;
-  title: string;
-  body: string;
-  at: string;
-}
-
 export interface DaySummary {
   day: string;
   count: number;
@@ -326,7 +317,7 @@ export interface DaySummary {
 
 /** 그 날짜의 기록을 최신 먼저. */
 export const dayEntries = (vault: string, day: string) =>
-  invoke<DayEntryRow[]>("day_entries", { vault, day });
+  invoke<DayEntry[]>("day_entries", { vault, day });
 
 /** 기록이 있는 날짜와 건수를 최신 먼저. `from`/`to` 는 양끝을 포함한다. */
 export const dayIndex = (vault: string, from: string, to: string) =>
@@ -344,11 +335,11 @@ export const noteDayEntry = (
   folder: string | null,
   title: string,
   body: string | null,
-) => invoke<DayEntryRow>("note_day_entry", { vault, day, at, folder, title, body });
+) => invoke<DayEntry>("note_day_entry", { vault, day, at, folder, title, body });
 
 /** 팝업에서 제목과 내용을 고친다. 그날 목록의 순서는 바뀌지 않는다. */
 export const editDayEntry = (id: number, title: string, body: string) =>
-  invoke<DayEntryRow>("edit_day_entry", { id, title, body });
+  invoke<DayEntry>("edit_day_entry", { id, title, body });
 
 /** 기록 한 줄을 지운다. 이미 없는 줄이어도 오류가 아니다. */
 export const removeDayEntry = (id: number) => invoke<void>("remove_day_entry", { id });
