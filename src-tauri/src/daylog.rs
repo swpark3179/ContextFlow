@@ -391,6 +391,56 @@ mod tests {
         rows.map(|r| r.unwrap().title).collect()
     }
 
+    /// `fsops` · `vault` 의 테스트와 같은 방식으로 손으로 만든 임시 폴더.
+    /// `tempfile` 은 이 프로젝트의 dev-dependency 가 아니다.
+    struct TempDir(PathBuf);
+
+    impl TempDir {
+        fn new(tag: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!(
+                "contextflow-daylog-{}-{}",
+                tag,
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            std::fs::create_dir_all(&dir).unwrap();
+            TempDir(dir)
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// 메모리가 아닌 **파일**로 한 번은 돌려 본다 — `open` 의 WAL pragma 와 마이그레이션이
+    /// 실제 파일에서도 통과하는지, 그리고 닫고 다시 열면 기록이 남아 있는지가 이 기능의
+    /// 약속 자체다("반영구적으로 보관").
+    #[test]
+    fn a_file_backed_log_survives_being_closed_and_reopened() {
+        let dir = TempDir::new("file");
+        let path = dir.0.join("today.db");
+
+        {
+            let conn = open(path.clone()).unwrap();
+            insert_entry(&conn, V, DAY, "09:00", Some("/t/a"), "어제 만든 업무", None).unwrap();
+            insert_entry(&conn, V, DAY, "10:00", None, "회의", Some("본문")).unwrap();
+        }
+        assert!(path.is_file());
+
+        // 같은 파일을 다시 연다. `migrate` 는 이미 올라간 버전을 보고 아무것도 하지 않는다.
+        let conn = open(path).unwrap();
+        assert_eq!(titles(&conn, DAY), ["회의", "어제 만든 업무"]);
+
+        let body: String = conn
+            .query_row("SELECT body FROM entries WHERE folder IS NULL", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(body, "본문");
+    }
+
     #[test]
     fn migrating_twice_changes_nothing() {
         let conn = db();
