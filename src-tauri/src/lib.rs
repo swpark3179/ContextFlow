@@ -1,6 +1,7 @@
 mod agents;
 mod ai_settings;
 mod aipro;
+mod daylog;
 mod detect;
 mod error;
 mod exec;
@@ -185,6 +186,13 @@ fn set_task_archived(
     reopen: bool,
 ) -> Result<vault::TaskMeta> {
     vault::set_archived(&p(&root), &p(&folder), archived, &mode, reopen)
+}
+
+/// 파일을 붙이지 않은 업무를 완료했을 때 그 폴더를 지운다. 제목과 메모는 부르는 쪽이
+/// 오늘의 한일에 먼저 적어 둔다 — 안전장치는 `vault::discard_task` 에 있다.
+#[tauri::command]
+fn discard_task(root: String, folder: String) -> Result<()> {
+    vault::discard_task(&p(&root), &p(&folder))
 }
 
 #[tauri::command]
@@ -601,6 +609,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(run::RunRegistry::default())
+        .manage(daylog::DayLog::default())
         .invoke_handler(tauri::generate_handler![
             load_settings,
             save_settings,
@@ -615,6 +624,7 @@ pub fn run() {
             clear_task_order,
             set_task_archived,
             merge_tasks,
+            discard_task,
             read_text_file,
             write_text_file,
             list_task_files,
@@ -650,6 +660,13 @@ pub fn run() {
             set_fabrix_config,
             set_active_ai,
             set_prompt_hook,
+            daylog::day_entries,
+            daylog::day_index,
+            daylog::note_day_entry,
+            daylog::edit_day_entry,
+            daylog::remove_day_entry,
+            daylog::relocate_day_entries,
+            daylog::import_day_log,
             prompts::list_prompt_packs,
             prompts::prompt_dir_path,
             prompts::open_prompt_dir,

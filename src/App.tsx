@@ -11,6 +11,7 @@ import Archive from "./screens/Archive";
 import Settings from "./screens/Settings";
 import NewTaskModal from "./modals/NewTaskModal";
 import MergeModal from "./modals/MergeModal";
+import DayLogModal from "./modals/DayLogModal";
 import DeleteModal from "./modals/DeleteModal";
 import ImportModal from "./modals/ImportModal";
 import OpenWithModal from "./modals/OpenWithModal";
@@ -84,6 +85,7 @@ export default function App() {
         else if (st.ren) st.set({ ren: null });
         else if (st.drop) st.set({ drop: null });
         else if (st.tplNew) st.set({ tplNew: null });
+        else if (st.dayLogOpen) st.set({ dayLogOpen: null });
         else if (st.merge) st.set({ merge: null });
         else if (st.newOpen) st.set({ newOpen: false });
       }
@@ -243,6 +245,7 @@ export default function App() {
       <RenameTaskModal />
       <NewTaskModal />
       <MergeModal />
+      <DayLogModal />
       <Toasts />
     </div>
   );

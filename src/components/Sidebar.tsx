@@ -24,29 +24,36 @@ const NAV: [Screen, string][] = [
 ];
 
 /**
- * 오늘의 한일 — 오늘 손댄 업무의 제목만 모아 둔 하루짜리 목록.
+ * 오늘의 한일 — **오늘** 손댄 업무의 제목을 모아 둔 목록.
  *
  * 업무 리스트 위에 겹치지 않는다: 저쪽은 "지금 하는 일"이고 이쪽은 "오늘 한 일"이라
  * 필터도 정렬도 다르다. 특히 완료한 업무는 그 즉시 업무 리스트에서 빠지므로
  * (`setStatus`), 하루를 돌아볼 자리는 저 목록이 아니라 여기다.
  *
- * 항목은 눌러 그 업무로 갈 수 있고, 오른쪽 ✕ 로 지운다. 지운 뒤 그 업무를 다시
- * 건드리면 다시 올라온다 — 이 목록은 기록이 아니라 오늘의 메모다.
+ * 기록은 날짜별로 영구히 쌓이지만(`~/.contextflow/today.db`) **도크는 오늘만 보여 준다**.
+ * 어제와 그제를 보고 고치는 곳은 팝업이고(`DayLogModal`), 머리말의 건수를 누르면 열린다.
+ * 도크를 여러 날짜로 늘리면 사이드바에서 스크롤로 과거를 뒤지게 되는데, 그것은 이 자리가
+ * 할 일이 아니다 — 여기는 지금 하루의 눈금이다.
+ *
+ * 항목은 눌러 그 업무로 갈 수 있고, 오른쪽 ✕ 로 지운다. 팝업에서 손으로 넣은 자유 항목은
+ * 가리키는 업무가 없어 눌리지 않는다.
  */
 function TodayDock() {
   const s = useStore();
-  const { todayLog, tasks, settings } = s;
+  const { dayLog, tasks, settings } = s;
   // 날이 바뀌었는데 앱이 계속 떠 있었을 수도 있다 — 그리는 쪽에서 한 번 더 본다.
-  const items = todayLog.date === today() ? todayLog.items : [];
+  const items = dayLog.day === today() ? dayLog.entries : [];
 
   /**
-   * 자정에 목록을 끊는다.
+   * 자정에 목록을 새 날짜로 넘긴다.
    *
    * 위의 걸러 내기만으로는 부족하다 — 앱을 켜 둔 채 밤을 넘기면 다시 그릴 일이 없어서
    * 어제 목록이 화면에 그대로 남는다. 이 앱은 하루 종일 켜 두는 종류라 드문 경우가
    * 아니다. `tick` 은 타이머를 다시 걸기 위한 것이고(부른 뒤 날짜가 이미 맞아도 다음
    * 자정을 다시 예약해야 한다), `getState` 로 부르므로 스토어가 바뀔 때마다 타이머가
    * 새로 걸리지는 않는다.
+   *
+   * 넘어가는 것은 **화면**이다. 어제의 줄은 DB 에 그대로 있고 팝업에서 볼 수 있다.
    */
   const [tick, setTick] = useState(0);
   useEffect(() => {
@@ -55,7 +62,7 @@ function TodayDock() {
     const next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 5);
     const timer = window.setTimeout(
       () => {
-        useStore.getState().rollToday();
+        void useStore.getState().rollToday();
         setTick((n) => n + 1);
       },
       Math.max(1000, next.getTime() - now.getTime()),
@@ -98,16 +105,34 @@ function TodayDock() {
         >
           오늘의 한일
         </span>
-        <span
+        {/* 건수가 곧 팝업을 여는 곳이다. 접기(▲/▼)와 겹치지 않도록 클릭을 멈춰 세운다. */}
+        <Box
+          onClick={(e) => {
+            e.stopPropagation();
+            void s.openDayLog();
+          }}
+          title="날짜별 기록 보기"
           style={{
-            fontFamily: "'Roboto Mono',monospace",
-            fontSize: 10.5,
-            color: items.length ? "#6a665e" : "#b5afa2",
+            display: "flex",
+            alignItems: "center",
+            gap: 3,
+            borderRadius: 3,
+            padding: "0 3px",
             flex: "0 0 auto",
           }}
+          hover={{ background: "#e0dcd4" }}
         >
-          {items.length}건
-        </span>
+          <span style={{ fontSize: 9.5, color: "#a09a8f" }}>🗓</span>
+          <span
+            style={{
+              fontFamily: "'Roboto Mono',monospace",
+              fontSize: 10.5,
+              color: items.length ? "#6a665e" : "#b5afa2",
+            }}
+          >
+            {items.length}건
+          </span>
+        </Box>
         <span style={{ fontSize: 9, color: "#a09a8f", flex: "0 0 auto" }}>
           {s.todayMin ? "▲" : "▼"}
         </span>
@@ -123,18 +148,22 @@ function TodayDock() {
             borderTop: "1px solid #efece5",
           }}
         >
-          업무를 고치면 여기에 쌓이고, 날이 바뀌면 비워집니다
+          업무를 고치면 여기에 쌓입니다. 지난 날짜는 위 건수를 눌러 봅니다
         </div>
       )}
 
       {!s.todayMin && items.length > 0 && (
         <div style={{ maxHeight: 116, overflowY: "auto", borderTop: "1px solid #efece5" }}>
           {items.map((it) => {
-            const task = tasks.find((t) => t.folder === it.folder);
+            // 자유 항목은 가리키는 업무가 없다(팝업에서 손으로 넣은 회의 · 전화 · 지원 업무).
+            const task = it.folder ? tasks.find((t) => t.folder === it.folder) : undefined;
             const archived = !!task && isArchived(task, settings.archDays);
+            // 취소선은 "있었던 업무가 사라졌다" 는 뜻이다. 애초에 업무가 아니었던 줄에
+            // 그으면 거짓말이 되므로, 자유 항목은 흐린 글자로만 구분한다.
+            const missing = it.folder !== null && !task;
             return (
               <Box
-                key={it.folder}
+                key={it.id}
                 onClick={() => {
                   // 사라진 업무(Vault 밖에서 지웠다)는 열 곳이 없다. 제목은 남겨 둔다 —
                   // 오늘 그 일을 한 것은 사실이다.
@@ -142,7 +171,13 @@ function TodayDock() {
                   if (archived) void s.peekArchived(task.folder);
                   else void s.selectTask(task.folder);
                 }}
-                title={task ? it.folder : `${it.folder} · 지금은 없는 업무입니다`}
+                title={
+                  task
+                    ? it.folder ?? ""
+                    : missing
+                      ? `${it.folder} · 지금은 없는 업무입니다`
+                      : it.body || "업무와 연결되지 않은 기록입니다"
+                }
                 style={{
                   display: "flex",
                   alignItems: "center",
@@ -162,11 +197,20 @@ function TodayDock() {
                     overflow: "hidden",
                     textOverflow: "ellipsis",
                     whiteSpace: "nowrap",
-                    textDecoration: task ? "none" : "line-through",
+                    textDecoration: missing ? "line-through" : "none",
                   }}
                 >
                   {it.title}
                 </span>
+                {/* 내용이 있는 줄에는 점을 하나 찍는다 — 팝업에 더 있다는 표시다. */}
+                {!!it.body && (
+                  <span
+                    style={{ fontSize: 9, color: "#c5c0b6", flex: "0 0 auto", lineHeight: "16px" }}
+                    title="내용이 있습니다"
+                  >
+                    ●
+                  </span>
+                )}
                 {archived && (
                   <span
                     style={{
@@ -195,7 +239,7 @@ function TodayDock() {
                 <Box
                   onClick={(e) => {
                     e.stopPropagation();
-                    s.dropToday(it.folder);
+                    s.dropEntry(it.id);
                   }}
                   title="오늘의 한일에서 제거"
                   style={{

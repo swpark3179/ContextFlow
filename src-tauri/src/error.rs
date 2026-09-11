@@ -45,4 +45,12 @@ impl From<serde_json::Error> for AppError {
     }
 }
 
+/// 오늘의 한일 저장소(`daylog.rs`)용. 한 종류로 뭉치는 이유는 프런트가 이 오류로 분기하지
+/// 않기 때문이다 — 기록이 안 되면 기록이 안 될 뿐, 사용자가 고칠 수 있는 것이 없다.
+impl From<rusqlite::Error> for AppError {
+    fn from(e: rusqlite::Error) -> Self {
+        Self::new("db", e.to_string())
+    }
+}
+
 pub type Result<T> = std::result::Result<T, AppError>;

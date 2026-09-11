@@ -1,6 +1,10 @@
 //! The Obsidian vault is the single source of truth. Task metadata lives in the
 //! `index.md` frontmatter of each task folder — there is no sidecar database, so
 //! anything Obsidian shows is what ContextFlow shows.
+//!
+//! 그 말은 **업무 데이터에 한해** 참이다. 오늘의 한일만 예외로 Vault 밖 SQLite 에 산다 —
+//! 날짜를 축으로 한 교차 기록이라 어느 한 업무의 frontmatter 에 넣을 자리가 없다.
+//! 이유는 `daylog.rs` 의 머리말에 적어 두었다.
 
 use crate::error::{AppError, Result};
 use crate::frontmatter::{append_run_log, Doc};
@@ -707,6 +711,42 @@ pub fn set_archived(
         return read_task(root, &dest.join("index.md"));
     }
     Ok(meta)
+}
+
+/// 업무 폴더를 통째로 지운다. **파일을 하나도 붙이지 않은 업무를 완료했을 때만** 부른다.
+///
+/// 그런 업무는 보관함에 넣지 않는다. 한 줄짜리 메모로 끝난 일까지 보관하면 보관함이 돌아볼
+/// 값이 없는 폴더로 채워지고, 그 업무가 남긴 것은 제목과 메모뿐이라 오늘의 한일 한 줄이
+/// 폴더 하나보다 정확한 기록이다. 부르는 쪽(`logAndDiscard`)이 제목과 본문을 기록에 먼저
+/// 적고 나서 이 함수를 부르므로, 지워지는 것은 껍데기다.
+///
+/// `fsops::delete_path` 를 쓸 수 없다 — 그쪽은 `index.md` 삭제를 일부러 막는다(업무의
+/// 메타데이터라 탐색기에서 지울 수 있으면 안 된다). 그 금지는 그대로 두고, 업무 하나를
+/// 접는다는 다른 뜻의 동작을 여기 따로 둔다.
+///
+/// 휴지통을 거치지 않는 영구 삭제다 — 이 앱의 삭제는 전부 그렇다.
+pub fn discard_task(root: &Path, folder: &Path) -> Result<()> {
+    // 지울 수 있는 것은 `Tasks/` 의 직계 자식뿐이다. `create_task` 가 업무 폴더를 거기에만
+    // 만들므로(`root/Tasks/[YYYY-MM] 제목`), 이 검사 하나가 Vault 바깥 · Archive · 템플릿 ·
+    // Vault 루트 자신을 한꺼번에 막는다. `fsops::safe_join` 은 쓸 수 없다 — 그쪽은 상대
+    // 경로를 검사하는 함수이고 여기 오는 것은 절대 경로다.
+    let tasks_dir = root.join(TASKS_DIR);
+    if folder.parent() != Some(tasks_dir.as_path()) {
+        return Err(AppError::new(
+            "invalid_path",
+            format!("업무 폴더가 아닙니다: {}", folder.display()),
+        ));
+    }
+    // 업무 폴더는 `index.md` 를 갖는다. 이것이 없으면 업무가 아니라 사용자가 `Tasks/` 에
+    // 손으로 넣어 둔 무언가이고, 그것을 지울 권한은 이 함수에 없다.
+    if !folder.join("index.md").is_file() {
+        return Err(AppError::new(
+            "invalid_path",
+            format!("index.md 가 없어 업무 폴더로 볼 수 없습니다: {}", folder.display()),
+        ));
+    }
+    fs::remove_dir_all(folder)?;
+    Ok(())
 }
 
 /// Folds `sources` into `primary`: their Run Log lines move into the primary
@@ -1612,5 +1652,72 @@ mod tests {
         assert_eq!(hits.len(), 1);
         assert!(hits[0].snippet.contains("게이트웨이 타임아웃"));
         assert!(search_full_text(&tasks, "존재하지않는단어").is_empty());
+    }
+
+    // -- discard_task --------------------------------------------------------
+
+    #[test]
+    fn discarding_removes_the_whole_task_folder() {
+        let v = TempVault::new("discard");
+        let t = make(v.path(), "메모만 남은 업무");
+        let folder = PathBuf::from(&t.folder);
+        assert!(folder.join("index.md").is_file());
+
+        discard_task(v.path(), &folder).unwrap();
+
+        assert!(!folder.exists());
+        // Tasks/ 자체는 그대로다 — 지운 것은 업무 하나다.
+        assert!(v.path().join(TASKS_DIR).is_dir());
+        assert!(scan(v.path()).unwrap().is_empty());
+    }
+
+    #[test]
+    fn discarding_refuses_anything_that_is_not_a_task_folder() {
+        let v = TempVault::new("discard-guard");
+        let root = v.path();
+
+        // Tasks/ 의 직계 자식이 아니다.
+        for outside in [
+            root.to_path_buf(),
+            root.join(TASKS_DIR),
+            root.join(TEMPLATES_DIR),
+            root.join(ARCHIVE_DIR).join("[2026-09] 보관된 업무"),
+            root.join(TASKS_DIR).join("a").join("b"),
+            root.parent().unwrap().join("남의 폴더"),
+        ] {
+            let err = discard_task(root, &outside).unwrap_err();
+            assert_eq!(err.kind, "invalid_path", "{}", outside.display());
+        }
+        // 거부했으면 아무것도 사라지지 않았다.
+        assert!(root.join(TASKS_DIR).is_dir());
+        assert!(root.join(TEMPLATES_DIR).is_dir());
+    }
+
+    #[test]
+    fn discarding_refuses_a_folder_without_index_md() {
+        let v = TempVault::new("discard-noindex");
+        // 사용자가 Tasks/ 에 손으로 넣어 둔 폴더는 업무가 아니다 — 지울 권한이 없다.
+        let stray = v.path().join(TASKS_DIR).join("손으로 넣은 폴더");
+        fs::create_dir_all(&stray).unwrap();
+        fs::write(stray.join("자료.txt"), "지워지면 안 된다").unwrap();
+
+        let err = discard_task(v.path(), &stray).unwrap_err();
+        assert_eq!(err.kind, "invalid_path");
+        assert!(stray.join("자료.txt").is_file());
+    }
+
+    #[test]
+    fn discarding_takes_the_files_inside_with_it() {
+        // 판정(파일이 없는 업무인가)은 프런트가 하고, 이 함수는 받은 폴더를 통째로 지운다.
+        // 재귀 삭제가 실제로 되는지만 본다.
+        let v = TempVault::new("discard-deep");
+        let t = make(v.path(), "하위 폴더가 있는 업무");
+        let folder = PathBuf::from(&t.folder);
+        fs::create_dir_all(folder.join("reference/deep")).unwrap();
+        fs::write(folder.join("reference/deep/note.md"), "x").unwrap();
+        fs::write(folder.join(SNAPSHOT_FILE), "{}").unwrap();
+
+        discard_task(v.path(), &folder).unwrap();
+        assert!(!folder.exists());
     }
 }

@@ -1,5 +1,6 @@
 /** Typed wrappers over the Rust commands in src-tauri/src/lib.rs. */
 import { Channel, invoke } from "@tauri-apps/api/core";
+import type { DayEntry } from "./daylog";
 import type { FileEntry } from "./tree";
 import type {
   AgentInfo,
@@ -173,6 +174,12 @@ export const setTaskArchived = (
 ) => invoke<TaskMeta>("set_task_archived", { root, folder, archived, mode, reopen });
 export const mergeTasks = (root: string, primary: string, sources: string[], mode: string) =>
   invoke<TaskMeta>("merge_tasks", { root, primary, sources, mode });
+/**
+ * 업무 폴더를 통째로 지운다. 파일을 하나도 붙이지 않은 업무를 완료했을 때만 부르며,
+ * 제목과 내용은 그 전에 오늘의 한일에 적어 둔다(`useStore.logAndDiscard`).
+ */
+export const discardTask = (root: string, folder: string) =>
+  invoke<void>("discard_task", { root, folder });
 
 // -- files ------------------------------------------------------------------
 
@@ -296,3 +303,54 @@ export const searchFullText = (root: string, query: string) =>
   invoke<SearchHit[]>("search_full_text", { root, query });
 
 export const pathExists = (path: string) => invoke<boolean>("path_exists", { path });
+
+// -- 오늘의 한일 -------------------------------------------------------------
+//
+// 저장소는 `~/.contextflow/today.db` 이고 Rust 쪽은 `src-tauri/src/daylog.rs` 다.
+// 실패를 삼키는 쪽은 여기가 아니라 부르는 자리다 — 업무를 손댈 때의 기록은 스토어가
+// 조용히 흘리고(파일 저장마다 경고가 뜨면 안 된다), 사용자가 직접 연 팝업에서는 보여야 한다.
+
+export interface DaySummary {
+  day: string;
+  count: number;
+}
+
+/** 그 날짜의 기록을 최신 먼저. */
+export const dayEntries = (vault: string, day: string) =>
+  invoke<DayEntry[]>("day_entries", { vault, day });
+
+/** 기록이 있는 날짜와 건수를 최신 먼저. `from`/`to` 는 양끝을 포함한다. */
+export const dayIndex = (vault: string, from: string, to: string) =>
+  invoke<DaySummary[]>("day_index", { vault, from, to });
+
+/**
+ * 기록 한 줄을 올린다. `folder` 가 있으면 같은 날 같은 업무는 한 줄로 접히고 시각만 새로
+ * 적힌다. `body` 를 `null` 로 주면 **기존 내용을 건드리지 않는다** — 업무를 다시 손댔다고
+ * 팝업에서 적어 둔 내용이 지워지면 안 된다.
+ */
+export const noteDayEntry = (
+  vault: string,
+  day: string,
+  at: string,
+  folder: string | null,
+  title: string,
+  body: string | null,
+) => invoke<DayEntry>("note_day_entry", { vault, day, at, folder, title, body });
+
+/** 팝업에서 제목과 내용을 고친다. 그날 목록의 순서는 바뀌지 않는다. */
+export const editDayEntry = (id: number, title: string, body: string) =>
+  invoke<DayEntry>("edit_day_entry", { id, title, body });
+
+/** 기록 한 줄을 지운다. 이미 없는 줄이어도 오류가 아니다. */
+export const removeDayEntry = (id: number) => invoke<void>("remove_day_entry", { id });
+
+/** 업무 폴더 경로가 바뀐 것을 **과거 날짜의 줄까지** 반영한다. */
+export const relocateDayEntries = (vault: string, from: string, to: string, title: string) =>
+  invoke<void>("relocate_day_entries", { vault, from, to, title });
+
+/** `localStorage` 에 있던 옛 목록을 옮긴다. 부팅 때 한 번만. 옮긴 줄 수를 돌려준다. */
+export const importDayLog = (
+  vault: string,
+  day: string,
+  rows: { folder: string; title: string; at: string }[],
+) => invoke<number>("import_day_log", { vault, day, rows });

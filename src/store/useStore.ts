@@ -4,17 +4,18 @@ import type { TaskMeta, TemplateMeta, Recommendation } from "../lib/api";
 import type { FileEntry } from "../lib/tree";
 import { normalizeStatus, TOAST } from "../lib/design";
 import { basename, daysSince, hhmm, joinPath, nowStamp, today } from "../lib/format";
-import { toggleTaskLine } from "../lib/markdown";
+import { splitFrontmatter, toggleTaskLine } from "../lib/markdown";
 import {
-  addItem,
+  composeDiscardBody,
   EMPTY_LOG,
-  moveItem,
-  pruneLog,
-  readLog,
-  removeItem,
-  writeLog,
-  type TodayLog,
-} from "../lib/today";
+  forgetLegacyLog,
+  readLegacyLog,
+  relocateEntries,
+  removeEntry,
+  rollDay,
+  upsertEntry,
+  type DayLog,
+} from "../lib/daylog";
 import { BSTORM_EXT, seedBstorm } from "../lib/bstorm";
 import { reorderedList } from "../lib/reorder";
 import { sanitizeFolderName } from "../lib/vaultPaths";
@@ -306,10 +307,17 @@ interface State {
   statusMenuOpen: boolean;
 
   /**
-   * 오늘 손댄 업무들(`src/lib/today.ts`). Vault 가 아니라 브라우저 저장소에 살고
-   * 날이 바뀌면 비워진다 — 하루짜리 목록이라 노트로 남길 것이 없다.
+   * **오늘** 손댄 업무들. 저장소는 Vault 밖 SQLite 이고(`src-tauri/src/daylog.rs`), 이것은
+   * 그중 오늘 하루를 화면에 들고 있는 투영이다(`src/lib/daylog.ts`). 어제와 그제를 보는
+   * 곳은 도크가 아니라 팝업이다.
+   *
+   * 이름을 `today` 로 하지 않는 이유는 `format.ts` 의 `today()` 함수와 부딪히기 때문이다 —
+   * `const { today } = s;` 가 그 함수를 가려 버린다.
    */
-  todayLog: TodayLog;
+  dayLog: DayLog;
+
+  /** 오늘의 한일 팝업이 보고 있는 날짜 `YYYY-MM-DD`. `null` = 닫힘. */
+  dayLogOpen: string | null;
 
   files: FileEntry[];
   ui: TaskUi;
@@ -414,12 +422,23 @@ interface Actions {
 
   /** 오늘의 한일에 이 업무를 올린다(같은 업무는 한 줄, 시각만 갱신). */
   noteToday: (folder?: string, title?: string) => void;
+  /** 기록 한 줄을 지운다. 도크의 ✕ 와 팝업이 함께 쓴다. */
+  dropEntry: (id: number) => void;
+  /** 오늘 목록에서 이 업무의 줄을 지운다. 병합으로 접힌 업무에 쓴다. */
   dropToday: (folder: string) => void;
-  /** 업무 폴더 경로가 바뀐 것을 오늘의 한일에도 반영한다. */
-  relocateToday: (from: string, to: string, title: string) => void;
-  /** 날이 바뀌었으면 목록을 비운다. 자정에 걸어 둔 타이머가 부른다. */
-  rollToday: () => void;
-  clearToday: () => void;
+  /** 업무 폴더 경로가 바뀐 것을 오늘의 한일에도 반영한다(과거 날짜까지). */
+  relocateToday: (from: string, to: string, title: string) => Promise<void>;
+  /** 날이 바뀌었으면 화면 목록을 새 날짜로 맞춘다. 자정에 걸어 둔 타이머가 부른다. */
+  rollToday: () => Promise<void>;
+  /** 지금 Vault 기준으로 오늘 목록을 다시 읽는다. Vault 를 갈아탈 때 부른다. */
+  rescopeToday: () => Promise<void>;
+  /** 그 날짜의 기록을 읽어 팝업을 연다. 생략하면 오늘. */
+  openDayLog: (day?: string) => Promise<void>;
+  /**
+   * 파일을 안 붙인 업무를 접는다 — 제목과 글을 오늘의 한일에 남기고 폴더를 지운다.
+   * `setStatus` 의 완료 분기가 부른다.
+   */
+  logAndDiscard: (folder: string, memo: string) => Promise<void>;
 }
 
 /**
@@ -480,7 +499,8 @@ export const useStore = create<State & Actions>((set, get) => ({
   todayMin: false,
   statusMenuOpen: false,
 
-  todayLog: EMPTY_LOG,
+  dayLog: EMPTY_LOG,
+  dayLogOpen: null,
 
   files: [],
   ui: emptyUi(),
@@ -549,8 +569,9 @@ export const useStore = create<State & Actions>((set, get) => ({
       await api.initVault(settings.vault, fresh);
       await api.saveSettings(settings);
       const obsidianOk = await api.obsidianAvailable();
-      // 어제까지의 목록은 읽는 순간 버린다(`pruneLog`).
-      set({ settings, obsidianOk, todayLog: pruneLog(readLog(), today()) });
+      set({ settings, obsidianOk });
+      await migrateLegacyDayLog(settings.vault);
+      await get().rescopeToday();
       await get().reloadVault(false);
       await get().reloadTemplates();
       set({ ready: true });
@@ -573,8 +594,9 @@ export const useStore = create<State & Actions>((set, get) => ({
     get().patchSettings({ vault });
     try {
       await api.initVault(vault, false);
-      set({ activeFolder: "", uiCache: {}, ui: emptyUi(), files: [] });
-      get().clearToday();
+      set({ activeFolder: "", uiCache: {}, ui: emptyUi(), files: [], dayLogOpen: null });
+      // 기록은 지우지 않는다 — 행마다 Vault 를 들고 있어 새 Vault 의 오늘만 다시 읽으면 된다.
+      await get().rescopeToday();
       await get().reloadVault(false);
       await get().reloadTemplates();
       get().toast("Vault를 변경했습니다", vault, TOAST.ok);
@@ -682,7 +704,7 @@ export const useStore = create<State & Actions>((set, get) => ({
           ren: null,
         };
       });
-      get().relocateToday(folder, updated.folder, updated.title);
+      await get().relocateToday(folder, updated.folder, updated.title);
       get().noteToday(updated.folder, updated.title);
       // 열린 탭 · 미저장 버퍼는 폴더 상대 경로라 그대로 살아 있다. 새 경로를 이미
       // activeFolder 에 넣었으므로 재조회는 목록만 새로 읽고(keepActive) 파일 트리만 다시 센다.
@@ -704,12 +726,34 @@ export const useStore = create<State & Actions>((set, get) => ({
    * 조용히 사라졌다 — 그 사이의 목록은 "지금 하는 일"이 아니라 "한 일이 섞인 목록"이다.
    * 완료를 누른 순간이 곧 그 업무를 손에서 놓는 순간이므로, 목록에서 빼고 창도 닫는다.
    * 다시 손대야 할 일이 남았다면 보관함의 [여기서 재개] 가 그대로 있다.
+   *
+   * **예외는 파일을 하나도 붙이지 않은 업무다** — 그런 업무는 보관하지 않고 오늘의 한일
+   * 한 줄로 접는다(`logAndDiscard`).
    */
   setStatus: async (status) => {
     const { settings, activeFolder } = get();
     if (!activeFolder) return;
     try {
       await get().saveAll();
+
+      // 가벼운 업무 판정은 `setTaskStatus` **앞**에 온다 — 곧 지울 폴더의 `index.md` 에
+      // `completed_at` 을 써 넣을 이유가 없다.
+      if (normalizeStatus(status) === "completed") {
+        // 메모는 `closeTask()` 가 `ui` 를 비우기 전에, 지금 읽어야 한다.
+        const memo = get().ui.notepad.trim();
+        // `list_task_files` 는 점 파일을 건너뛴다(`.context_snapshot.json` 은 세지 않는다)
+        // — 그래서 파일을 안 붙인 업무는 정확히 `index.md` 한 줄이다. 목록을 못 읽었으면
+        // 판정을 포기하고 기존 경로로 간다: 되돌릴 수 있는 쪽(보관)이 안전하다.
+        const files = await api.listTaskFiles(activeFolder).catch(() => null);
+        const pristine = !!files && files.length === 1 && files[0].p === "index.md";
+        // 메모까지 조건에 넣는 이유는 남길 글이 있어야 지우는 것이 무손실이기 때문이다.
+        // 아무것도 쓰지 않은 빈 업무는 예전처럼 보관해 둔다.
+        if (pristine && memo) {
+          await get().logAndDiscard(activeFolder, memo);
+          return;
+        }
+      }
+
       const updated = await api.setTaskStatus(settings.vault, activeFolder, status);
       set((s) => ({
         tasks: s.tasks.map((t) => (t.folder === activeFolder ? updated : t)),
@@ -754,7 +798,7 @@ export const useStore = create<State & Actions>((set, get) => ({
         false,
       );
       // 'move' 는 폴더 경로를 바꾼다 — 오늘의 한일과 열어 둔 탭 캐시도 함께 옮긴다.
-      get().relocateToday(folder, updated.folder, updated.title);
+      await get().relocateToday(folder, updated.folder, updated.title);
       get().noteToday(updated.folder, updated.title);
       set((s) => {
         const { [folder]: moved, ...rest } = s.uiCache;
@@ -797,7 +841,7 @@ export const useStore = create<State & Actions>((set, get) => ({
       );
       set((s) => ({ tasks: s.tasks.map((t) => (t.folder === folder ? updated : t)) }));
       set({ archQuery: "", query: "" });
-      get().relocateToday(folder, updated.folder, updated.title);
+      await get().relocateToday(folder, updated.folder, updated.title);
       get().noteToday(updated.folder, updated.title);
       await get().reloadVault(false);
       await get().selectTask(updated.folder);
@@ -1538,59 +1582,183 @@ export const useStore = create<State & Actions>((set, get) => ({
    * 지우기 · 옮기기 · 가져오기 · 내보내기 · 이름 변경 · 보관 · 재개 · 병합 · 메모.
    * 업무를 **열어 본 것**은 여기 들어오지 않는다: 그것까지 세면 잠깐 확인한 업무가
    * 전부 목록에 쌓여 "오늘 무엇을 했는지"가 아니라 "오늘 무엇을 봤는지"가 된다.
+   *
+   * **기다리지 않는다.** 부르는 자리가 18곳이고 그중에는 메모장에서 포커스가 떠나는
+   * 순간도 있다 — 기록이 화면을 붙잡으면 안 된다. 그러면서 낙관적 갱신도 하지 않는다:
+   * 화면에 끼울 줄의 `id` 는 DB 가 정하므로, 임시 id 를 만들어 나중에 맞춰 끼우는
+   * 복잡함을 로컬 SQLite 한 번 왕복과 맞바꿀 이유가 없다.
+   *
+   * `body` 를 `null` 로 보내는 것이 중요하다 — 업무를 다시 손댔다는 이유로 팝업에서
+   * 적어 둔 내용이 지워지면 안 된다.
    */
   noteToday: (folder, title) => {
     const target = folder ?? get().activeFolder;
     if (!target) return;
     const name =
       title ?? get().tasks.find((t) => t.folder === target)?.title ?? basename(target);
-    const next = addItem(get().todayLog, today(), {
-      folder: target,
-      title: name,
-      at: hhmm(),
-    });
-    set({ todayLog: next });
-    writeLog(next);
-  },
-
-  dropToday: (folder) => {
-    const next = removeItem(get().todayLog, folder);
-    set({ todayLog: next });
-    writeLog(next);
-  },
-
-  relocateToday: (from, to, title) => {
-    const next = moveItem(get().todayLog, from, to, title);
-    set({ todayLog: next });
-    writeLog(next);
-  },
-
-  /**
-   * 자정을 넘겼으면 목록을 비운다.
-   *
-   * 그리는 쪽도 날짜를 보고 걸러 내지만(`TodayDock`), 앱을 켜 둔 채로 밤을 넘기면
-   * 다시 그릴 일이 없어 어제 목록이 화면에 그대로 남는다 — 하루짜리 목록이 하루를
-   * 넘기는 유일한 경로라 타이머로 끊어 준다.
-   */
-  rollToday: () => {
     const day = today();
-    if (get().todayLog.date === day) return;
-    const next = pruneLog(get().todayLog, day);
-    set({ todayLog: next });
-    writeLog(next);
+    void api
+      .noteDayEntry(get().settings.vault, day, hhmm(), target, name, null)
+      .then((row) => set({ dayLog: upsertEntry(get().dayLog, day, row) }))
+      .catch(() => {
+        // 기록을 못 남긴 것으로 앱이 멈추지는 않는다. 토스트도 띄우지 않는다 —
+        // 파일을 저장할 때마다 경고가 뜨는 앱이 되면 그것이 더 큰 고장이다.
+      });
+  },
+
+  dropEntry: (id) => {
+    set({ dayLog: removeEntry(get().dayLog, id) });
+    void api.removeDayEntry(id).catch((e) => get().fail(e, "기록을 지우지 못했습니다"));
   },
 
   /**
-   * 목록을 비운다. Vault 를 갈아탈 때 부른다 — 항목이 든 것은 폴더 **경로**라,
-   * 다른 Vault 로 옮기면 전부 없는 업무를 가리키는 죽은 줄이 된다. 열어 둔 탭 ·
-   * 활성 업무 · 파일 트리를 그때 같이 비우는 것과 같은 이유다.
+   * 오늘 목록에서 이 업무의 줄을 지운다. 병합으로 접힌 업무에 쓴다(`doMerge`) — 접힌
+   * 쪽을 같은 날 목록에 남겨 두면 한 일을 여러 줄로 세는 것이 된다.
+   *
+   * 지우는 것은 **오늘 줄 하나**다. 지난 날짜의 줄은 그날 실제로 손댄 기록이라 남긴다.
    */
-  clearToday: () => {
-    const next: TodayLog = { date: today(), items: [] };
-    set({ todayLog: next });
-    writeLog(next);
+  dropToday: (folder) => {
+    const hit = get().dayLog.entries.find((e) => e.folder === folder);
+    if (hit) get().dropEntry(hit.id);
+  },
+
+  /**
+   * 업무의 폴더 경로가 바뀐 것을 기록에 반영한다(업무명 변경 · Archive 로 이동).
+   *
+   * **과거 날짜의 줄까지** 따라간다. 경로가 업무의 기본키라 이걸 안 하면 지난주의 그 줄은
+   * 없는 업무를 가리키고, 팝업에서 눌러도 아무 일이 일어나지 않는다.
+   *
+   * 기다리는 이유는 부르는 자리마다 곧바로 `noteToday` 가 새 경로로 따라오기 때문이다 —
+   * 순서가 뒤집히면 옮기기가 방금 올린 줄을 덮어쓴다.
+   */
+  relocateToday: async (from, to, title) => {
+    set({ dayLog: relocateEntries(get().dayLog, from, to, title) });
+    try {
+      await api.relocateDayEntries(get().settings.vault, from, to, title);
+    } catch {
+      /* 화면은 이미 새 경로를 쓴다. 다음 부팅에서 DB 를 다시 읽으면 제자리로 돌아온다 */
+    }
+  },
+
+  /**
+   * 날이 바뀌면 화면 목록을 새 날짜로 맞춘다. 자정에 걸어 둔 타이머가 부른다
+   * (`TodayDock`) — 그것이 없으면 밤을 넘긴 창에는 다시 그릴 일이 없어 어제 목록이
+   * 그대로 남는다. 하루 종일 켜 두는 앱이라 드문 경우가 아니다.
+   *
+   * 옛 이름이 말하던 "비운다" 는 이제 화면에만 해당한다. 어제의 줄은 DB 에 그대로 있고
+   * 팝업에서 볼 수 있다.
+   */
+  rollToday: async () => {
+    const day = today();
+    if (get().dayLog.day === day) return;
+    set({ dayLog: rollDay(get().dayLog, day) });
+    await get().rescopeToday();
+  },
+
+  /**
+   * 지금 Vault 의 오늘 줄을 다시 읽는다. 부팅과 Vault 교체가 부른다.
+   *
+   * Vault 를 갈아탈 때 **아무것도 지우지 않는다**. 기록은 행마다 Vault 를 들고 있어
+   * 남의 Vault 의 줄이 섞여 보이지 않고, 되돌아오면 원래 기록이 그대로 있다. 열어 둔 탭 ·
+   * 활성 업무 · 파일 트리를 그때 비우는 것과 이유가 다르다 — 저쪽은 경로가 죽지만
+   * 이쪽은 경로째로 보관되어 있다.
+   */
+  rescopeToday: async () => {
+    const day = today();
+    try {
+      const entries = await api.dayEntries(get().settings.vault, day);
+      set({ dayLog: { day, entries } });
+    } catch {
+      // 저장소를 못 읽으면 목록이 비어 보일 뿐이다.
+      set({ dayLog: { day, entries: [] } });
+    }
+  },
+
+  openDayLog: async (day) => {
+    const target = day ?? today();
+    set({ dayLogOpen: target });
+    // 오늘을 열었으면 도크와 같은 목록을 보는 것이므로 한 번 더 읽어 맞춰 준다.
+    if (target === today()) await get().rescopeToday();
+  },
+
+  /**
+   * 파일을 하나도 붙이지 않은 업무를 접는다 — 제목과 글은 오늘의 한일에 남고 폴더는 지운다.
+   *
+   * **왜 보관하지 않는가.** 한 줄짜리 메모로 끝난 일까지 보관함에 넣으면 보관함이 돌아볼
+   * 값이 없는 폴더로 채워진다. 그런 업무가 남긴 것은 제목과 글뿐이고, 그 둘은 오늘의 한일
+   * 한 줄에 그대로 들어간다 — 폴더 하나보다 정확한 기록이다.
+   *
+   * **순서가 전부다.** 기록을 먼저 쓰고 그 다음에 지운다. 뒤집으면 쓰기가 실패한 순간
+   * 사용자의 글이 어디에도 없다. 확인 대화상자를 두지 않는 대신 이 순서와 `index.md` 본문
+   * 회수(`composeDiscardBody`)가 삭제를 실질적으로 무손실로 만든다.
+   */
+  logAndDiscard: async (folder, memo) => {
+    const { settings, tasks } = get();
+    const task = tasks.find((t) => t.folder === folder);
+    const title = task?.title ?? basename(folder);
+    try {
+      // 1) 폴더가 들고 있던 글을 모은다. `index.md` 를 못 읽어도 메모는 남긴다 —
+      //    읽기 실패로 기록 자체를 포기하면 지울 수도 없다.
+      const indexText = task ? await api.readTextFile(task.indexPath).catch(() => "") : "";
+      const body = composeDiscardBody(memo, splitFrontmatter(indexText).body);
+
+      // 2) 기록을 먼저. `folder` 는 `null` 이다 — 폴더가 곧 사라지므로 경로로 남기면
+      //    눌러도 아무 일이 없는 죽은 줄이 된다.
+      const day = today();
+      const row = await api.noteDayEntry(settings.vault, day, hhmm(), null, title, body);
+      set({ dayLog: upsertEntry(get().dayLog, day, row) });
+
+      // 3) 이 업무로 올라가 있던 오늘 줄은 치운다. 새 줄과 같은 일을 두 줄로 세는 것이고,
+      //    폴더가 사라진 뒤에는 취소선 그어진 죽은 줄이 된다. 지난 날짜의 줄은 그날 실제로
+      //    손댄 기록이라 남긴다.
+      get().dropToday(folder);
+
+      // 4) 폴더를 지운다. 안전장치는 `vault::discard_task` 에 있다.
+      await api.discardTask(settings.vault, folder);
+
+      // 5) 창을 닫는다. 보관과 같은 이유다 — 업무 리스트에 없는 업무의 작업공간이 떠 있으면
+      //    아무것도 고르지 않은 화면에 남의 작업공간이 보이는 셈이다.
+      set((s) => {
+        const { [folder]: _discarded, ...rest } = s.uiCache;
+        return { uiCache: rest, statusMenuOpen: false };
+      });
+      get().closeTask();
+      get().toast(
+        "오늘의 한일에 남겼습니다",
+        `${title} · 파일이 없어 보관함에 넣지 않았습니다`,
+        TOAST.muted,
+      );
+      // 창을 닫았으므로 `keepActive` 로 읽는다 — `false` 면 살아 있는 업무 하나를 자동으로
+      // 골라 열어 방금 닫은 자리에 엉뚱한 업무가 나타난다.
+      await get().reloadVault(true);
+      // `syncMoc` 은 부르지 않는다. 이 업무는 보관된 적이 없어 Archive MOC 에 실린 적도 없다.
+    } catch (e) {
+      get().fail(e, "완료 처리를 하지 못했습니다");
+    }
   },
 }));
+
+/**
+ * 오늘의 한일이 `localStorage` 에 살던 시절의 값을 DB 로 옮긴다. 부팅 때 한 번 돈다.
+ *
+ * 날짜가 과거여도 옮긴다 — 그날 그 일을 한 것은 사실이고, 이제 하루가 지났다고 버릴
+ * 이유가 없어졌다. **이관 완료 표시는 키의 부재 그 자체다**: 옮기기가 성공한 뒤에 키를
+ * 지우므로, 중간에 실패하면 다음 부팅이 다시 시도하고 DB 쪽 upsert 가 중복을 접어 준다.
+ */
+async function migrateLegacyDayLog(vault: string): Promise<void> {
+  const legacy = readLegacyLog();
+  if (!legacy.day || !legacy.rows.length) {
+    // 옮길 것이 없으면 키만 치운다(빈 값 · 깨진 값 · 이미 옮긴 뒤).
+    forgetLegacyLog();
+    return;
+  }
+  try {
+    await api.importDayLog(vault, legacy.day, legacy.rows);
+    forgetLegacyLog();
+  } catch {
+    /* 다음 부팅에서 다시 시도한다 — 키를 남겨 두는 것이 곧 재시도 표시다 */
+  }
+}
 
 /** Debounced recommendation trigger used by the new-task title field. */
 /**
