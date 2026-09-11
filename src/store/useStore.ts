@@ -18,6 +18,7 @@ import {
 } from "../lib/daylog";
 import { BSTORM_EXT, seedBstorm } from "../lib/bstorm";
 import { reorderedList } from "../lib/reorder";
+import { keepTabs, tabKey } from "../lib/tabs";
 import { sanitizeFolderName } from "../lib/vaultPaths";
 import { aiRecommend } from "../lib/aiRecommend";
 import { activeRun, useAi } from "./aiStore";
@@ -202,6 +203,47 @@ export interface MergeState {
   primary: number;
 }
 
+/** 탭 우클릭 메뉴. `key` 는 그 탭의 식별자(`lib/tabs.ts` 의 `tabKey`)다. */
+export interface TabCtx {
+  key: string;
+  x: number;
+  y: number;
+}
+
+/**
+ * 업무 편입 대화상자 — `source` 업무의 폴더 전체를 `target` 업무 안으로 옮긴다.
+ *
+ * `error` 를 상태로 드는 이유는 실패가 이 기능의 **일상적인 결과**이기 때문이다. 파일이
+ * 다른 프로그램에 열려 있으면 옮기기가 막히는데, 토스트는 2.8초 뒤 사라지므로 무엇을
+ * 닫아야 하는지 읽을 시간이 모자란다. 모달을 열어 둔 채 사유를 붙여 두면 파일을 닫고
+ * 그 자리에서 다시 누를 수 있다.
+ */
+export interface AbsorbState {
+  /** 편입되는 업무의 폴더 경로 — 업무 리스트에서 사라지는 쪽이다. */
+  source: string;
+  /** 받는 업무의 폴더 경로. 빈 문자열이면 아직 고르지 않았다. */
+  target: string;
+  /** 받는 업무 안에서 쓸 폴더 이름. 기본은 원본 폴더 이름 그대로다. */
+  name: string;
+  /** 받는 업무를 찾는 검색어. */
+  query: string;
+  busy: boolean;
+  error: string;
+}
+
+/** 업무 분할 대화상자. 고른 최상위 항목이 새 업무로 **옮겨** 간다(복사가 아니다). */
+export interface SplitState {
+  /** 분할할 업무의 폴더 경로. 항목 목록은 `files`(열려 있는 업무의 트리)에서 읽는다. */
+  source: string;
+  /** 고른 최상위 항목 — 키는 `files` 의 상대 경로이고 폴더는 `/` 로 끝난다. */
+  sel: Record<string, boolean>;
+  title: string;
+  summary: string;
+  tags: string;
+  busy: boolean;
+  error: string;
+}
+
 /** 업무 리스트를 끌어 옮기는 중. 탐색기의 `fileDrag` 와 같은 자리에 사는 이유도 같다. */
 export interface TaskDrag {
   /** 끌고 있는 업무의 폴더 경로. */
@@ -352,6 +394,9 @@ interface State {
   ntBusy: boolean;
   expanded: Record<string, boolean>;
   merge: MergeState | null;
+  tabCtx: TabCtx | null;
+  absorb: AbsorbState | null;
+  split: SplitState | null;
   ren: RenameState | null;
   tplNew: TemplateDraft | null;
   openTpl: Record<string, boolean>;
@@ -394,6 +439,10 @@ interface Actions {
   defaultOpen: (path: string, bin: boolean) => Promise<void>;
   setTabMode: (path: string, from: TabMode, to: TabMode) => Promise<void>;
   closeTab: (key: string) => void;
+  /** 열려 있는 탭을 전부 닫는다. 미저장 버퍼는 먼저 내려쓴다. */
+  closeAllTabs: () => Promise<void>;
+  /** `key` 탭 하나만 남기고 닫는다. */
+  closeOtherTabs: (key: string) => Promise<void>;
   editDoc: (path: string, text: string) => void;
   /** 마크다운 뷰어에서 체크박스를 눌렀다. `line` 은 **문서** 기준 줄 번호다. */
   toggleTask: (path: string, line: number) => Promise<void>;
@@ -415,6 +464,15 @@ interface Actions {
   runRecommend: () => Promise<void>;
   createTask: () => Promise<void>;
   doMerge: () => Promise<void>;
+
+  /** 이 업무를 다른 업무에 편입하는 대화상자를 연다. */
+  openAbsorb: (folder: string) => Promise<void>;
+  /** 편입 실행 — 업무 폴더 전체를 받는 업무 아래로 옮긴다. */
+  doAbsorb: () => Promise<void>;
+  /** 이 업무를 둘로 나누는 대화상자를 연다. */
+  openSplit: (folder: string) => Promise<void>;
+  /** 분할 실행 — 고른 최상위 항목을 새 업무로 옮긴다. */
+  doSplit: () => Promise<void>;
 
   reloadTemplates: () => Promise<void>;
   createTemplate: () => Promise<void>;
@@ -466,6 +524,27 @@ function relocateUi(ui: TaskUi, from: string, to: string, isDir: boolean): Parti
     treeOpen: remap(ui.treeOpen),
     extOpened: remap(ui.extOpened),
     bsView: remap(ui.bsView),
+  };
+}
+
+/**
+ * 파일이 이 업무에서 **없어진** 뒤(삭제 · 분할로 옮겨감), 그것을 가리키던 화면 상태를
+ * 걷어낸다. `relocateUi` 의 짝이다 — 저쪽은 새 경로로 옮기고 이쪽은 지운다.
+ *
+ * `gone(p)` 은 그 상대 경로가 사라졌는지 답한다. 폴더째로 사라진 경우는 부르는 쪽이
+ * 접두사로 판정한다 — 여기서 `/` 규약을 한 번 더 해석하면 두 곳이 서로 다른 규칙을
+ * 갖게 된다.
+ */
+function pruneUi(ui: TaskUi, gone: (path: string) => boolean): Partial<TaskUi> {
+  const left = <T,>(m: Record<string, T>) =>
+    Object.fromEntries(Object.entries(m).filter(([p]) => !gone(p)));
+  return {
+    ...keepTabs(ui.openTabs, ui.activeTab, (t) => !gone(t.path)),
+    sel: gone(ui.sel) ? "" : ui.sel,
+    docs: left(ui.docs),
+    treeOpen: left(ui.treeOpen),
+    extOpened: left(ui.extOpened),
+    bsView: left(ui.bsView),
   };
 }
 
@@ -530,6 +609,9 @@ export const useStore = create<State & Actions>((set, get) => ({
   ntBusy: false,
   expanded: {},
   merge: null,
+  tabCtx: null,
+  absorb: null,
+  split: null,
   ren: null,
   tplNew: null,
   openTpl: {},
@@ -988,14 +1070,29 @@ export const useStore = create<State & Actions>((set, get) => ({
 
   closeTab: (key) => {
     const ui = get().ui;
-    const openTabs = ui.openTabs.filter((t) => `${t.mode}|${t.path}` !== key);
-    const activeTab =
-      ui.activeTab === key
-        ? openTabs.length
-          ? `${openTabs[openTabs.length - 1].mode}|${openTabs[openTabs.length - 1].path}`
-          : ""
-        : ui.activeTab;
-    get().setUi({ openTabs, activeTab });
+    get().setUi(keepTabs(ui.openTabs, ui.activeTab, (t) => tabKey(t) !== key));
+    set({ tabCtx: null });
+  },
+
+  /**
+   * 여러 탭을 한꺼번에 닫는다(탭 우클릭 메뉴).
+   *
+   * **먼저 내려쓴다.** 탭을 닫아도 버퍼는 `docs` 에 남아 있어 글이 사라지지는 않지만,
+   * 닫힌 뒤에는 어느 탭이 미저장이었는지 화면에 표시할 자리가 없다. 한 번에 여러 개를
+   * 닫는 길에서는 그 표시를 잃는 쪽이 위험해서, 자동 저장이 하던 일을 여기서 앞당긴다.
+   */
+  closeAllTabs: async () => {
+    await get().saveAll();
+    const ui = get().ui;
+    get().setUi(keepTabs(ui.openTabs, ui.activeTab, () => false));
+    set({ tabCtx: null });
+  },
+
+  closeOtherTabs: async (key) => {
+    await get().saveAll();
+    const ui = get().ui;
+    get().setUi(keepTabs(ui.openTabs, ui.activeTab, (t) => tabKey(t) === key));
+    set({ tabCtx: null });
   },
 
   editDoc: (path, text) => {
@@ -1177,14 +1274,7 @@ export const useStore = create<State & Actions>((set, get) => ({
       await api.deleteTaskPath(activeFolder, del.path);
       get().noteToday(activeFolder);
       const gone = (p: string) => (del.isDir ? p.startsWith(del.path) : p === del.path);
-      const openTabs = ui.openTabs.filter((t) => !gone(t.path));
-      const docs = Object.fromEntries(Object.entries(ui.docs).filter(([p]) => !gone(p)));
-      const activeTab = openTabs.some((t) => `${t.mode}|${t.path}` === ui.activeTab)
-        ? ui.activeTab
-        : openTabs.length
-          ? `${openTabs[openTabs.length - 1].mode}|${openTabs[openTabs.length - 1].path}`
-          : "";
-      get().setUi({ openTabs, docs, activeTab, sel: "" });
+      get().setUi({ ...pruneUi(ui, gone), sel: "" });
       set({ del: null });
       await get().refreshFiles();
       const rest = get().files.filter((f) => !f.dir);
@@ -1518,6 +1608,157 @@ export const useStore = create<State & Actions>((set, get) => ({
     } catch (e) {
       set({ merge: null });
       get().fail(e, "병합하지 못했습니다");
+    }
+  },
+
+  // -- 업무 편입 · 업무 분할 -------------------------------------------------
+  //
+  // 둘 다 디스크에서 **폴더를 옮긴다**(`vault::absorb_task` · `vault::split_task`).
+  // 그래서 앱 쪽의 일도 같다: 옮기기 전에 미저장 버퍼를 내려쓰고, 옮긴 뒤에 그 경로를
+  // 키로 들고 있던 화면 상태(열린 탭 · 버퍼 · 트리 펼침)를 정리한다. 이 순서가 뒤집히면
+  // 900ms 뒤에 도는 자동 저장이 없는 경로에 쓰려 들거나, 탭이 사라진 파일을 가리킨다.
+
+  openAbsorb: async (folder) => {
+    if (!folder) return;
+    // 편입되는 쪽을 먼저 연다. 옮기기 전에 그 업무의 버퍼를 내려쓰려면 그 업무가
+    // 열려 있어야 하고(`saveAll` 은 활성 업무의 `docs` 만 본다), 사용자도 무엇이
+    // 옮겨 가는지 보면서 대상을 고르게 된다. 이미 열려 있으면 부르지 않는다 —
+    // `selectTask` 는 화면을 워크스페이스로 옮기므로, 보관함 상세에서 누른 사용자가
+    // 대화상자를 열었다는 이유로 목록 밖으로 끌려 나가지 않게 한다.
+    if (get().activeFolder !== folder) await get().selectTask(folder);
+    set({
+      statusMenuOpen: false,
+      absorb: {
+        source: folder,
+        target: "",
+        name: basename(folder),
+        query: "",
+        busy: false,
+        error: "",
+      },
+      // 편입은 이 업무가 목록에서 사라지는 일이다 — 제목만 바꾸는 대화상자와 겹쳐 두지 않는다.
+      ren: null,
+    });
+  },
+
+  doAbsorb: async () => {
+    const { absorb, settings } = get();
+    if (!absorb || !absorb.target || absorb.busy) return;
+    set({ absorb: { ...absorb, busy: true, error: "" } });
+    try {
+      // 옮기기 전에 내려쓴다 — 미저장 버퍼가 옛 경로를 잡고 있으면 갈 곳을 잃는다.
+      await get().saveAll();
+      await get().persistSnapshot(absorb.source);
+      const res = await api.absorbTask(
+        settings.vault,
+        absorb.source,
+        absorb.target,
+        absorb.name.trim() || null,
+      );
+      // 편입된 업무의 화면 상태는 그 업무와 함께 사라진다. 폴더는 남지만 업무가 아니고,
+      // 그 안의 파일은 받는 업무의 트리에서 제 경로로 다시 열린다.
+      set((s) => {
+        const { [absorb.source]: _absorbed, ...rest } = s.uiCache;
+        return { uiCache: rest, absorb: null };
+      });
+      // 편입된 업무의 작업공간은 닫는다. 없는 업무의 화면을 열어 둔 채로 두면 그 위에서
+      // 자동 저장(`saveAll`)이 옛 경로에 파일을 되살리고, 업무 리스트에 없는 업무의
+      // 작업공간이 떠 있는 셈이 된다 — 보관·완료와 같은 이유다.
+      if (get().activeFolder === absorb.source) get().closeTask();
+      // 기록은 받는 업무로 옮긴다 — 그 일은 이제 이 업무의 일부다. 지난 날짜의 줄까지
+      // 따라가므로 눌러서 열 수 있는 줄로 남는다(죽은 경로를 남기지 않는다).
+      await get().relocateToday(absorb.source, res.task.folder, res.task.title);
+      get().noteToday(res.task.folder, res.task.title);
+      // `keepActive` 로 읽는다 — 창을 닫아 둔 상태에서 `false` 를 주면 살아 있는 업무
+      // 하나를 자동으로 골라 열어, 받는 업무로 넘어가기 전에 엉뚱한 업무가 한 번 뜬다.
+      await get().reloadVault(true);
+      await get().selectTask(res.task.folder);
+      // 어디로 들어갔는지 보여 주는 것이 곧 결과다 — 그 자리를 펼쳐 두고 고른다.
+      get().setUi({ treeOpen: { ...get().ui.treeOpen, [res.rel]: true }, sel: res.rel });
+      await get().reloadTemplates();
+      await get().syncMoc();
+      // 폴더가 디스크에서 실제로 움직였고 업무 하나가 목록에서 사라졌다 — 알린다.
+      get().toast(
+        "업무를 편입했습니다",
+        `${res.title} → ${res.task.title}/${res.rel}`,
+        TOAST.violet,
+      );
+    } catch (e) {
+      // 실패는 이 기능의 일상적인 결과다(파일 락). 대화상자를 열어 둔 채 사유를 붙여
+      // 두면 그 파일을 닫고 그 자리에서 다시 누를 수 있다.
+      const error = api.errMessage(e);
+      set((s) => ({ absorb: s.absorb ? { ...s.absorb, busy: false, error } : null }));
+      get().fail(e, "편입하지 못했습니다");
+    }
+  },
+
+  openSplit: async (folder) => {
+    if (!folder) return;
+    // 나눌 업무를 먼저 연다. 고를 항목은 그 업무의 파일 트리(`files`)에서 읽으므로
+    // 열려 있지 않으면 목록을 만들 수 없다. 이미 열려 있으면 화면을 건드리지 않는다.
+    if (get().activeFolder !== folder) await get().selectTask(folder);
+    const task = get().tasks.find((t) => t.folder === folder);
+    set({
+      statusMenuOpen: false,
+      split: {
+        source: folder,
+        sel: {},
+        title: "",
+        summary: "",
+        // 갈라져 나온 업무도 같은 결의 일이다 — 태그는 채워 두고 지울 수 있게 한다.
+        tags: (task?.tags ?? []).join(", "),
+        busy: false,
+        error: "",
+      },
+      ren: null,
+    });
+  },
+
+  doSplit: async () => {
+    const { split, settings } = get();
+    if (!split || split.busy) return;
+    const items = Object.entries(split.sel)
+      .filter(([, on]) => on)
+      .map(([p]) => p);
+    const title = split.title.trim();
+    if (!title || !items.length) return;
+    set({ split: { ...split, busy: true, error: "" } });
+    try {
+      await get().saveAll();
+      await get().persistSnapshot(split.source);
+      const tags = split.tags
+        .split(",")
+        .map((x) => x.trim())
+        .filter(Boolean);
+      const res = await api.splitTask(
+        settings.vault,
+        split.source,
+        title,
+        split.summary,
+        tags,
+        items,
+      );
+      // 옮겨 간 것을 가리키던 탭 · 버퍼 · 트리 상태를 원본에서 걷어낸다. 폴더는 접두사로
+      // 판정한다 — 폴더 하나가 가면 그 안의 탭도 전부 따라간다.
+      const gone = (p: string) =>
+        res.moved.some((m) => (m.endsWith("/") ? p.startsWith(m) : p === m));
+      if (get().activeFolder === split.source) get().setUi(pruneUi(get().ui, gone));
+      set({ split: null });
+      get().noteToday(split.source);
+      get().noteToday(res.task.folder, res.task.title);
+      await get().reloadVault(true);
+      // 새 업무를 연다. 방금 나눈 결과를 보는 것이 다음 할 일이다.
+      await get().selectTask(res.task.folder);
+      await get().reloadTemplates();
+      get().toast(
+        "업무를 분할했습니다",
+        `${res.moved.length}개 항목을 '${res.task.title}' 로 옮겼습니다`,
+        TOAST.violet,
+      );
+    } catch (e) {
+      const error = api.errMessage(e);
+      set((s) => ({ split: s.split ? { ...s.split, busy: false, error } : null }));
+      get().fail(e, "분할하지 못했습니다");
     }
   },
 

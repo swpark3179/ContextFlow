@@ -69,6 +69,15 @@ export default function MenuBar() {
       // 완료는 그 자리에서 보관하고 창을 닫는다(`setStatus`).
       { label: "완료 (보관함으로)", off: noTask, run: () => void s.setStatus("completed") },
       { label: "지금 보관함으로", off: noTask, run: () => void s.archiveNow(s.activeFolder) },
+      // 업무의 경계를 다시 그리는 두 항목. 폴더가 실제로 움직이므로 상태 변경 아래,
+      // 보기·정렬 항목 위에 둔다.
+      {
+        label: "다른 업무에 편입…",
+        hint: "하위 폴더로",
+        off: noTask,
+        run: () => void s.openAbsorb(s.activeFolder),
+      },
+      { label: "업무 분할…", hint: "새 업무로", off: noTask, run: () => void s.openSplit(s.activeFolder) },
       // 한 번 끌어 옮기면 그 순서가 계속 이긴다 — 돌아가는 길이 있어야 한다.
       // 업무 하나가 아니라 목록 전체를 다루므로 고른 업무가 없어도 쓸 수 있다.
       { label: "정렬 초기화 (최근 수정순)", run: () => void s.clearTaskOrder() },
