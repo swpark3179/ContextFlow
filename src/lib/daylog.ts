@@ -86,6 +86,42 @@ export function relocateEntries(
 }
 
 // ---------------------------------------------------------------------------
+// 가벼운 업무를 접을 때
+// ---------------------------------------------------------------------------
+
+/**
+ * `create_task` 가 템플릿 없이 만드는 본문의 골격(`src-tauri/src/vault.rs` 의
+ * `DEFAULT_SKELETON`). 이 머리말만 남은 본문은 사용자가 쓴 것이 없다는 뜻이다.
+ */
+const SKELETON_HEADING = /^##\s*개요\s*$/;
+
+/**
+ * 지워질 업무 폴더가 들고 있던 글을 기록 한 줄의 **내용**으로 모은다.
+ *
+ * 파일을 하나도 붙이지 않은 업무를 완료하면 그 폴더를 지운다(`useStore.logAndDiscard`).
+ * 그때 사라지는 글은 둘이다 — 간단 메모장의 메모와 `index.md` 본문(새 업무 대화상자에서
+ * 적은 개요, 또는 나중에 직접 쓴 글). **둘을 다 옮기는 것이 확인 대화상자 없이 지우는 것을
+ * 정당화한다**: 폴더가 들고 있던 글이 전부 기록으로 옮겨 가면 삭제가 실질적으로 무손실이다.
+ *
+ * `## 개요` 머리말은 앱이 만든 골격이라 걷어낸다. 그것만 남은 본문은 사용자가 쓴 것이
+ * 없다는 뜻이므로 메모만 남는다. 템플릿으로 만든 업무의 본문은 골격이 더 길지만 통째로
+ * 싣는다 — 조금 장황한 것이 글을 잃는 것보다 낫다.
+ */
+export function composeDiscardBody(memo: string, indexBody: string): string {
+  const lines = indexBody.replace(/\r\n/g, "\n").split("\n");
+  // 앞쪽 빈 줄을 지나 첫 글줄이 골격 머리말이면 그 **한 줄만** 걷어낸다. 가운데의
+  // `## 개요` 는 사용자가 쓴 것이므로 건드리지 않는다.
+  let i = 0;
+  while (i < lines.length && !lines[i].trim()) i++;
+  if (i < lines.length && SKELETON_HEADING.test(lines[i].trim())) i++;
+  const rest = lines.slice(i).join("\n").trim();
+  const head = memo.trim();
+  if (!rest) return head;
+  if (!head) return rest;
+  return `${head}\n\n---\n\n${rest}`;
+}
+
+// ---------------------------------------------------------------------------
 // localStorage 1회 이관
 // ---------------------------------------------------------------------------
 

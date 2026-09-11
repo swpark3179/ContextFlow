@@ -4,8 +4,9 @@ import type { TaskMeta, TemplateMeta, Recommendation } from "../lib/api";
 import type { FileEntry } from "../lib/tree";
 import { normalizeStatus, TOAST } from "../lib/design";
 import { basename, daysSince, hhmm, joinPath, nowStamp, today } from "../lib/format";
-import { toggleTaskLine } from "../lib/markdown";
+import { splitFrontmatter, toggleTaskLine } from "../lib/markdown";
 import {
+  composeDiscardBody,
   EMPTY_LOG,
   forgetLegacyLog,
   readLegacyLog,
@@ -433,6 +434,11 @@ interface Actions {
   rescopeToday: () => Promise<void>;
   /** 그 날짜의 기록을 읽어 팝업을 연다. 생략하면 오늘. */
   openDayLog: (day?: string) => Promise<void>;
+  /**
+   * 파일을 안 붙인 업무를 접는다 — 제목과 글을 오늘의 한일에 남기고 폴더를 지운다.
+   * `setStatus` 의 완료 분기가 부른다.
+   */
+  logAndDiscard: (folder: string, memo: string) => Promise<void>;
 }
 
 /**
@@ -720,12 +726,34 @@ export const useStore = create<State & Actions>((set, get) => ({
    * 조용히 사라졌다 — 그 사이의 목록은 "지금 하는 일"이 아니라 "한 일이 섞인 목록"이다.
    * 완료를 누른 순간이 곧 그 업무를 손에서 놓는 순간이므로, 목록에서 빼고 창도 닫는다.
    * 다시 손대야 할 일이 남았다면 보관함의 [여기서 재개] 가 그대로 있다.
+   *
+   * **예외는 파일을 하나도 붙이지 않은 업무다** — 그런 업무는 보관하지 않고 오늘의 한일
+   * 한 줄로 접는다(`logAndDiscard`).
    */
   setStatus: async (status) => {
     const { settings, activeFolder } = get();
     if (!activeFolder) return;
     try {
       await get().saveAll();
+
+      // 가벼운 업무 판정은 `setTaskStatus` **앞**에 온다 — 곧 지울 폴더의 `index.md` 에
+      // `completed_at` 을 써 넣을 이유가 없다.
+      if (normalizeStatus(status) === "completed") {
+        // 메모는 `closeTask()` 가 `ui` 를 비우기 전에, 지금 읽어야 한다.
+        const memo = get().ui.notepad.trim();
+        // `list_task_files` 는 점 파일을 건너뛴다(`.context_snapshot.json` 은 세지 않는다)
+        // — 그래서 파일을 안 붙인 업무는 정확히 `index.md` 한 줄이다. 목록을 못 읽었으면
+        // 판정을 포기하고 기존 경로로 간다: 되돌릴 수 있는 쪽(보관)이 안전하다.
+        const files = await api.listTaskFiles(activeFolder).catch(() => null);
+        const pristine = !!files && files.length === 1 && files[0].p === "index.md";
+        // 메모까지 조건에 넣는 이유는 남길 글이 있어야 지우는 것이 무손실이기 때문이다.
+        // 아무것도 쓰지 않은 빈 업무는 예전처럼 보관해 둔다.
+        if (pristine && memo) {
+          await get().logAndDiscard(activeFolder, memo);
+          return;
+        }
+      }
+
       const updated = await api.setTaskStatus(settings.vault, activeFolder, status);
       set((s) => ({
         tasks: s.tasks.map((t) => (t.folder === activeFolder ? updated : t)),
@@ -1651,6 +1679,62 @@ export const useStore = create<State & Actions>((set, get) => ({
     set({ dayLogOpen: target });
     // 오늘을 열었으면 도크와 같은 목록을 보는 것이므로 한 번 더 읽어 맞춰 준다.
     if (target === today()) await get().rescopeToday();
+  },
+
+  /**
+   * 파일을 하나도 붙이지 않은 업무를 접는다 — 제목과 글은 오늘의 한일에 남고 폴더는 지운다.
+   *
+   * **왜 보관하지 않는가.** 한 줄짜리 메모로 끝난 일까지 보관함에 넣으면 보관함이 돌아볼
+   * 값이 없는 폴더로 채워진다. 그런 업무가 남긴 것은 제목과 글뿐이고, 그 둘은 오늘의 한일
+   * 한 줄에 그대로 들어간다 — 폴더 하나보다 정확한 기록이다.
+   *
+   * **순서가 전부다.** 기록을 먼저 쓰고 그 다음에 지운다. 뒤집으면 쓰기가 실패한 순간
+   * 사용자의 글이 어디에도 없다. 확인 대화상자를 두지 않는 대신 이 순서와 `index.md` 본문
+   * 회수(`composeDiscardBody`)가 삭제를 실질적으로 무손실로 만든다.
+   */
+  logAndDiscard: async (folder, memo) => {
+    const { settings, tasks } = get();
+    const task = tasks.find((t) => t.folder === folder);
+    const title = task?.title ?? basename(folder);
+    try {
+      // 1) 폴더가 들고 있던 글을 모은다. `index.md` 를 못 읽어도 메모는 남긴다 —
+      //    읽기 실패로 기록 자체를 포기하면 지울 수도 없다.
+      const indexText = task ? await api.readTextFile(task.indexPath).catch(() => "") : "";
+      const body = composeDiscardBody(memo, splitFrontmatter(indexText).body);
+
+      // 2) 기록을 먼저. `folder` 는 `null` 이다 — 폴더가 곧 사라지므로 경로로 남기면
+      //    눌러도 아무 일이 없는 죽은 줄이 된다.
+      const day = today();
+      const row = await api.noteDayEntry(settings.vault, day, hhmm(), null, title, body);
+      set({ dayLog: upsertEntry(get().dayLog, day, row) });
+
+      // 3) 이 업무로 올라가 있던 오늘 줄은 치운다. 새 줄과 같은 일을 두 줄로 세는 것이고,
+      //    폴더가 사라진 뒤에는 취소선 그어진 죽은 줄이 된다. 지난 날짜의 줄은 그날 실제로
+      //    손댄 기록이라 남긴다.
+      get().dropToday(folder);
+
+      // 4) 폴더를 지운다. 안전장치는 `vault::discard_task` 에 있다.
+      await api.discardTask(settings.vault, folder);
+
+      // 5) 창을 닫는다. 보관과 같은 이유다 — 업무 리스트에 없는 업무의 작업공간이 떠 있으면
+      //    아무것도 고르지 않은 화면에 남의 작업공간이 보이는 셈이다.
+      set((s) => {
+        const { [folder]: _discarded, ...rest } = s.uiCache;
+        return { uiCache: rest, statusMenuOpen: false };
+      });
+      get().closeTask();
+      get().toast(
+        "오늘의 한일에 남겼습니다",
+        `${title} · 파일이 없어 보관함에 넣지 않았습니다`,
+        TOAST.muted,
+      );
+      // 창을 닫았으므로 `keepActive` 로 읽는다 — `false` 면 살아 있는 업무 하나를 자동으로
+      // 골라 열어 방금 닫은 자리에 엉뚱한 업무가 나타난다.
+      await get().reloadVault(true);
+      // `syncMoc` 은 부르지 않는다. 이 업무는 보관된 적이 없어 Archive MOC 에 실린 적도 없다.
+    } catch (e) {
+      get().fail(e, "완료 처리를 하지 못했습니다");
+    }
   },
 }));
 

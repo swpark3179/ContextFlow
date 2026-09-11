@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  composeDiscardBody,
   EMPTY_LEGACY,
   EMPTY_LOG,
   parseLegacyLog,
@@ -158,5 +159,45 @@ describe("parseLegacyLog", () => {
       day: DAY,
       rows: [{ folder: "/v/a", title: "/v/a", at: "" }],
     });
+  });
+});
+
+describe("composeDiscardBody", () => {
+  // 파일을 안 붙인 업무를 완료하면 폴더가 사라진다. 그 폴더가 들고 있던 글이 전부
+  // 기록으로 옮겨 가는지가 이 함수의 전부다 — 빠뜨리면 사용자의 글이 사라진다.
+
+  it("keeps only the memo when the body is just the generated skeleton", () => {
+    expect(composeDiscardBody("전화로 정리하고 끝냈다", "## 개요\n")).toBe("전화로 정리하고 끝냈다");
+    expect(composeDiscardBody("메모", "")).toBe("메모");
+    expect(composeDiscardBody("메모", "\n\n## 개요\n\n  \n")).toBe("메모");
+  });
+
+  it("carries the summary the user typed in the new-task dialog", () => {
+    expect(composeDiscardBody("메모 본문", "## 개요\n게이트웨이 타임아웃 확인\n")).toBe(
+      "메모 본문\n\n---\n\n게이트웨이 타임아웃 확인",
+    );
+  });
+
+  it("carries the index body even when there is no memo", () => {
+    expect(composeDiscardBody("", "## 개요\n적어 둔 개요\n")).toBe("적어 둔 개요");
+  });
+
+  it("strips only the leading skeleton heading, never one the user wrote", () => {
+    const body = "## 개요\n첫 문단\n\n## 개요\n사용자가 또 쓴 머리말\n";
+    expect(composeDiscardBody("", body)).toBe("첫 문단\n\n## 개요\n사용자가 또 쓴 머리말");
+  });
+
+  it("keeps a body whose first line is not the skeleton", () => {
+    expect(composeDiscardBody("", "## 결론\n바로 본문\n")).toBe("## 결론\n바로 본문");
+  });
+
+  it("is empty only when the task really held nothing", () => {
+    expect(composeDiscardBody("", "## 개요\n")).toBe("");
+  });
+
+  it("reads CRLF bodies the same as LF", () => {
+    expect(composeDiscardBody("메모", "## 개요\r\n윈도우에서 쓴 개요\r\n")).toBe(
+      "메모\n\n---\n\n윈도우에서 쓴 개요",
+    );
   });
 });
