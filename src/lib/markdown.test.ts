@@ -297,3 +297,58 @@ describe("splitFrontmatter — bodyLine", () => {
     expect(toggled).toBe("---\r\nid: task-1\r\n---\r\n- [x] 첫 줄\r\n- [ ] 둘째 줄\r\n");
   });
 });
+
+describe("mdParse — 표", () => {
+  const texts = (cells: { text: string }[][]) => cells.map((c) => c.map((g) => g.text).join(""));
+
+  it("reads a header, delimiter and body rows as one table", () => {
+    const blocks = mdParse("앞\n| 이름 | 상태 |\n|---|---|\n| A | 진행 |\n| B | 완료 |\n뒤");
+    expect(blocks).toHaveLength(3);
+    const t = blocks[1];
+    expect(t.isTable).toBe(true);
+    expect(t.line).toBe(1);
+    expect(texts(t.head)).toEqual(["이름", "상태"]);
+    expect(t.rows.map(texts)).toEqual([
+      ["A", "진행"],
+      ["B", "완료"],
+    ]);
+    expect(blocks[2].segs[0].text).toBe("뒤");
+  });
+
+  it("takes column alignment from the delimiter row", () => {
+    const [t] = mdParse("a | b | c | d\n--- | :-- | :-: | --:\n1 | 2 | 3 | 4");
+    expect(t.align).toEqual(["", "left", "center", "right"]);
+  });
+
+  it("pads short rows and drops extra cells", () => {
+    const [t] = mdParse("| a | b |\n|---|---|\n| 1 |\n| 1 | 2 | 3 |");
+    expect(t.rows.map(texts)).toEqual([
+      ["1", ""],
+      ["1", "2"],
+    ]);
+  });
+
+  it("keeps inline marks inside cells and honours escaped pipes", () => {
+    const [t] = mdParse("| 명령 | 설명 |\n|---|---|\n| `ls` | **목록** a \\| b |");
+    expect(t.rows[0][0][0].isCode).toBe(true);
+    expect(t.rows[0][1].find((g) => g.isB)?.text).toBe("목록");
+    expect(texts(t.rows[0])[1]).toBe("목록 a | b");
+  });
+
+  it("ends the table at a blank line", () => {
+    const blocks = mdParse("| a |\n|---|\n| 1 |\n\n| 2 |");
+    expect(blocks[0].rows).toHaveLength(1);
+    expect(blocks[1].isBody).toBe(true);
+  });
+
+  it("is not a table when the column counts disagree", () => {
+    const blocks = mdParse("a | b | c\n|---|---|");
+    expect(blocks.some((b) => b.isTable)).toBe(false);
+  });
+
+  it("still reads a lone --- under a line as a rule", () => {
+    const blocks = mdParse("a | b\n---");
+    expect(blocks[0].isBody).toBe(true);
+    expect(blocks[1].isHr).toBe(true);
+  });
+});

@@ -4,7 +4,7 @@
  * headings, rules, task lists, quotes, bullets, ordered items, fenced code,
  * and inline `[[wikilink]]` / `` `code` `` / `**bold**` / `~~strike~~`.
  *
- * 설계에 없던 추가는 둘이다.
+ * 설계에 없던 추가는 셋이다.
  *
  * * `~~취소선~~` — 보통의 마크다운 뷰어(Obsidian · GitHub)가 전부 그리는 표기라,
  *   여기서만 물결표 네 개가 본문에 그대로 남으면 같은 노트가 Vault 안에서 두 가지로
@@ -12,6 +12,8 @@
  * * **펜스 코드 블록** — 업무 노트에 로그 · 명령 · 설정 조각이 들어오는 것은 예외가
  *   아니라 평범한 일이다. 블록으로 읽지 않으면 그 줄들이 하나씩 문단으로 흩어지고
  *   ``` 세 글자가 본문에 남는다.
+ * * **표(GFM)** — 비교 · 일정 · 담당 같은 정리는 노트에서 표로 쓰는 것이 보통이다.
+ *   읽지 않으면 `| a | b |` 줄과 `|---|` 구분 줄이 문단으로 흩어져 파이프만 남는다.
  *
  * 블록마다 **원본 줄 번호(`line`)** 를 들고 다닌다. 뷰어에서 체크박스를 눌렀을 때
  * 고쳐야 할 줄이 어디인지가 그것으로 정해진다(`toggleTaskLine`).
@@ -27,6 +29,8 @@ export interface Seg {
   isCode: boolean;
   isLink: boolean;
 }
+
+export type TableAlign = "" | "left" | "center" | "right";
 
 export interface Block {
   key: string;
@@ -44,6 +48,14 @@ export interface Block {
   /** 펜스 뒤에 적힌 정보 문자열의 첫 낱말(`ts` · `bash` …). 없으면 빈 문자열. */
   lang: string;
   code: string;
+  /** GFM 표 — `align` · `head` · `rows` 만 의미가 있다. */
+  isTable: boolean;
+  /** 열마다의 정렬. 구분 줄의 `:` 위치로 정한다. 없으면 빈 문자열(왼쪽). */
+  align: TableAlign[];
+  /** 머리 줄의 칸들. 칸마다 인라인 조각을 든다. */
+  head: Seg[][];
+  /** 본문 줄들. 모든 줄은 머리 줄과 같은 칸 수로 맞춰져 있다. */
+  rows: Seg[][][];
   /** 체크리스트 항목. 뷰어에서 눌러 토글할 수 있는 유일한 블록이다. */
   isTask: boolean;
   checked: boolean;
@@ -100,6 +112,10 @@ function base(key: string, line: number): Block {
     isFence: false,
     lang: "",
     code: "",
+    isTable: false,
+    align: [],
+    head: [],
+    rows: [],
     isTask: false,
     checked: false,
     hasMark: false,
@@ -143,6 +159,49 @@ function trimTail(lines: string[]): string[] {
   const out = [...lines];
   while (out.length && !out[out.length - 1].trim()) out.pop();
   return out;
+}
+
+/** 표의 구분 줄 한 칸: `---` · `:--` · `--:` · `:-:`. */
+const DELIM_CELL = /^:?-+:?$/;
+
+/**
+ * 표 한 줄을 칸으로 자른다(GFM 과 같은 규칙). 양 끝의 파이프는 있어도 없어도 되고,
+ * `\|` 는 칸을 가르지 않는 글자 그대로의 파이프다.
+ */
+export function splitRow(line: string): string[] {
+  let s = line.trim();
+  if (s.startsWith("|")) s = s.slice(1);
+  if (s.endsWith("|") && !s.endsWith("\\|")) s = s.slice(0, -1);
+  const cells: string[] = [];
+  let cur = "";
+  for (let k = 0; k < s.length; k++) {
+    const c = s[k];
+    if (c === "\\" && s[k + 1] === "|") {
+      cur += "|";
+      k++;
+      continue;
+    }
+    if (c === "|") {
+      cells.push(cur.trim());
+      cur = "";
+      continue;
+    }
+    cur += c;
+  }
+  cells.push(cur.trim());
+  return cells;
+}
+
+/** 구분 줄이면 열마다의 정렬을, 아니면 `null`. 파이프가 하나도 없으면 구분선(`---`)이다. */
+function delimRow(line: string): TableAlign[] | null {
+  if (!line.includes("|")) return null;
+  const cells = splitRow(line);
+  if (!cells.every((c) => DELIM_CELL.test(c))) return null;
+  return cells.map((c) => {
+    const l = c.startsWith(":");
+    const r = c.endsWith(":");
+    return l && r ? "center" : r ? "right" : l ? "left" : "";
+  });
 }
 
 export function mdParse(src: string): Block[] {
@@ -286,6 +345,35 @@ export function mdParse(src: string): Block[] {
       });
       continue;
     }
+
+    // 표: 파이프가 든 줄 바로 아래에 같은 칸 수의 구분 줄이 오면 그때부터 표다.
+    // 칸 수가 다르면 표가 아니다(GFM) — 파이프를 쓴 평범한 문장을 표로 오해하지 않게.
+    const align = line.includes("|") && i < lines.length ? delimRow(lines[i]) : null;
+    const headCells = align ? splitRow(line) : [];
+    if (align && headCells.length === align.length) {
+      const n = align.length;
+      const fit = (cells: string[]) =>
+        Array.from({ length: n }, (_, c) => cells[c] ?? "");
+      const rows: Seg[][][] = [];
+      let j = i + 1;
+      // 표는 빈 줄이나 파이프가 없는 줄에서 끝난다. 펜스가 열리면 거기서도 끝난다.
+      while (j < lines.length && lines[j].trim() && lines[j].includes("|") && !FENCE.test(lines[j])) {
+        const r = rows.length;
+        rows.push(fit(splitRow(lines[j])).map((t, c) => mdSegs(t, `${key}r${r}c${c}`)));
+        j++;
+      }
+      stack.length = 0;
+      out.push({
+        ...base(key, at),
+        isTable: true,
+        align,
+        head: fit(headCells).map((t, c) => mdSegs(t, `${key}h${c}`)),
+        rows,
+      });
+      i = j;
+      continue;
+    }
+
     stack.length = 0;
     out.push({ ...base(key, at), isBody: true, segs: mdSegs(line, key) });
   }
