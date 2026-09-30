@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { Box } from "../lib/ui";
 import { GREEN, LANG, TOAST } from "../lib/design";
 import { copyText } from "../lib/clipboard";
 import { useStore } from "../store/useStore";
-import type { Block, Seg } from "../lib/markdown";
+import type { Block, Seg, TableAlign } from "../lib/markdown";
 
 /**
  * 읽기 화면이다. 그래서 앱의 다른 곳(11.5px 위주의 조밀한 UI)보다 본문이 크고 행간이
@@ -16,12 +16,44 @@ const LH = 1.85;
 const ROW = Math.round(BODY * LH);
 const MEASURE = 860;
 
-/** 코드 블록은 다섯 줄까지만 펼쳐 보이고 나머지는 안에서 스크롤한다. */
-const CODE_LINES = 5;
+/**
+ * 코드 블록의 높이 단계. 넘치는 줄은 블록 안에서 스크롤한다.
+ *
+ * * `1x` — 기본값. 예전 상한(다섯 줄)의 1.5배인 7.5줄을 **여덟 줄**로 올려 잡는다.
+ *   반 줄을 남기면 그 자리에 다음 줄의 위쪽 절반만 비쳐 잘린 화면처럼 보인다.
+ * * `2x` — `1x` 의 두 배.
+ * * `full` — 뷰어의 보이는 높이를 가득 채운다(`fullLines`).
+ */
+type CodeSize = "1x" | "2x" | "full";
+const CODE_SIZES: CodeSize[] = ["1x", "2x", "full"];
+const CODE_LINES_1X = Math.ceil(5 * 1.5);
+const CODE_LINES: Record<Exclude<CodeSize, "full">, number> = {
+  "1x": CODE_LINES_1X,
+  "2x": CODE_LINES_1X * 2,
+};
+const SIZE_TITLE: Record<CodeSize, string> = {
+  "1x": `${CODE_LINES["1x"]}줄까지 보입니다`,
+  "2x": `${CODE_LINES["2x"]}줄까지 보입니다`,
+  full: "뷰어 화면의 남은 높이를 가득 채웁니다",
+};
 const CODE_SIZE = 12;
 /** px 로 고정한다 — 배수로 두면 `maxHeight` 가 줄 수와 어긋나 여섯째 줄이 반쯤 보인다. */
 const CODE_LH = 20;
 const CODE_PAD = 8;
+/** 코드 카드에서 `<pre>` 가 아닌 몫: 머리띠(24) + 머리띠 밑줄(1) + 카드 위아래 테두리(2). */
+const CODE_CHROME = 27;
+/** `full` 일 때 카드 위아래로 남기는 틈. 카드의 바깥 여백(`margin`)과 같다. */
+const CODE_GAP = 10;
+
+/**
+ * 뷰어의 스크롤 상자와 그 보이는 높이. `full` 코드 블록이 "남은 높이" 를 재는 기준이다.
+ * 창 전체가 아니라 이 상자를 재는 이유: 창에서 제목줄 · 탭 · 뷰어 머리띠를 뺀 나머지가
+ * 바로 이 상자이고, 그 값은 창을 줄이거나 패널을 옮길 때마다 달라진다.
+ */
+const Viewport = createContext<{ el: HTMLDivElement | null; height: number }>({
+  el: null,
+  height: 0,
+});
 
 function Inline({ segs }: { segs: Seg[] }) {
   return (
@@ -81,12 +113,18 @@ function Inline({ segs }: { segs: Seg[] }) {
 /**
  * 코드 블록 카드.
  *
- * 다섯 줄이라는 상한은 노트를 읽는 화면에서 코드가 본문을 밀어내지 않게 하려는 것이다.
- * 대신 **몇 줄인지를 머리띠에 적는다** — 잘려 보이는 화면에서 스크롤바만으로는 뒤에
+ * 기본 상한(`1x`)은 노트를 읽는 화면에서 코드가 본문을 밀어내지 않게 하려는 것이고,
+ * 긴 로그를 읽을 때는 머리띠 오른쪽에서 `2x` · `full` 로 늘린다. 잘렸을 때는
+ * **몇 줄인지를 머리띠에 적는다** — 잘려 보이는 화면에서 스크롤바만으로는 뒤에
  * 두 줄이 남았는지 이백 줄이 남았는지 알 수 없다.
  */
 function CodeCard({ code, lang }: { code: string; lang: string }) {
   const [copied, setCopied] = useState(false);
+  const [size, setSize] = useState<CodeSize>("1x");
+  const view = useContext(Viewport);
+  const card = useRef<HTMLDivElement | null>(null);
+  /** `full` 을 고른 직후 한 번, 카드를 뷰어 맨 위로 올린다(아래 effect). */
+  const align = useRef(false);
   const timer = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(timer.current), []);
 
@@ -112,8 +150,41 @@ function CodeCard({ code, lang }: { code: string; lang: string }) {
   }, [code]);
 
   const count = code.length ? code.split("\n").length : 0;
-  const clipped = count > CODE_LINES;
+  /**
+   * `full` 의 줄 수. 뷰어 높이에서 카드의 머리띠 · 테두리 · 위아래 틈 · 가로 스크롤바를
+   * 빼고 남는 자리에 **온전히 들어가는** 줄만 센다(반 줄이 비치지 않게). 뷰어가 아주
+   * 낮아져도 `1x` 보다 작아지지는 않는다 — 그러면 "가득" 이 오히려 줄어든다.
+   */
+  const fullLines = Math.max(
+    CODE_LINES["1x"],
+    Math.floor((view.height - CODE_GAP * 2 - CODE_CHROME - CODE_PAD - hBar) / CODE_LH),
+  );
+  const limit = size === "full" ? fullLines : CODE_LINES[size];
+  const clipped = count > limit;
+  /** `1x` 안에 다 들어가는 블록은 단계를 바꿔도 달라지는 것이 없으므로 고르개를 숨긴다. */
+  const sizable = count > CODE_LINES["1x"];
   const label = LANG[lang.toLowerCase()] ?? lang;
+
+  /**
+   * `full` 로 늘린 카드는 뷰어 맨 위에 붙여야 화면을 채운다 — 카드가 화면 아래쪽에
+   * 걸쳐 있으면 늘어난 높이의 대부분이 화면 밖에 있다. 높이가 바뀐 **뒤에** 옮겨야
+   * 문서 끝 가까이의 카드도 끝까지 올라온다(그 전에는 스크롤할 자리가 없다).
+   */
+  useEffect(() => {
+    if (!align.current || size !== "full") return;
+    align.current = false;
+    const el = card.current;
+    const port = view.el;
+    if (!el || !port) return;
+    const off = el.getBoundingClientRect().top - port.getBoundingClientRect().top;
+    port.scrollTop += off - CODE_GAP;
+  }, [size, view.el]);
+
+  const pick = (next: CodeSize) => {
+    if (next === size) return;
+    align.current = next === "full";
+    setSize(next);
+  };
 
   const copy = () => {
     void copyText(code).then((ok) => {
@@ -130,8 +201,9 @@ function CodeCard({ code, lang }: { code: string; lang: string }) {
 
   return (
     <div
+      ref={card}
       style={{
-        margin: "10px 0",
+        margin: `${CODE_GAP}px 0`,
         border: "1px solid #e6e2da",
         borderRadius: 6,
         overflow: "hidden",
@@ -163,10 +235,51 @@ function CodeCard({ code, lang }: { code: string; lang: string }) {
         {clipped && (
           <span
             style={{ fontFamily: "'Roboto Mono',monospace", fontSize: 10.5, color: "#a09a8f" }}
-            title={`${CODE_LINES}줄까지 보이고 나머지는 안에서 스크롤합니다`}
+            title={`${limit}줄까지 보이고 나머지는 안에서 스크롤합니다`}
           >
             {count}줄
           </span>
+        )}
+        {sizable && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 1,
+              padding: 1,
+              borderRadius: 4,
+              background: "#ebe7df",
+            }}
+          >
+            {CODE_SIZES.map((k) => {
+              const on = k === size;
+              return (
+                <Box
+                  key={k}
+                  onClick={() => pick(k)}
+                  title={SIZE_TITLE[k]}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    height: 16,
+                    padding: "0 5px",
+                    borderRadius: 3,
+                    fontFamily: "'Roboto Mono',monospace",
+                    fontSize: 10,
+                    fontWeight: on ? 600 : 500,
+                    cursor: on ? "default" : "pointer",
+                    userSelect: "none",
+                    color: on ? "#3a3630" : "#8a857c",
+                    background: on ? "#fff" : "transparent",
+                    boxShadow: on ? "0 1px 1px rgba(0,0,0,.06)" : undefined,
+                  }}
+                  hover={on ? undefined : { color: "#3a3630" }}
+                >
+                  {k}
+                </Box>
+              );
+            })}
+          </div>
         )}
         <Box
           onClick={copy}
@@ -194,12 +307,12 @@ function CodeCard({ code, lang }: { code: string; lang: string }) {
           margin: 0,
           padding: CODE_PAD,
           /*
-            다섯 줄이 넘을 때만 상한을 두고, 그 값에 **아래쪽 여백은 넣지 않는다**.
-            여백은 스크롤되는 내용의 일부라 상한 안에 넣으면 그 자리에 여섯째 줄의
-            머리가 몇 px 비쳐 "다섯 줄" 이 다섯 줄 반이 된다. 끝까지 내리면 여백은
+            상한을 넘을 때만 상한을 두고, 그 값에 **아래쪽 여백은 넣지 않는다**.
+            여백은 스크롤되는 내용의 일부라 상한 안에 넣으면 그 자리에 다음 줄의
+            머리가 몇 px 비쳐 "여덟 줄" 이 여덟 줄 반이 된다. 끝까지 내리면 여백은
             그때 제대로 보인다(스크롤 높이에는 그대로 들어 있다).
           */
-          maxHeight: clipped ? CODE_PAD + CODE_LINES * CODE_LH + hBar : undefined,
+          maxHeight: clipped ? CODE_PAD + limit * CODE_LH + hBar : undefined,
           overflow: "auto",
           fontFamily: "'Roboto Mono',monospace",
           fontSize: CODE_SIZE,
@@ -212,6 +325,59 @@ function CodeCard({ code, lang }: { code: string; lang: string }) {
       >
         {code}
       </pre>
+    </div>
+  );
+}
+
+/**
+ * 표 카드. 본문보다 한 단 작은 글씨로 조밀하게 그리고, 넓은 표는 글줄 폭을 넘기지
+ * 않도록 **표만** 가로로 스크롤한다 — 본문 전체가 옆으로 밀리면 읽던 자리를 잃는다.
+ */
+function TableCard({ b }: { b: Block }) {
+  const cell = (a: TableAlign, head: boolean) => ({
+    padding: "5px 10px",
+    border: "1px solid #e6e2da",
+    textAlign: (a || "left") as "left" | "center" | "right",
+    verticalAlign: "top" as const,
+    fontWeight: head ? 600 : 400,
+    color: head ? "#23211e" : "#3a3630",
+    minWidth: 40,
+  });
+  return (
+    <div style={{ margin: "10px 0", overflowX: "auto" }}>
+      <table
+        style={{
+          borderCollapse: "collapse",
+          fontSize: 13,
+          lineHeight: 1.65,
+          wordBreak: "keep-all",
+          overflowWrap: "break-word",
+        }}
+      >
+        <thead>
+          <tr style={{ background: "#f4f2ed" }}>
+            {b.head.map((segs, c) => (
+              <th key={c} style={cell(b.align[c], true)}>
+                <Inline segs={segs} />
+              </th>
+            ))}
+          </tr>
+        </thead>
+        {b.rows.length > 0 && (
+          <tbody>
+            {b.rows.map((row, r) => (
+              // 줄무늬는 넓은 표에서 눈이 옆 줄로 미끄러지지 않게 하는 정도로만 옅게 둔다.
+              <tr key={r} style={{ background: r % 2 ? "#fbfaf7" : "#fff" }}>
+                {row.map((segs, c) => (
+                  <td key={c} style={cell(b.align[c], false)}>
+                    <Inline segs={segs} />
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        )}
+      </table>
     </div>
   );
 }
@@ -231,170 +397,188 @@ export default function MarkdownView({
   blocks: Block[];
   onToggle?: (line: number) => void;
 }) {
+  const [port, setPort] = useState<HTMLDivElement | null>(null);
+  const [height, setHeight] = useState(0);
+  useEffect(() => {
+    if (!port) return;
+    const measure = () => setHeight(port.clientHeight);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(port);
+    return () => ro.disconnect();
+  }, [port]);
+
   return (
-    <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "14px 20px 28px 20px" }}>
-      <div style={{ maxWidth: MEASURE }}>
-        {!blocks.length && (
-          <div style={{ fontSize: 12.5, color: "#a09a8f" }}>빈 문서입니다</div>
-        )}
-        {blocks.map((b, i) => {
-          const first = i === 0;
-          if (b.isFence) return <CodeCard key={b.key} code={b.code} lang={b.lang} />;
-          if (b.isH1)
-            return (
+    <Viewport.Provider value={{ el: port, height }}>
+      <div
+        ref={setPort}
+        style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "14px 20px 28px 20px" }}
+      >
+        <div style={{ maxWidth: MEASURE }}>
+          {!blocks.length && (
+            <div style={{ fontSize: 12.5, color: "#a09a8f" }}>빈 문서입니다</div>
+          )}
+          {blocks.map((b, i) => {
+            const first = i === 0;
+            if (b.isFence) return <CodeCard key={b.key} code={b.code} lang={b.lang} />;
+            if (b.isTable) return <TableCard key={b.key} b={b} />;
+            if (b.isH1)
+              return (
+                <div
+                  key={b.key}
+                  style={{
+                    fontSize: 18,
+                    fontWeight: 600,
+                    letterSpacing: "-.3px",
+                    color: "#23211e",
+                    margin: first ? "0 0 8px 0" : "20px 0 8px 0",
+                    paddingBottom: 6,
+                    borderBottom: "1px solid #e6e2da",
+                  }}
+                >
+                  {b.text}
+                </div>
+              );
+            if (b.isH2)
+              return (
+                <div
+                  key={b.key}
+                  style={{
+                    fontSize: 15.5,
+                    fontWeight: 600,
+                    letterSpacing: "-.2px",
+                    color: "#23211e",
+                    margin: first ? "0 0 6px 0" : "18px 0 6px 0",
+                    paddingBottom: 4,
+                    borderBottom: "1px solid #f0ede7",
+                  }}
+                >
+                  {b.text}
+                </div>
+              );
+            if (b.isH3)
+              return (
+                <div
+                  key={b.key}
+                  style={{
+                    fontSize: 14,
+                    fontWeight: 600,
+                    color: "#3a3630",
+                    margin: first ? "0 0 4px 0" : "14px 0 4px 0",
+                  }}
+                >
+                  {b.text}
+                </div>
+              );
+            if (b.isHr)
+              return (
+                <div key={b.key} style={{ height: 1, background: "#e6e2da", margin: "14px 0" }} />
+              );
+
+            const body = (
               <div
-                key={b.key}
                 style={{
-                  fontSize: 18,
-                  fontWeight: 600,
-                  letterSpacing: "-.3px",
-                  color: "#23211e",
-                  margin: first ? "0 0 8px 0" : "20px 0 8px 0",
-                  paddingBottom: 6,
-                  borderBottom: "1px solid #e6e2da",
+                  flex: 1,
+                  minWidth: 0,
+                  fontSize: BODY,
+                  lineHeight: LH,
+                  color: b.fg,
+                  wordBreak: "break-word",
                 }}
               >
-                {b.text}
+                <Inline segs={b.segs} />
               </div>
-            );
-          if (b.isH2)
-            return (
-              <div
-                key={b.key}
-                style={{
-                  fontSize: 15.5,
-                  fontWeight: 600,
-                  letterSpacing: "-.2px",
-                  color: "#23211e",
-                  margin: first ? "0 0 6px 0" : "18px 0 6px 0",
-                  paddingBottom: 4,
-                  borderBottom: "1px solid #f0ede7",
-                }}
-              >
-                {b.text}
-              </div>
-            );
-          if (b.isH3)
-            return (
-              <div
-                key={b.key}
-                style={{
-                  fontSize: 14,
-                  fontWeight: 600,
-                  color: "#3a3630",
-                  margin: first ? "0 0 4px 0" : "14px 0 4px 0",
-                }}
-              >
-                {b.text}
-              </div>
-            );
-          if (b.isHr)
-            return (
-              <div key={b.key} style={{ height: 1, background: "#e6e2da", margin: "14px 0" }} />
             );
 
-          const body = (
-            <div
-              style={{
-                flex: 1,
-                minWidth: 0,
-                fontSize: BODY,
-                lineHeight: LH,
-                color: b.fg,
-                wordBreak: "break-word",
-              }}
-            >
-              <Inline segs={b.segs} />
-            </div>
-          );
+            if (b.isQuote)
+              // 이어지는 인용 줄은 위쪽 간격을 두지 않아 **하나의 세로선**으로 붙는다.
+              // 줄마다 선이 끊기면 한 문단을 따온 것이 여러 개로 보인다.
+              return (
+                <div
+                  key={b.key}
+                  style={{
+                    display: "flex",
+                    padding: "2px 0 2px 11px",
+                    borderLeft: "3px solid #e0dcd4",
+                    background: "#faf9f6",
+                    marginTop: first ? 0 : blocks[i - 1].isQuote ? 0 : 9,
+                  }}
+                >
+                  {body}
+                </div>
+              );
 
-          if (b.isQuote)
-            // 이어지는 인용 줄은 위쪽 간격을 두지 않아 **하나의 세로선**으로 붙는다.
-            // 줄마다 선이 끊기면 한 문단을 따온 것이 여러 개로 보인다.
+            if (b.isTask)
+              return (
+                <div
+                  key={b.key}
+                  style={{ display: "flex", gap: 4, marginTop: 2, paddingLeft: b.indent }}
+                >
+                  <Box
+                    onClick={onToggle ? () => onToggle(b.line) : undefined}
+                    title={
+                      onToggle
+                        ? b.checked
+                          ? "눌러서 완료를 해제합니다"
+                          : "눌러서 완료로 표시합니다"
+                        : undefined
+                    }
+                    style={{
+                      flex: "0 0 auto",
+                      width: 19,
+                      height: ROW,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      borderRadius: 4,
+                      fontSize: 13.5,
+                      lineHeight: 1,
+                      color: b.markFg,
+                      cursor: onToggle ? "pointer" : "default",
+                      userSelect: "none",
+                    }}
+                    hover={
+                      onToggle
+                        ? { background: "#f0ede7", color: b.checked ? "#b5afa2" : GREEN }
+                        : undefined
+                    }
+                  >
+                    {b.mark}
+                  </Box>
+                  {body}
+                </div>
+              );
+
             return (
               <div
                 key={b.key}
                 style={{
                   display: "flex",
-                  padding: "2px 0 2px 11px",
-                  borderLeft: "3px solid #e0dcd4",
-                  background: "#faf9f6",
-                  marginTop: first ? 0 : blocks[i - 1].isQuote ? 0 : 9,
+                  gap: 7,
+                  // 문단은 문단끼리 떨어져야 읽히고, 목록은 붙어야 한 덩어리로 읽힌다.
+                  marginTop: first ? 0 : b.hasMark ? 3 : 9,
+                  paddingLeft: b.indent,
                 }}
               >
+                {b.hasMark && (
+                  <span
+                    style={{
+                      flex: "0 0 auto",
+                      fontSize: 12.5,
+                      lineHeight: `${ROW}px`,
+                      color: b.markFg,
+                    }}
+                  >
+                    {b.mark}
+                  </span>
+                )}
                 {body}
               </div>
             );
-
-          if (b.isTask)
-            return (
-              <div
-                key={b.key}
-                style={{ display: "flex", gap: 4, marginTop: 2, paddingLeft: b.indent }}
-              >
-                <Box
-                  onClick={onToggle ? () => onToggle(b.line) : undefined}
-                  title={
-                    onToggle
-                      ? b.checked
-                        ? "눌러서 완료를 해제합니다"
-                        : "눌러서 완료로 표시합니다"
-                      : undefined
-                  }
-                  style={{
-                    flex: "0 0 auto",
-                    width: 19,
-                    height: ROW,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    borderRadius: 4,
-                    fontSize: 13.5,
-                    lineHeight: 1,
-                    color: b.markFg,
-                    cursor: onToggle ? "pointer" : "default",
-                    userSelect: "none",
-                  }}
-                  hover={
-                    onToggle
-                      ? { background: "#f0ede7", color: b.checked ? "#b5afa2" : GREEN }
-                      : undefined
-                  }
-                >
-                  {b.mark}
-                </Box>
-                {body}
-              </div>
-            );
-
-          return (
-            <div
-              key={b.key}
-              style={{
-                display: "flex",
-                gap: 7,
-                // 문단은 문단끼리 떨어져야 읽히고, 목록은 붙어야 한 덩어리로 읽힌다.
-                marginTop: first ? 0 : b.hasMark ? 3 : 9,
-                paddingLeft: b.indent,
-              }}
-            >
-              {b.hasMark && (
-                <span
-                  style={{
-                    flex: "0 0 auto",
-                    fontSize: 12.5,
-                    lineHeight: `${ROW}px`,
-                    color: b.markFg,
-                  }}
-                >
-                  {b.mark}
-                </span>
-              )}
-              {body}
-            </div>
-          );
-        })}
+          })}
+        </div>
       </div>
-    </div>
+    </Viewport.Provider>
   );
 }
