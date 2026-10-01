@@ -18,7 +18,7 @@ export default function WikiCard() {
   const info = routeInfo(ai, "wiki.ingest");
 
   const route = info.run
-    ? `${info.name} · ${info.run.model}${info.via === "default" ? " (기본 연결)" : ""}`
+    ? `${info.name} · ${info.modelLabel}${info.via === "default" ? " (기본 연결)" : ""}`
     : info.via === "route"
       ? `지정한 연결(${info.name})을 지금 쓸 수 없습니다 — 반영하지 않습니다`
       : "반영에 쓸 연결이 없습니다 — 위 \"기능별 AI 연결\" 에서 고르세요";

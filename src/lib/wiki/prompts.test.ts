@@ -26,6 +26,7 @@ function pageMeta(path: string, title: string, kind: WikiPageMeta["kind"] = "top
     taskId: null,
     taskPath: null,
     sourceSig: null,
+    links: [],
     hash: "h",
   };
 }

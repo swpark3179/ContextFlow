@@ -432,6 +432,8 @@ export interface WikiPageMeta {
   taskId: string | null;
   taskPath: string | null;
   sourceSig: string | null;
+  /** 본문에서 나가는 위키링크의 대상. */
+  links: string[];
   hash: string;
 }
 

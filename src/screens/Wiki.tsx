@@ -264,7 +264,7 @@ export default function Wiki() {
                 style={{
                   ...smallBtn,
                   color: canIngest ? VIOLET : "#b5afa2",
-                  borderColor: canIngest ? "#d8cdf6" : "#e0dcd4",
+                  border: `1px solid ${canIngest ? "#d8cdf6" : "#e0dcd4"}`,
                   cursor: canIngest ? "pointer" : "default",
                   fontWeight: 600,
                 }}
@@ -291,7 +291,7 @@ export default function Wiki() {
             </div>
             <div style={{ ...hint, fontSize: 11 }}>
               {ingest.run
-                ? `${ingest.name} · ${ingest.run.model} · ${depthText}`
+                ? `${ingest.name} · ${ingest.modelLabel} · ${depthText}`
                 : ingest.via === "route"
                   ? `지정한 반영 연결(${ingest.name})을 지금 쓸 수 없습니다`
                   : "반영에 쓸 AI 연결이 없습니다 — 설정 → 기능별 AI 연결"}

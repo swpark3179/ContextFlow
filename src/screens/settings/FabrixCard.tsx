@@ -177,14 +177,22 @@ export default function FabrixCard() {
         label="출력 토큰 상한 (선택)"
         value={d.maxTokens}
         onChange={(v) => patch({ maxTokens: v })}
-        placeholder="비우면 기능마다 정한 값 (추천 4,096 · 위키 반영 최대 8,192)"
+        placeholder="비우면 기능마다 정한 값 (추천 4,096 · 위키 반영 최대 16,384)"
         note="적으면 이 연결의 모든 호출이 이 값을 씁니다. 응답이 잘리면 올리고, 거부되면 낮추세요."
       />
       <CustomModelsField
         value={d.custom}
         onChange={(v) => patch({ custom: v })}
-        placeholder={d.style === "openai" ? "16 | gpt-oss-120b\n70" : "모델 id\n모델 id | 표시이름"}
-        note="모델 목록 조회가 막혀 있을 때 쓰세요. 적어 두면 조회 결과보다 우선하고, 연결 테스트도 이 모델로 대화를 해 봅니다."
+        placeholder={
+          d.style === "openai"
+            ? "16 | gpt-oss-120b\n70"
+            : "019f23a1-46aa-7fa5-a6ab-391127fea7e6 | Glm 5.2"
+        }
+        note={
+          d.style === "openai"
+            ? "모델 목록 조회가 막혀 있을 때 쓰세요. 게이트웨이의 모델 id 는 숫자입니다(x-llm-model-id). 적어 두면 조회 결과보다 우선합니다."
+            : "모델 목록 조회가 막혀 있을 때 쓰세요. 채팅 API 의 모델 id 는 UUID 입니다 — 이름만 적으면 조회된 목록에서 같은 이름의 id 로 바꿔 씁니다. 적어 두면 조회 결과보다 우선합니다."
+        }
       />
 
       <div style={{ ...rowStyle, padding: 0, borderBottom: "none" }}>

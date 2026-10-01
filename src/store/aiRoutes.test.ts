@@ -43,7 +43,7 @@ describe("routeRun", () => {
   it("falls back to the default connection when no route is set", () => {
     const s = state({ active: { agentId: "fabrix", model: "m1" } }, detected);
     expect(routeRun(s, "wiki.ingest")).toEqual({ agentId: "fabrix", model: "m1" });
-    expect(routeInfo(s, "wiki.ingest")).toMatchObject({ via: "default", name: "FABRIX" });
+    expect(routeInfo(s, "wiki.ingest")).toMatchObject({ via: "default", name: "FABRIX", modelLabel: "M1" });
   });
 
   it("uses the route when it is set and available", () => {
@@ -74,7 +74,7 @@ describe("routeRun", () => {
 
   it("reports none when there is neither a route nor a default", () => {
     const s = state({}, detected);
-    expect(routeInfo(s, "wiki.query")).toEqual({ run: null, via: "none", name: null });
+    expect(routeInfo(s, "wiki.query")).toEqual({ run: null, via: "none", name: null, modelLabel: null });
   });
 
   it("a remote connection without a model id cannot run", () => {

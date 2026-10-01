@@ -16,6 +16,11 @@
  * 관대하게 읽는다 — 블록 바깥의 서술은 버리고, CRLF 를 받고, 모델이 본문을 ```markdown 으로
  * 한 번 더 감싸면 벗긴다. 닫는 `<<<END>>>` 가 없으면(출력 잘림) `complete: false` 로 돌려서
  * 호출자가 쓸지 말지 고르게 한다.
+ *
+ * 꺾쇠 수는 세지 않는다. 사내 FabriX(GLM)로 반영해 보니 모델이 닫는 줄을 `<<<END>>` 로 써서
+ * 블록이 닫히지 않았고, 그 뒤의 ```wikiplan 펜스까지 소스 페이지 본문에 섞여 들어갔다. 그래서
+ * 꺾쇠 2~3개를 모두 받고, 블록 안에서 계획 · 점검 펜스가 시작되면 거기서 블록을 닫는다 — 페이지
+ * 본문에 그 펜스가 들어갈 일은 없다.
  */
 
 export interface PageBlock {
@@ -25,8 +30,10 @@ export interface PageBlock {
   complete: boolean;
 }
 
-const OPEN = /^\s*<<<\s*PAGE\s+([^>\s]+)\s*>>>\s*$/;
-const CLOSE = /^\s*<<<\s*END\s*>>>\s*$/;
+const OPEN = /^\s*<{2,3}\s*PAGE\s+([^>\s]+)\s*>{1,3}\s*$/i;
+const CLOSE = /^\s*<{2,3}\s*\/?\s*(?:END|PAGE)\s*>{1,3}\s*$/i;
+/** 응답 끝의 계획 · 점검 펜스. 블록 안에서 만나면 블록이 끝난 것이다. */
+const TAIL_FENCE = /^\s*```(?:wikiplan|wikilint)\b/;
 const SUMMARY = /^\s*(?:요약|summary)\s*[:：]\s*(.+?)\s*$/i;
 
 /** 모델이 본문 전체를 ```markdown … ``` 으로 감쌌으면 벗긴다(안쪽 코드 블록은 그대로). */
@@ -72,7 +79,7 @@ export function parsePageBlocks(text: string): Map<string, PageBlock> {
       buf = [];
       continue;
     }
-    if (key !== null && CLOSE.test(line)) {
+    if (key !== null && (CLOSE.test(line) || TAIL_FENCE.test(line))) {
       out.set(key, finish(buf, true));
       key = null;
       buf = [];

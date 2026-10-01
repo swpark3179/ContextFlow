@@ -124,6 +124,9 @@ pub struct PageMeta {
     pub task_id: Option<String>,
     pub task_path: Option<String>,
     pub source_sig: Option<String>,
+    /// 본문에서 나가는 위키링크의 대상(중복 제거). AI 점검이 "빠진 링크" 를 요약만 보고
+    /// 짐작하지 않도록 함께 보낸다 — 사내망에서 돌려 보니 이미 있는 링크를 빠졌다고 했다.
+    pub links: Vec<String>,
     /// 파일 내용의 해시 — 읽은 뒤 다른 곳에서 바뀌었는지 판단하는 데 쓴다.
     pub hash: String,
 }
@@ -488,6 +491,15 @@ fn page_meta(rel: &str, text: &str) -> PageMeta {
         task_id: fm_str(&doc, "task_id"),
         task_path: fm_str(&doc, "task_path"),
         source_sig: fm_str(&doc, "source_sig"),
+        links: {
+            let mut seen = Vec::new();
+            for t in link_targets(&doc.body) {
+                if !seen.contains(&t) {
+                    seen.push(t);
+                }
+            }
+            seen
+        },
         hash: content_hash(text),
     }
 }
@@ -1407,7 +1419,9 @@ pub fn lint_local(root: &Path, arch_days: i64) -> Result<Vec<LintIssue>> {
                 detail: "요약(summary)이 비어 색인에 설명이 없습니다".into(),
             });
         }
-        if m.kind != "source" && !inbound.contains_key(&m.stem.to_lowercase()) {
+        // 소스와 답변은 들어오는 링크가 없는 것이 정상이다(색인이 다리다).
+        if m.kind != "source" && m.kind != "answer" && !inbound.contains_key(&m.stem.to_lowercase())
+        {
             issues.push(LintIssue {
                 kind: "orphan".into(),
                 path: m.path.clone(),
@@ -1905,6 +1919,12 @@ mod tests {
         assert_eq!(hits[0].title, "배포 절차");
         assert!(hits[1].snippet.contains("배포"));
         assert!(search(v.path(), "", 10).is_empty());
+    }
+
+    #[test]
+    fn page_meta_lists_outbound_links_once() {
+        let m = page_meta("topics/a.md", "---\ntitle: A\n---\n[[b]] [[c|씨]] [[b#x]]\n");
+        assert_eq!(m.links, vec!["b".to_string(), "c".into()]);
     }
 
     #[test]

@@ -113,7 +113,7 @@ export default function AiProCard() {
         label="출력 토큰 상한 (선택)"
         value={maxTokens}
         onChange={setMaxTokens}
-        placeholder="비우면 기능마다 정한 값 (추천 4,096 · 위키 반영 최대 8,192)"
+        placeholder="비우면 기능마다 정한 값 (추천 4,096 · 위키 반영 최대 16,384)"
         note="게이트웨이가 큰 값을 거부하면 낮추고, 응답이 잘리면 올리세요. 256 미만은 무시됩니다."
       />
 

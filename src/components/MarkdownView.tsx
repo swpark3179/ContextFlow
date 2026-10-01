@@ -76,10 +76,19 @@ const Viewport = createContext<{ el: HTMLDivElement | null; height: number }>({
  * 링크가 예전처럼 보이기만 한다 — 업무 노트의 `[[…]]` 는 Obsidian 의 vault 전체를 가리키는데,
  * 이 앱은 그 해석기를 갖고 있지 않다.
  */
-export const WikiLinkContext = createContext<((target: string) => void) | null>(null);
+export interface WikiLinks {
+  open: (target: string) => void;
+  /**
+   * 별칭 없는 링크에 보일 글. 업무 소스 페이지의 이름은 업무 id(`task-2026-…`)라 그대로
+   * 보이면 무슨 업무인지 알 수 없다 — 위키 화면이 그 업무의 제목을 돌려준다.
+   */
+  label?: (target: string) => string | null;
+}
+
+export const WikiLinkContext = createContext<WikiLinks | null>(null);
 
 function Inline({ segs }: { segs: Seg[] }) {
-  const onWikiLink = useContext(WikiLinkContext);
+  const links = useContext(WikiLinkContext);
   return (
     <>
       {segs.map((g) => {
@@ -118,9 +127,10 @@ function Inline({ segs }: { segs: Seg[] }) {
         if (g.isLink) {
           // `[[대상|별칭]]` 은 별칭만 보인다(Obsidian 과 같다). 이동은 위키 화면에서만 —
           // 그 밖에서는 눌렀을 때 아무 일도 없을 링크를 누를 수 있는 것처럼 그리지 않는다.
-          const [target, ...alias] = g.text.split("|");
-          const label = alias.join("|").trim() || (target ?? "").trim();
-          const go = onWikiLink && target?.trim() ? () => onWikiLink(target.trim()) : undefined;
+          const [rawTarget, ...alias] = g.text.split("|");
+          const target = (rawTarget ?? "").trim();
+          const label = alias.join("|").trim() || links?.label?.(target) || target;
+          const go = links && target ? () => links.open(target) : undefined;
           return (
             <span
               key={g.key}

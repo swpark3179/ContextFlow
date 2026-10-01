@@ -47,6 +47,31 @@ describe("parsePageBlocks", () => {
     expect(m.get("1")?.body).toBe("둘");
   });
 
+  // 사내 FabriX(GLM)가 실제로 돌려준 모양 — 닫는 줄의 꺾쇠가 하나 모자랐다.
+  it("accepts a sloppy closer and never swallows the plan fence", () => {
+    const text = [
+      "<<<PAGE source>>>",
+      "# 롤백",
+      "## 관련",
+      "(없음)",
+      "<<<END>>",
+      "",
+      "```wikiplan",
+      '{"summary":"s","pages":[]}',
+      "```",
+    ].join("\n");
+    expect(parsePageBlocks(text).get("source")).toEqual({
+      body: "# 롤백\n## 관련\n(없음)",
+      summary: null,
+      complete: true,
+    });
+    // 닫는 줄이 아예 없어도 계획 펜스에서 끊는다.
+    const noClose = "<<<PAGE source>>>\n# 본문\n```wikiplan\n{}\n```";
+    expect(parsePageBlocks(noClose).get("source")).toMatchObject({ body: "# 본문", complete: true });
+    // 꺾쇠 두 개짜리 여는 줄, </PAGE> 식 닫는 줄도 받는다.
+    expect(parsePageBlocks("<<PAGE 1>>\nA\n<<</PAGE>>>").get("1")).toMatchObject({ body: "A", complete: true });
+  });
+
   it("returns nothing for text without blocks", () => {
     expect(parsePageBlocks("그냥 답변입니다").size).toBe(0);
   });

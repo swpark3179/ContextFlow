@@ -8,7 +8,7 @@ import { CANCELED } from "../../lib/runOnce";
 import { resolveLink } from "../../lib/wiki/links";
 import { aiLint, askWiki, fileAnswer, type AskOutcome } from "../../lib/wiki/pipeline";
 import type { AiLintIssue } from "../../lib/wiki/prompts";
-import MarkdownView, { WikiLinkContext } from "../../components/MarkdownView";
+import MarkdownView, { WikiLinkContext, type WikiLinks } from "../../components/MarkdownView";
 import { isArchived, reportObsidianOpen, useStore } from "../../store/useStore";
 import { routeInfo, useAi } from "../../store/aiStore";
 import { useWiki } from "../../store/wikiStore";
@@ -71,6 +71,17 @@ const NO_PAGES: api.WikiPageMeta[] = [];
 function useTaskById() {
   const tasks = useStore((s) => s.tasks);
   return useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks]);
+}
+
+/** 위키링크의 이동과 표시 — 업무 소스 링크는 업무 id 대신 그 업무의 제목을 보인다. */
+function wikiLinks(pages: api.WikiPageMeta[], open: (target: string) => void): WikiLinks {
+  return {
+    open,
+    label: (t) => {
+      const p = resolveLink(t, pages);
+      return p?.kind === "source" ? p.title : null;
+    },
+  };
 }
 
 /**
@@ -157,7 +168,7 @@ export function PagePanel({ path, onOpen }: { path: string | null; onOpen: (path
           <Box
             style={{
               ...smallBtn,
-              borderColor: task ? "#e0d6f8" : "#e0dcd4",
+              border: `1px solid ${task ? "#e0d6f8" : "#e0dcd4"}`,
               color: task ? "#5a44b4" : "#b5afa2",
               cursor: task ? "pointer" : "default",
             }}
@@ -220,7 +231,7 @@ export function PagePanel({ path, onOpen }: { path: string | null; onOpen: (path
         </div>
       )}
       {error && <div style={{ ...hint, color: "#c04a4a", padding: 14 }}>{error}</div>}
-      <WikiLinkContext.Provider value={follow}>
+      <WikiLinkContext.Provider value={wikiLinks(pages, follow)}>
         <MarkdownView blocks={blocks} />
       </WikiLinkContext.Provider>
     </div>
@@ -419,7 +430,7 @@ export function AskPanel({ onOpen }: { onOpen: (path: string) => void }) {
           )}
           <span style={{ ...hint, fontSize: 11, marginLeft: "auto" }}>
             {info.run
-              ? `${info.name ?? info.run.agentId} · ${info.run.model}`
+              ? `${info.name ?? info.run.agentId} · ${info.modelLabel}`
               : info.via === "route"
                 ? `지정한 연결(${info.name})을 지금 쓸 수 없습니다`
                 : "설정 → 기능별 AI 연결에서 연결을 고르세요"}
@@ -495,7 +506,7 @@ export function AskPanel({ onOpen }: { onOpen: (path: string) => void }) {
         </div>
       )}
       {text ? (
-        <WikiLinkContext.Provider value={follow}>
+        <WikiLinkContext.Provider value={wikiLinks(pages, follow)}>
           <MarkdownView blocks={blocks} />
         </WikiLinkContext.Provider>
       ) : (
@@ -603,7 +614,7 @@ export function LintPanel({ onOpen }: { onOpen: (path: string) => void }) {
           style={{
             ...smallBtn,
             color: info.run && !busy ? VIOLET : "#b5afa2",
-            borderColor: info.run && !busy ? "#d8cdf6" : "#e0dcd4",
+            border: `1px solid ${info.run && !busy ? "#d8cdf6" : "#e0dcd4"}`,
             cursor: info.run && !busy ? "pointer" : "default",
           }}
           onClick={runAi}
@@ -686,7 +697,7 @@ export function LintPanel({ onOpen }: { onOpen: (path: string) => void }) {
                         cursor: p ? "pointer" : "default",
                       }}
                     >
-                      [[{name}]]
+                      [[{p?.title ?? name}]]
                     </Box>
                   );
                 })}

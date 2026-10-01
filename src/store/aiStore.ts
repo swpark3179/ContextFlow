@@ -102,6 +102,8 @@ export interface RouteInfo {
   via: "route" | "default" | "none";
   /** 쓰는(또는 쓰려던) 연결 이름. */
   name: string | null;
+  /** 모델의 표시 이름. FabriX 의 id 는 UUID 라 그대로 보이면 무슨 모델인지 알 수 없다. */
+  modelLabel: string | null;
 }
 
 export function routeInfo(s: AiState, feature: AiFeature): RouteInfo {
@@ -109,7 +111,11 @@ export function routeInfo(s: AiState, feature: AiFeature): RouteInfo {
   const choice = route?.agentId ? route : s.settings?.active;
   const name = choice?.agentId ? (s.detected[choice.agentId]?.name ?? choice.agentId) : null;
   const via = route?.agentId ? "route" : s.settings?.active?.agentId ? "default" : "none";
-  return { run: routeRun(s, feature), via, name };
+  const run = routeRun(s, feature);
+  const modelLabel = run
+    ? (s.detected[run.agentId]?.models.find((m) => m.id === run.model)?.label ?? run.model)
+    : null;
+  return { run, via, name, modelLabel };
 }
 
 export const useAi = create<AiState>((set, get) => ({

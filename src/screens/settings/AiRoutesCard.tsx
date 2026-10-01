@@ -108,7 +108,8 @@ export default function AiRoutesCard() {
         model: target.model,
         prompt: TEST_PROMPT,
         systemPrompt: TEST_SYSTEM,
-        maxTokens: 512,
+        // 추론 모델은 답보다 생각을 먼저 길게 쓴다 — 너무 작으면 생각만 하다 끝난다.
+        maxTokens: 2048,
         temperature: 0.2,
       },
       {

@@ -269,7 +269,9 @@ export async function fileAnswer(o: {
   answer: string;
   cited: api.WikiPageMeta[];
 }): Promise<api.WikiApplyResult> {
-  const title = [...o.question.trim().replace(/\s+/g, " ")].slice(0, 60).join("");
+  // 끝의 물음표 · 마침표는 뺀다 — 파일 이름에서 `-` 로 바뀌어 "순서는-.md" 가 된다.
+  const q = o.question.trim().replace(/\s+/g, " ").replace(/[?？!.。\s]+$/, "");
+  const title = [...q].slice(0, 60).join("");
   const sources = [
     ...new Set(o.cited.flatMap((p) => (p.kind === "source" && p.taskId ? [p.taskId] : p.sources))),
   ];

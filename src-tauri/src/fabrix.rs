@@ -189,7 +189,7 @@ fn fetch_models(cfg: &FabrixConfig) -> Result<Vec<ModelOption>, String> {
     let status = resp.status();
     let body = resp.text().unwrap_or_default();
     if !status.is_success() {
-        return Err(format!("FabriX HTTP {status} — {}", body.trim()));
+        return Err(format!("FabriX HTTP {status} — {}", with_hint(&body)));
     }
     parse_models_json(&body)
 }
@@ -200,12 +200,52 @@ fn effective_models(
     live: Option<Vec<ModelOption>>,
 ) -> (Vec<ModelOption>, &'static str) {
     if !cfg.custom_models.is_empty() {
-        return (cfg.custom_models.clone(), "custom");
+        let known = live.as_deref().filter(|m| !m.is_empty()).unwrap_or(&cfg.models);
+        return (resolve_custom(&cfg.custom_models, known), "custom");
     }
     if let Some(m) = live.filter(|m| !m.is_empty()) {
         return (m, "live");
     }
     (cfg.models.clone(), "cache")
+}
+
+/// 이름으로 적은 모델을 id 로 푼다.
+///
+/// 네이티브 채팅 API 의 모델 id 는 UUID(`019f23a1-…`)라, 사람이 직접 지정 칸에 적는 것은
+/// 대개 화면에 보이는 **이름**("Glm 5.2")이다. 그 값을 그대로 `modelIds` 로 보내면 FabriX 가
+/// "model_guid, Input should be a valid UUID" 로 거절한다(사내망에서 실제로 확인한 응답).
+/// 아는 목록(라이브 조회 · 캐시)에 같은 이름이 있으면 그 id 로 바꾸고, 표시 이름은 적은 대로
+/// 둔다. 이미 id 이거나 아무것도 맞지 않으면 손대지 않는다 — 목록에 없는 새 모델일 수 있다.
+fn resolve_custom(custom: &[ModelOption], known: &[ModelOption]) -> Vec<ModelOption> {
+    custom
+        .iter()
+        .map(|c| match resolve_id(&c.id, known) {
+            Some(id) if id != c.id => ModelOption { id, label: c.label.clone() },
+            _ => c.clone(),
+        })
+        .collect()
+}
+
+/// 이름 또는 id → 아는 목록의 id. 모르면 `None`.
+fn resolve_id(name: &str, known: &[ModelOption]) -> Option<String> {
+    let n = name.trim();
+    known
+        .iter()
+        .find(|k| k.id == n)
+        .or_else(|| known.iter().find(|k| k.label.trim().eq_ignore_ascii_case(n)))
+        .map(|k| k.id.clone())
+}
+
+/// FabriX 오류 본문에 대응 방법을 덧붙인다. 원문은 그대로 두고 맨 뒤에 한 줄만 더한다.
+fn with_hint(body: &str) -> String {
+    let body = body.trim();
+    if body.contains("model_guid") || body.contains("valid UUID") {
+        format!("{body}\n→ 채팅 API 의 모델 id 는 UUID 입니다. 직접 지정 모델에 이름을 적었다면 모델 목록의 id 로 바꾸세요.")
+    } else if body.contains("No matching resource") {
+        format!("{body}\n→ 이 주소에 해당 경로가 없습니다. API 방식(채팅 API / LLM 게이트웨이)과 엔드포인트가 맞는지 확인하세요.")
+    } else {
+        body.to_string()
+    }
 }
 
 /// 캐시 우선. `force` 일 때만 라이브 조회한다(앱 시작마다 네트워크를 때리지 않도록).
@@ -288,9 +328,15 @@ fn str_of<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
 /// 네이티브 SSE `data:` 한 조각 → 이벤트들. 종료 마커는 이벤트를 내지 않고, 최종 `end` 는
 /// 워커가 스트림 종료 후 한 번만 보낸다.
 ///
-/// 프레임에는 글자 말고도 쓸 것이 있다 — 추론(`reasoning_content`), 진행 상태(`STATUS`
-/// 프레임의 `event_data`), 잘림(`finish_reason` · `truncated`), 콘텐츠 필터 차단
-/// (`filter_block_reason.result_code` 가 `FR-200` 이 아니면). 모르는 필드는 무시한다.
+/// 프레임에는 글자 말고도 쓸 것이 있다. 사내망에서 실제로 받은 스트림의 모양:
+///
+/// * `event_status` 가 `CHUNK`(답) · `THINK`(추론 모델의 생각 — `content` 에 실린다) ·
+///   `REQUEST_ANALYSIS` · `FINAL_ANSWER`(단계 표시, 내용 없음) · `STATUS`(진행 문구).
+/// * 생각만 하다 출력 상한에 닿으면 `CHUNK` 답이 하나도 없이 끝난다 — 그래서 `THINK` 를
+///   글자와 섞지 않고 추론으로 따로 흘린다(테스트 대화가 "추론만 하고 끝났다" 를 알린다).
+/// * `filter_block_reason.result_code` 는 통과일 때도 온다: `FR-200`("passed") · `FR-201`
+///   ("allowed by the filter"). `FR-2xx` 가 아니고 문구도 통과가 아닐 때만 차단으로 본다.
+/// * 마지막 프레임은 `finish_reason` · `response_code: R20000`. 모르는 필드는 무시한다.
 pub fn parse_fabrix_sse_data(data: &str) -> Vec<RunEvent> {
     let data = data.trim();
     if data.is_empty() {
@@ -304,7 +350,9 @@ pub fn parse_fabrix_sse_data(data: &str) -> Vec<RunEvent> {
     // 필터가 막았으면 그 사유가 곧 답이다. 빈 응답으로 끝나면 사용자는 형식 오류로 읽는다.
     if let Some(f) = v.get("filter_block_reason").filter(|f| f.is_object()) {
         let code = str_of(f, "result_code").unwrap_or("");
-        if !code.is_empty() && code != "FR-200" {
+        let note = str_of(f, "message").unwrap_or("").to_ascii_lowercase();
+        let passed = code.starts_with("FR-2") || note.contains("allowed") || note.contains("passed");
+        if !code.is_empty() && !passed {
             let why = str_of(f, "ko").or_else(|| str_of(f, "message")).unwrap_or("사유 미상");
             return vec![RunEvent::Error {
                 message: format!("FabriX 콘텐츠 필터가 응답을 막았습니다({code}): {why}"),
@@ -323,6 +371,13 @@ pub fn parse_fabrix_sse_data(data: &str) -> Vec<RunEvent> {
             if let Some(c) = v.get("content").and_then(|c| c.as_str()) {
                 if !c.is_empty() {
                     out.push(RunEvent::TextDelta { delta: c.to_string() });
+                }
+            }
+        }
+        "THINK" => {
+            if let Some(t) = v.get("content").and_then(|c| c.as_str()) {
+                if !t.is_empty() {
+                    out.push(RunEvent::ThinkingDelta { delta: t.to_string() });
                 }
             }
         }
@@ -364,7 +419,10 @@ pub fn run_blocking(
     let cfg =
         load_config().ok_or("FabriX 연결 정보가 없습니다. 설정 화면에서 저장하세요.")?;
     let model = match args.model.as_deref() {
-        Some(m) if !m.trim().is_empty() && m != "default" => m.to_string(),
+        // 예전에 이름으로 저장된 선택("Glm 5.2")도 아는 목록의 id 로 풀어 보낸다.
+        Some(m) if !m.trim().is_empty() && m != "default" => {
+            resolve_id(m, &cfg.models).unwrap_or_else(|| m.trim().to_string())
+        }
         _ => return Err("FabriX 모델을 선택해 주세요.".to_string()),
     };
     // 설정의 재정의가 있으면 그 값이 이긴다 — 게이트웨이마다 허용 상한이 다르다.
@@ -396,7 +454,7 @@ pub fn run_blocking(
     let status = resp.status();
     if !status.is_success() {
         let body = resp.text().unwrap_or_default();
-        return Err(format!("FabriX HTTP {status} — {}", body.trim()));
+        return Err(format!("FabriX HTTP {status} — {}", with_hint(&body)));
     }
 
     on_event(RunEvent::Status {
@@ -442,7 +500,7 @@ fn probe_chat(cfg: &FabrixConfig, model: &str) -> Result<(), String> {
     if status.is_success() {
         Ok(())
     } else {
-        Err(format!("HTTP {status} — {}", resp.text().unwrap_or_default().trim()))
+        Err(format!("HTTP {status} — {}", with_hint(&resp.text().unwrap_or_default())))
     }
 }
 
@@ -657,6 +715,20 @@ mod tests {
         assert!(parse_fabrix_sse_data(r#"{"truncated":null,"finish_reason":null}"#).is_empty());
     }
 
+    /// 사내망에서 받은 실제 프레임들. FR-201 은 차단이 아니라 "allowed by the filter" 다.
+    #[test]
+    fn real_stream_frames_from_the_native_api() {
+        let allowed = r#"{"ko":"Default","en":"Default","policy_id":"49","message":"The content was allowed by the filter","result_code":"FR-201","filter_log_id":"1"}"#;
+        let think = format!(r#"{{"event_status":"THINK","status":"SUCCESS","content":"생각","filter_block_reason":{allowed}}}"#);
+        assert_eq!(parse_fabrix_sse_data(&think), vec![RunEvent::ThinkingDelta { delta: "생각".into() }]);
+        let chunk = format!(r#"{{"event_status":"CHUNK","status":"SUCCESS","content":"답","filter_block_reason":{allowed}}}"#);
+        assert_eq!(parse_fabrix_sse_data(&chunk), vec![RunEvent::TextDelta { delta: "답".into() }]);
+        let marker = r#"{"event_status":"FINAL_ANSWER","status":"SUCCESS","content":"","event_data":"{}","filter_block_reason":{"result_code":"FR-201","message":"allowed"}}"#;
+        assert!(parse_fabrix_sse_data(marker).is_empty());
+        let end = r#"{"event_status":"CHUNK","status":"SUCCESS","content":"","finish_reason":"stop","response_code":"R20000","truncated":false}"#;
+        assert!(parse_fabrix_sse_data(end).is_empty());
+    }
+
     #[test]
     fn filter_block_becomes_an_error() {
         let evs = parse_fabrix_sse_data(
@@ -713,6 +785,41 @@ mod tests {
         assert!(!a.available);
         assert_eq!(a.diagnostic.as_deref(), Some("unreachable"));
         assert_eq!(a.models_source, "cache");
+    }
+
+    /// 사내망에서 확인한 실패: 직접 지정 칸에 이름("Glm 5.2")을 적으면 UUID 가 아니라 거절된다.
+    /// 아는 목록에 같은 이름이 있으면 id 로 푼다.
+    #[test]
+    fn custom_model_names_resolve_to_known_ids() {
+        let uuid = "019f23a1-46aa-7fa5-a6ab-391127fea7e6";
+        let known = vec![opt(uuid, "Glm 5.2"), opt("16", "x")];
+        let got = resolve_custom(
+            &[opt("Glm 5.2", "Glm 5.2"), opt("glm 5.2", "내 이름"), opt("16", "x"), opt("new", "n")],
+            &known,
+        );
+        assert_eq!(got[0], opt(uuid, "Glm 5.2"));
+        assert_eq!(got[1], opt(uuid, "내 이름"));
+        assert_eq!(got[2], opt("16", "x"));
+        assert_eq!(got[3], opt("new", "n"));
+
+        let cfg = FabrixConfig {
+            endpoint_url: "https://f.test".into(),
+            models: known.clone(),
+            custom_models: vec![opt("Glm 5.2", "Glm 5.2")],
+            ..Default::default()
+        };
+        let (m, src) = effective_models(&cfg, None);
+        assert_eq!(src, "custom");
+        assert_eq!(m[0].id, uuid);
+        assert_eq!(resolve_id("GLM 5.2", &known).as_deref(), Some(uuid));
+        assert_eq!(resolve_id("모름", &known), None);
+    }
+
+    #[test]
+    fn error_bodies_get_a_hint() {
+        assert!(with_hint("model_guid, Input should be a valid UUID").contains("UUID 입니다"));
+        assert!(with_hint("No matching resource found").contains("API 방식"));
+        assert_eq!(with_hint(" 그 밖 "), "그 밖");
     }
 
     #[test]

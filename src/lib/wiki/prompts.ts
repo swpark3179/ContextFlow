@@ -23,11 +23,17 @@ import { findByTitle, normTitle } from "./links";
 export const PLAN_LABEL = "wikiplan";
 export const LINT_LABEL = "wikilint";
 
-/** 호출별 출력 토큰 상한. 설정의 "출력 토큰 상한" 재정의가 있으면 그쪽이 이긴다(백엔드). */
-export const SOURCE_MAX_TOKENS = 4096;
-export const INTEGRATE_MAX_TOKENS = 8192;
-export const QUERY_MAX_TOKENS = 4096;
-export const LINT_MAX_TOKENS = 4096;
+/**
+ * 호출별 출력 토큰 상한. 설정의 "출력 토큰 상한" 재정의가 있으면 그쪽이 이긴다(백엔드).
+ *
+ * 넉넉히 잡는 이유: 추론 모델(사내 FabriX 의 GLM 등)은 **생각에 쓴 토큰도 이 상한에 센다**.
+ * 사내망에서 4,096 으로 반영해 보니 생각을 마치고 소스 페이지를 쓰던 중에 잘려 계획 펜스가
+ * 통째로 빠졌다. FabriX 는 32,768 까지 받는 것을 확인했다.
+ */
+export const SOURCE_MAX_TOKENS = 12_288;
+export const INTEGRATE_MAX_TOKENS = 16_384;
+export const QUERY_MAX_TOKENS = 8_192;
+export const LINT_MAX_TOKENS = 8_192;
 /** 위키 호출은 원문에 붙어 있어야 하므로 온도를 낮춘다. */
 export const WIKI_TEMPERATURE = 0.2;
 
@@ -381,12 +387,13 @@ export function buildLintPrompt(i: {
   const rows = i.catalog.slice(0, CATALOG_CAP * 2).map((p) => {
     const kind = KIND_LABEL[p.kind] ?? p.kind;
     const when = p.updated.slice(0, 10);
-    return `- [[${p.stem}]] (${kind}, 근거 업무 ${p.sources.length}건, ${when}) — ${p.summary}`;
+    const out = p.links.length ? ` → 링크: ${p.links.slice(0, 12).join(", ")}` : " → 링크 없음";
+    return `- [[${p.stem}]] (${kind}, 근거 업무 ${p.sources.length}건, ${when}) — ${p.summary}${out}`;
   });
   return [
     "아래는 개인 업무 위키의 페이지 목록(제목 · 유형 · 요약)입니다. 위키의 건강 상태를 점검합니다.",
     "",
-    "# 페이지 목록",
+    "# 페이지 목록 (각 줄 끝의 → 는 그 페이지가 이미 걸어 둔 링크)",
     "",
     rows.length ? rows.join("\n") : "(비어 있음)",
     "",
@@ -399,7 +406,8 @@ export function buildLintPrompt(i: {
     "",
     "요약만으로 판단할 수 있는 것을 찾습니다: 서로 부딪히는 요약(contradiction), 낡아 보이는 내용(stale),",
     "여러 페이지가 언급하지만 자기 페이지가 없는 개념(missing-page), 이어져야 할 페이지 사이의 빠진 링크",
-    "(missing-link), 채우면 좋을 빈칸(gap). 자유롭게 근거를 서술한 뒤 맨 마지막에 펜스 하나:",
+    "(missing-link), 채우면 좋을 빈칸(gap). 이미 걸려 있는 링크(→)는 빠진 링크로 보고하지 않습니다.",
+    "자유롭게 근거를 서술한 뒤 맨 마지막에 펜스 하나:",
     "",
     "```" + LINT_LABEL,
     '{"issues": [{"kind": "contradiction" | "stale" | "missing-page" | "missing-link" | "gap",',
