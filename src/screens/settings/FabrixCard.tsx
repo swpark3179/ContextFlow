@@ -46,9 +46,9 @@ const STYLE_TEXT: Record<
   },
   openai: {
     label: "LLM 게이트웨이 (OpenAI 호환)",
-    desc: "FabriX LLM 게이트웨이(vLLM). /chat/completions 로 묻고, 모델은 x-llm-model-id 헤더로 고릅니다. 바탕화면 FabrixSample 이 쓰는 방식입니다.",
-    placeholder: "https://…/openapi/llm",
-    note: "끝에 /v1 을 붙이지 마세요 — 대화는 /chat/completions, 모델 목록은 /v1/models 를 앱이 덧붙입니다.",
+    desc: "FabriX LLM 게이트웨이(vLLM). /openapi/llm/chat/completions 로 묻고, 모델은 x-llm-model-id 헤더로 고릅니다. 바탕화면 FabrixSample 이 쓰는 방식입니다.",
+    placeholder: "https://fabrix.example.com",
+    note: "호스트 주소만 적으세요 — /openapi/llm 과 대화(/chat/completions) · 모델 목록(/v1/models) 경로는 앱이 덧붙입니다.",
     token: "Bearer … (빠져 있으면 앱이 붙입니다)",
   },
 };

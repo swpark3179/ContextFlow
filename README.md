@@ -557,11 +557,14 @@ FabriX 에는 같은 헤더 이름을 쓰는 **서로 다른 API 가 둘** 있�
 
 | | 채팅 API (`chat`, 기본) | LLM 게이트웨이 (`openai`) |
 | --- | --- | --- |
-| 대화 | `POST {base}/openapi/chat/v1/messages` | `POST {base}/chat/completions` (`/v1` 없음) |
-| 모델 목록 | `GET {base}/openapi/chat/v1/all-models` | `GET {base}/v1/models` (`/v1` 있음) |
+| 대화 | `POST {base}/openapi/chat/v1/messages` | `POST {base}/openapi/llm/chat/completions` (`/v1` 없음) |
+| 모델 목록 | `GET {base}/openapi/chat/v1/all-models` | `GET {base}/openapi/llm/v1/models` (`/v1` 있음) |
 | 모델 고르기 | 본문 `modelIds` — **UUID** | 헤더 `x-llm-model-id` — 숫자 id (본문 `model` 은 무시됨) |
 | 토큰 | 받은 그대로 | `Bearer ` 접두사 필수 — 빠져 있으면 앱이 붙인다 |
 | 스트림 | FabriX 자체 프레임 | OpenAI `chat.completion.chunk` + `[DONE]` (`openai.rs`) |
+
+`{base}` 는 두 방식 모두 엔드포인트 칸에 적은 **호스트 주소**다(예: `https://fabrix.example.com`). 게이트웨이의
+`/openapi/llm` 은 앱이 붙인다 — 예전처럼 그 경로까지 적어 저장한 설정은 두 번 붙이지 않으므로 그대로 동작한다.
 
 게이트웨이 쪽은 바탕화면 FabrixSample 의 규약 그대로다. 사용자 이메일(`x-generative-ai-user-email`)은
 선택 칸이고, 적으면 두 방식 모두 보낸다.

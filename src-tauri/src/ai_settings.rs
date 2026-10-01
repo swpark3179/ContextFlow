@@ -27,8 +27,9 @@ pub struct AgentConfig {
 /// 모델 id 형식이 모두 달라서, 플래그 하나로 갈라 두고 경로 조립은 `fabrix.rs` 가 한다.
 ///
 /// * `chat`(기본) — 네이티브 채팅 API. `{base}/openapi/chat/v1/messages` · `/all-models`.
-/// * `openai` — LLM 게이트웨이(OpenAI 호환, vLLM). `{base}/chat/completions` · `/v1/models`,
-///   모델은 본문이 아니라 `x-llm-model-id` 헤더로 고른다. 바탕화면 FabrixSample 이 이쪽이다.
+/// * `openai` — LLM 게이트웨이(OpenAI 호환, vLLM). `{base}/openapi/llm/chat/completions` ·
+///   `/openapi/llm/v1/models`(`/openapi/llm` 은 앱이 붙인다), 모델은 본문이 아니라 `x-llm-model-id`
+///   헤더로 고른다. 바탕화면 FabrixSample 이 이쪽이다.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct FabrixConfig {
