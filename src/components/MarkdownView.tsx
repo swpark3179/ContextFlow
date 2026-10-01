@@ -4,6 +4,7 @@ import { GREEN, LANG, TOAST } from "../lib/design";
 import { copyText } from "../lib/clipboard";
 import { useStore } from "../store/useStore";
 import type { Block, Seg, TableAlign } from "../lib/markdown";
+import { clipboardImage, type ClipImage } from "../lib/images";
 
 /**
  * 읽기 화면이다. 그래서 앱의 다른 곳(11.5px 위주의 조밀한 UI)보다 본문이 크고 행간이
@@ -44,6 +45,21 @@ const CODE_PAD = 8;
 const CODE_CHROME = 27;
 /** `full` 일 때 카드 위아래로 남기는 틈. 카드의 바깥 여백(`margin`)과 같다. */
 const CODE_GAP = 10;
+
+/**
+ * 이미지의 크기 단계. 고른 값은 Obsidian 과 같은 `|너비` 표기로 **문서에 남는다** —
+ * 코드 블록 단계와 달리 그림의 크기는 읽는 방식이 아니라 노트의 모양이라, 다시 열었을
+ * 때나 Obsidian 에서 열었을 때도 같아야 한다.
+ *
+ * `크게` 는 글줄 폭(`MEASURE`)이고, `원본` 은 표기를 걷어내 그림의 원래 크기로 둔다.
+ * 어느 쪽이든 글줄 폭을 넘지는 않는다(`maxWidth: 100%`).
+ */
+const IMG_SIZES: { label: string; width: number | null; title: string }[] = [
+  { label: "작게", width: 240, title: "너비 240px" },
+  { label: "중간", width: 480, title: "너비 480px" },
+  { label: "크게", width: MEASURE, title: "글줄 폭에 맞춥니다" },
+  { label: "원본", width: null, title: "이미지의 원래 크기(글줄 폭을 넘지 않게)" },
+];
 
 /**
  * 뷰어의 스크롤 상자와 그 보이는 높이. `full` 코드 블록이 "남은 높이" 를 재는 기준이다.
@@ -330,6 +346,121 @@ function CodeCard({ code, lang }: { code: string; lang: string }) {
 }
 
 /**
+ * 이미지 카드. 크기 단계 고르개는 **그림 위에 마우스를 올렸을 때만** 뜬다 — 늘 떠 있으면
+ * 스크린샷마다 버튼 줄이 하나씩 붙어 읽는 화면이 도구 상자가 된다.
+ *
+ * `url` 이 `null` 이면 그리지 않는 그림이다(외부 주소 — 앱 창의 CSP 가 막는다). 경로가
+ * 틀려 읽지 못한 그림과 함께, 깨진 그림 아이콘 대신 **무엇이 적혀 있는지**를 보여 준다.
+ */
+function ImageCard({
+  b,
+  url,
+  onWidth,
+}: {
+  b: Block;
+  url: string | null;
+  onWidth?: (width: number | null) => void;
+}) {
+  const [hover, setHover] = useState(false);
+  const [broken, setBroken] = useState(false);
+  useEffect(() => setBroken(false), [url]);
+
+  if (!url || broken)
+    return (
+      <div
+        style={{
+          margin: "10px 0",
+          padding: "8px 11px",
+          border: "1px dashed #e0dcd4",
+          borderRadius: 6,
+          background: "#faf9f6",
+          fontSize: 12,
+          lineHeight: 1.6,
+          color: "#8a857c",
+          wordBreak: "break-all",
+        }}
+      >
+        <div style={{ fontWeight: 600, color: "#6a665e" }}>
+          {url ? "이미지를 불러오지 못했습니다" : "외부 이미지는 표시하지 않습니다"}
+        </div>
+        <div style={{ fontFamily: "'Roboto Mono',monospace", fontSize: 11 }}>{b.src}</div>
+      </div>
+    );
+
+  return (
+    <div style={{ margin: "10px 0", lineHeight: 0 }}>
+      <div
+        onMouseEnter={() => setHover(true)}
+        onMouseLeave={() => setHover(false)}
+        style={{ position: "relative", display: "inline-block", maxWidth: "100%" }}
+      >
+        <img
+          src={url}
+          alt={b.alt}
+          title={b.alt || undefined}
+          draggable={false}
+          onError={() => setBroken(true)}
+          style={{
+            display: "block",
+            width: b.width ?? undefined,
+            maxWidth: "100%",
+            height: "auto",
+            borderRadius: 4,
+            border: "1px solid #ebe7df",
+          }}
+        />
+        {onWidth && hover && (
+          <div
+            style={{
+              position: "absolute",
+              top: 6,
+              left: 6,
+              display: "flex",
+              alignItems: "center",
+              gap: 1,
+              padding: 2,
+              borderRadius: 5,
+              background: "rgba(235,231,223,.94)",
+              boxShadow: "0 1px 3px rgba(0,0,0,.12)",
+              lineHeight: "normal",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {IMG_SIZES.map((z) => {
+              const on = z.width === b.width;
+              return (
+                <Box
+                  key={z.label}
+                  onClick={on ? undefined : () => onWidth(z.width)}
+                  title={z.title}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    height: 18,
+                    padding: "0 7px",
+                    borderRadius: 3,
+                    fontSize: 11,
+                    fontWeight: on ? 600 : 500,
+                    cursor: on ? "default" : "pointer",
+                    userSelect: "none",
+                    color: on ? "#3a3630" : "#6a665e",
+                    background: on ? "#fff" : "transparent",
+                    boxShadow: on ? "0 1px 1px rgba(0,0,0,.06)" : undefined,
+                  }}
+                  hover={on ? undefined : { color: "#23211e", background: "rgba(255,255,255,.6)" }}
+                >
+                  {z.label}
+                </Box>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
  * 표 카드. 본문보다 한 단 작은 글씨로 조밀하게 그리고, 넓은 표는 글줄 폭을 넘기지
  * 않도록 **표만** 가로로 스크롤한다 — 본문 전체가 옆으로 밀리면 읽던 자리를 잃는다.
  */
@@ -393,9 +524,18 @@ function TableCard({ b }: { b: Block }) {
 export default function MarkdownView({
   blocks,
   onToggle,
+  imageUrl,
+  onImageWidth,
+  onPasteImage,
 }: {
   blocks: Block[];
   onToggle?: (line: number) => void;
+  /** 이미지 블록의 경로를 `<img src>` 로 바꾼다. `null` 이면 그리지 않는다. */
+  imageUrl?: (b: Block) => string | null;
+  /** 크기 단계를 골랐다. `line` 은 `onToggle` 과 같이 본문 기준이다. */
+  onImageWidth?: (line: number, idx: number, width: number | null) => void;
+  /** 뷰어에 초점이 있을 때 이미지를 붙여넣었다. */
+  onPasteImage?: (img: ClipImage) => void;
 }) {
   const [port, setPort] = useState<HTMLDivElement | null>(null);
   const [height, setHeight] = useState(0);
@@ -411,9 +551,31 @@ export default function MarkdownView({
 
   return (
     <Viewport.Provider value={{ el: port, height }}>
+      {/*
+        tabIndex 는 붙여넣기를 받기 위한 것이다. 붙여넣기 이벤트는 초점이 있는 요소로
+        가므로, 뷰어를 누른 뒤의 Ctrl+V 만 여기로 온다 — 창 전체에서 받으면 다른 곳을
+        보다가 누른 Ctrl+V 까지 이 노트에 그림을 붙인다.
+      */}
       <div
         ref={setPort}
-        style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "14px 20px 28px 20px" }}
+        tabIndex={onPasteImage ? -1 : undefined}
+        onPaste={
+          onPasteImage
+            ? (e) => {
+                const img = clipboardImage(e.clipboardData);
+                if (!img) return;
+                e.preventDefault();
+                onPasteImage(img);
+              }
+            : undefined
+        }
+        style={{
+          flex: 1,
+          minHeight: 0,
+          overflow: "auto",
+          padding: "14px 20px 28px 20px",
+          outline: "none",
+        }}
       >
         <div style={{ maxWidth: MEASURE }}>
           {!blocks.length && (
@@ -423,6 +585,17 @@ export default function MarkdownView({
             const first = i === 0;
             if (b.isFence) return <CodeCard key={b.key} code={b.code} lang={b.lang} />;
             if (b.isTable) return <TableCard key={b.key} b={b} />;
+            if (b.isImage)
+              return (
+                <ImageCard
+                  key={b.key}
+                  b={b}
+                  url={imageUrl ? imageUrl(b) : null}
+                  onWidth={
+                    onImageWidth ? (w) => onImageWidth(b.line, b.imgIdx, w) : undefined
+                  }
+                />
+              );
             if (b.isH1)
               return (
                 <div

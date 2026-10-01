@@ -15,6 +15,12 @@
  * * **표(GFM)** — 비교 · 일정 · 담당 같은 정리는 노트에서 표로 쓰는 것이 보통이다.
  *   읽지 않으면 `| a | b |` 줄과 `|---|` 구분 줄이 문단으로 흩어져 파이프만 남는다.
  *
+ * * **이미지** — `![alt](경로)` 와 Obsidian 의 `![[파일.png]]`. 붙여넣은 스크린샷이
+ *   노트 옆에 저장되고 링크가 들어오므로(`useStore.pasteImage`) 뷰어가 그려야 한다.
+ *   **이미지만 있는 줄**만 이미지 블록이 된다 — 문장 사이에 끼운 그림은 노트에서 드물고,
+ *   한 줄을 통째로 차지해야 크기 단계(작게 · 중간 · 크게)가 의미가 있다. 너비는 Obsidian
+ *   과 같은 `![alt|320](경로)` · `![[파일.png|320]]` 표기로 문서에 남긴다.
+ *
  * 블록마다 **원본 줄 번호(`line`)** 를 들고 다닌다. 뷰어에서 체크박스를 눌렀을 때
  * 고쳐야 할 줄이 어디인지가 그것으로 정해진다(`toggleTaskLine`).
  */
@@ -56,6 +62,17 @@ export interface Block {
   head: Seg[][];
   /** 본문 줄들. 모든 줄은 머리 줄과 같은 칸 수로 맞춰져 있다. */
   rows: Seg[][][];
+  /** 이미지 — `src` · `alt` · `width` · `imgIdx` 만 의미가 있다. */
+  isImage: boolean;
+  /** 적힌 그대로의 경로(꺾쇠만 벗긴다). 풀어 읽는 것은 `resolveImageSrc` 다. */
+  src: string;
+  alt: string;
+  /** `|320` 으로 정한 너비(px). 없으면 `null` — 원래 크기(글줄 폭을 넘지 않게). */
+  width: number | null;
+  /** 같은 줄에서 몇 번째 이미지인지(0부터). `setImageWidth` 가 고칠 자리를 찾는 데 쓴다. */
+  imgIdx: number;
+  /** 위키 표기(`![[…]]`)였는지. 이 표기의 경로는 퍼센트 인코딩하지 않는다. */
+  wiki: boolean;
   /** 체크리스트 항목. 뷰어에서 눌러 토글할 수 있는 유일한 블록이다. */
   isTask: boolean;
   checked: boolean;
@@ -116,6 +133,12 @@ function base(key: string, line: number): Block {
     align: [],
     head: [],
     rows: [],
+    isImage: false,
+    src: "",
+    alt: "",
+    width: null,
+    imgIdx: 0,
+    wiki: false,
     isTask: false,
     checked: false,
     hasMark: false,
@@ -159,6 +182,104 @@ function trimTail(lines: string[]): string[] {
   const out = [...lines];
   while (out.length && !out[out.length - 1].trim()) out.pop();
   return out;
+}
+
+/**
+ * 이미지 토큰 하나. `![alt](dest "title")` 또는 `![[name|alt]]`.
+ * dest 는 꺾쇠(`<a b.png>`)로 감싸 공백을 넣을 수 있다(CommonMark).
+ */
+const IMAGE_SRC =
+  /!\[([^\]\n]*)\]\(\s*(<[^>\n]*>|[^)\s]+)(\s+(?:"[^"\n]*"|'[^'\n]*'))?\s*\)|!\[\[([^\]|\n]+)(?:\|([^\]\n]*))?\]\]/
+    .source;
+/** 위키 표기는 이미지 확장자일 때만 이미지다 — `![[노트]]` 는 노트 삽입이라 다른 이야기다. */
+const IMAGE_FILE = /\.(png|jpe?g|gif|webp|bmp|svg|avif)$/i;
+
+/** `alt|320` · `alt|320x200` 에서 너비를 떼어 낸다. 숫자가 아니면 전부 alt 다. */
+function splitWidth(alt: string): { alt: string; width: number | null } {
+  const m = alt.match(/^(.*?)\|\s*(\d{1,5})(?:\s*x\s*\d{1,5})?\s*$/);
+  if (!m) return { alt, width: null };
+  const w = parseInt(m[2], 10);
+  return { alt: m[1], width: w > 0 ? w : null };
+}
+
+interface ImageToken {
+  start: number;
+  end: number;
+  src: string;
+  alt: string;
+  width: number | null;
+  wiki: boolean;
+}
+
+/** 한 줄의 이미지 토큰들. 위키 표기 중 이미지가 아닌 것은 건너뛴다. */
+function imageTokens(line: string): ImageToken[] {
+  const out: ImageToken[] = [];
+  const re = new RegExp(IMAGE_SRC, "g");
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(line)) !== null) {
+    if (m[4] !== undefined) {
+      const name = m[4].trim();
+      if (!IMAGE_FILE.test(name)) continue;
+      const w = m[5] !== undefined ? splitWidth(`|${m[5]}`) : { alt: "", width: null };
+      // `![[a.png|설명]]` 처럼 숫자가 아닌 꼬리는 alt 로 읽는다.
+      const alt = m[5] !== undefined && w.width === null ? m[5] : "";
+      out.push({ start: m.index, end: m.index + m[0].length, src: name, alt, width: w.width, wiki: true });
+      continue;
+    }
+    const dest = m[2].startsWith("<") ? m[2].slice(1, -1) : m[2];
+    const { alt, width } = splitWidth(m[1]);
+    out.push({ start: m.index, end: m.index + m[0].length, src: dest, alt, width, wiki: false });
+  }
+  return out;
+}
+
+/** 이미지만으로 이뤄진 줄이면 그 토큰들, 아니면 `null`. */
+function imageLine(line: string): ImageToken[] | null {
+  if (!line.includes("![")) return null;
+  const toks = imageTokens(line);
+  if (!toks.length) return null;
+  let rest = "";
+  let at = 0;
+  for (const t of toks) {
+    rest += line.slice(at, t.start);
+    at = t.end;
+  }
+  rest += line.slice(at);
+  return rest.trim() ? null : toks;
+}
+
+/**
+ * 그 줄의 `idx` 번째 이미지 너비를 바꾼 전체 텍스트. `null` 너비는 표기를 걷어내
+ * 원래 크기로 되돌린다. 줄이나 이미지가 없으면 `null`.
+ *
+ * `toggleTaskLine` 과 같이 **그 토큰 하나만** 고친다 — alt 글자 · 경로 · 제목 · 줄 끝
+ * (CRLF 포함)은 그대로 남는다.
+ */
+export function setImageWidth(
+  src: string,
+  line: number,
+  idx: number,
+  width: number | null,
+): string | null {
+  const lines = src.split("\n");
+  if (line < 0 || line >= lines.length) return null;
+  const text = lines[line];
+  const tok = imageTokens(text)[idx];
+  if (!tok) return null;
+  const raw = text.slice(tok.start, tok.end);
+  const tail = width === null ? "" : `|${Math.round(width)}`;
+  let next: string;
+  if (tok.wiki) {
+    const name = raw.slice(3, -2).split("|")[0];
+    // 숫자가 아닌 꼬리(설명)는 너비와 함께 둘 자리가 없다. 너비를 고르면 그것이 이긴다.
+    const keep = tok.alt && width === null ? `|${tok.alt}` : "";
+    next = `![[${name}${tail || keep}]]`;
+  } else {
+    const close = raw.indexOf("](");
+    next = `![${tok.alt}${tail}${raw.slice(close)}`;
+  }
+  lines[line] = text.slice(0, tok.start) + next + text.slice(tok.end);
+  return lines.join("\n");
 }
 
 /** 표의 구분 줄 한 칸: `---` · `:--` · `--:` · `:-:`. */
@@ -343,6 +464,23 @@ export function mdParse(src: string): Block[] {
         fg: depth ? "#4e4a43" : "#3a3630",
         segs: mdSegs(m[3], key),
       });
+      continue;
+    }
+
+    const imgs = imageLine(line);
+    if (imgs) {
+      stack.length = 0;
+      imgs.forEach((t, n) =>
+        out.push({
+          ...base(n ? `${key}i${n}` : key, at),
+          isImage: true,
+          src: t.src,
+          alt: t.alt,
+          width: t.width,
+          imgIdx: n,
+          wiki: t.wiki,
+        }),
+      );
       continue;
     }
 

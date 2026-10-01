@@ -4,7 +4,8 @@ import type { TaskMeta, TemplateMeta, Recommendation } from "../lib/api";
 import type { FileEntry } from "../lib/tree";
 import { normalizeStatus, TOAST } from "../lib/design";
 import { basename, daysSince, hhmm, joinPath, nowStamp, today } from "../lib/format";
-import { splitFrontmatter, toggleTaskLine } from "../lib/markdown";
+import { setImageWidth, splitFrontmatter, toggleTaskLine } from "../lib/markdown";
+import { imageMarkdown, insertOwnLine, type ClipImage } from "../lib/images";
 import {
   composeDiscardBody,
   EMPTY_LOG,
@@ -446,6 +447,16 @@ interface Actions {
   editDoc: (path: string, text: string) => void;
   /** 마크다운 뷰어에서 체크박스를 눌렀다. `line` 은 **문서** 기준 줄 번호다. */
   toggleTask: (path: string, line: number) => Promise<void>;
+  /**
+   * 붙여넣은 이미지를 노트 옆에 저장하고 그 파일을 가리키는 마크다운을 돌려준다.
+   * 문서는 건드리지 않는다 — 어디에 넣을지는 부르는 쪽(편집기의 커서)이 안다.
+   * 실패하면 토스트를 띄우고 `null`.
+   */
+  saveImage: (path: string, img: ClipImage) => Promise<string | null>;
+  /** 뷰어에서 붙여넣었다. 커서가 없으므로 문서 **끝에** 한 줄로 붙이고 곧바로 저장한다. */
+  appendImage: (path: string, img: ClipImage) => Promise<boolean>;
+  /** 뷰어에서 이미지 크기 단계를 골랐다. `line` 은 **문서** 기준, `null` 은 원래 크기. */
+  setImageWidth: (path: string, line: number, idx: number, width: number | null) => Promise<void>;
   saveDoc: (path: string) => Promise<void>;
   saveAll: () => Promise<void>;
   persistSnapshot: (folder?: string) => Promise<void>;
@@ -1115,6 +1126,43 @@ export const useStore = create<State & Actions>((set, get) => ({
     if (!doc) return;
     const next = toggleTaskLine(doc.text, line);
     if (next === null || next === doc.text) return;
+    get().editDoc(path, next);
+    await get().saveDoc(path);
+  },
+
+  saveImage: async (path, img) => {
+    const folder = get().activeFolder;
+    if (!folder) return null;
+    try {
+      const bytes = new Uint8Array(await img.file.arrayBuffer());
+      const name = await api.savePastedImage(folder, path, img.ext, bytes);
+      // 탐색기에 새 파일이 바로 보여야 "어디에 저장됐지?" 를 묻지 않는다.
+      await get().refreshFiles();
+      return imageMarkdown(name);
+    } catch (e) {
+      get().fail(e, "이미지를 저장하지 못했습니다");
+      return null;
+    }
+  },
+
+  appendImage: async (path, img) => {
+    const md = await get().saveImage(path, img);
+    if (!md) return false;
+    const doc = get().ui.docs[path];
+    if (!doc) return false;
+    const end = doc.text.length;
+    get().editDoc(path, insertOwnLine(doc.text, end, end, md).text);
+    await get().saveDoc(path);
+    get().toast("이미지를 붙여넣었습니다", "문서 끝에 추가했습니다", TOAST.ok);
+    return true;
+  },
+
+  setImageWidth: async (path, line, idx, width) => {
+    const doc = get().ui.docs[path];
+    if (!doc) return;
+    const next = setImageWidth(doc.text, line, idx, width);
+    if (next === null || next === doc.text) return;
+    // 체크박스와 같다 — 한 번의 완결된 동작이라 자동 저장을 기다리지 않는다.
     get().editDoc(path, next);
     await get().saveDoc(path);
   },

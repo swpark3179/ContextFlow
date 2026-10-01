@@ -229,6 +229,19 @@ export const writeTextFile = (path: string, content: string) =>
 export const listTaskFiles = (folder: string) => invoke<FileEntry[]>("list_task_files", { folder });
 export const createTaskFile = (folder: string, rel: string) =>
   invoke<string>("create_task_file", { folder, rel });
+/**
+ * 붙여넣은 이미지를 노트(`note`, 업무 폴더 기준) 옆에 저장하고 파일 이름을 돌려준다.
+ * 바이트는 본문 그대로 가고(JSON 배열로 부풀리지 않는다) 나머지는 머리글로 간다 —
+ * 머리글에는 ASCII 만 실리므로 한글 경로를 퍼센트 인코딩한다.
+ */
+export const savePastedImage = (folder: string, note: string, ext: string, bytes: Uint8Array) =>
+  invoke<string>("save_pasted_image", bytes, {
+    headers: {
+      "x-cf-folder": encodeURIComponent(folder),
+      "x-cf-note": encodeURIComponent(note),
+      "x-cf-ext": ext,
+    },
+  });
 export const createTaskDir = (folder: string, rel: string) =>
   invoke<string>("create_task_dir", { folder, rel });
 export const previewDelete = (folder: string, rel: string) =>
