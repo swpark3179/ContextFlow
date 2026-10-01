@@ -1,19 +1,17 @@
-import { useEffect, useState } from "react";
-import { TextArea } from "../../lib/ui";
+import { useEffect, useMemo, useState } from "react";
 import { useAi } from "../../store/aiStore";
 import * as api from "../../lib/api";
 import { modelLines, parseMaxTokens, parseModelLines } from "../../lib/ai";
 import {
   Btn,
   Card,
-  Field,
+  CustomModelsField,
+  DirtyMark,
   Models,
   ProbeLine,
   TextField,
   Toggle,
   hintStyle,
-  inputFocus,
-  inputMono,
   rowStyle,
 } from "./shared";
 
@@ -34,7 +32,7 @@ export default function AiProCard() {
   const loading = useAi((s) => !!s.loading[ID]);
   const error = useAi((s) => s.errors[ID]);
   const cfg = useAi((s) => s.settings?.aipro ?? null);
-  const { detectOne, saveAiPro } = useAi.getState();
+  const { detectOne, saveAiPro, probeOne } = useAi.getState();
 
   const [endpoint, setEndpoint] = useState("");
   const [apiKey, setApiKey] = useState("");
@@ -52,6 +50,19 @@ export default function AiProCard() {
     setCustom(modelLines(cfg?.customModels));
     setAllowInvalid(cfg?.allowInvalidCerts ?? false);
   }, [cfg]);
+
+  const saved = useMemo(
+    () =>
+      JSON.stringify([
+        cfg?.endpointUrl ?? "",
+        cfg?.apiKey ?? "",
+        cfg?.maxOutputTokens ? String(cfg.maxOutputTokens) : "",
+        modelLines(cfg?.customModels),
+        cfg?.allowInvalidCerts ?? false,
+      ]),
+    [cfg],
+  );
+  const dirty = JSON.stringify([endpoint, apiKey, maxTokens, custom, allowInvalid]) !== saved;
 
   const save = () => {
     setProbe(null);
@@ -75,8 +86,7 @@ export default function AiProCard() {
   const test = () => {
     setBusy(true);
     setProbe(null);
-    void api
-      .probeAiPro()
+    void probeOne(ID)
       .then((msg) => setProbe({ ok: true, msg }))
       .catch((e) => setProbe({ ok: false, msg: api.errMessage(e) }))
       .finally(() => setBusy(false));
@@ -103,31 +113,16 @@ export default function AiProCard() {
         label="출력 토큰 상한 (선택)"
         value={maxTokens}
         onChange={setMaxTokens}
-        placeholder="비우면 4,096 (추천 응답 기본값)"
+        placeholder="비우면 기능마다 정한 값 (추천 4,096 · 위키 반영 최대 16,384)"
         note="게이트웨이가 큰 값을 거부하면 낮추고, 응답이 잘리면 올리세요. 256 미만은 무시됩니다."
       />
 
-      <Field
-        label="모델 직접 지정 (선택)"
+      <CustomModelsField
+        value={custom}
+        onChange={setCustom}
+        placeholder={"glm-5.2\nqwen3.6-27b | Qwen 3.6"}
         note="한 줄에 하나. `id` 또는 `id | 표시이름`. 적어 두면 라이브 조회·내장 목록보다 우선합니다."
-      >
-        <TextArea
-          rows={3}
-          value={custom}
-          onChange={(e) => setCustom(e.target.value)}
-          placeholder={"glm-5.2\nqwen3.6-27b | Qwen 3.6"}
-          style={{
-            ...inputMono,
-            height: "auto",
-            width: "100%",
-            boxSizing: "border-box",
-            padding: "6px 9px",
-            lineHeight: 1.6,
-            resize: "vertical",
-          }}
-          focusStyle={inputFocus}
-        />
-      </Field>
+      />
 
       <div style={{ ...rowStyle, padding: 0, borderBottom: "none" }}>
         <div style={{ flex: 1 }}>
@@ -141,9 +136,13 @@ export default function AiProCard() {
 
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
         <Btn label="저장" primary onClick={save} />
-        <Btn label={busy ? "확인 중…" : "연결 테스트"} onClick={test} disabled={busy} />
-        <Btn label="모델 다시 조회" onClick={() => void detectOne(ID, true)} />
+        <Btn label={busy ? "확인 중…" : "연결 테스트"} onClick={test} disabled={busy || dirty} />
+        <Btn label="모델 다시 조회" onClick={() => void detectOne(ID, true)} disabled={dirty} />
+        <DirtyMark dirty={dirty} />
       </div>
+      {dirty && (
+        <div style={hintStyle}>연결 테스트는 저장된 설정으로 합니다 — 먼저 저장하세요.</div>
+      )}
       <ProbeLine probe={probe} />
 
       <Models agent={agent} />

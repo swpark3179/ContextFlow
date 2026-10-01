@@ -56,25 +56,52 @@ pub struct AiProConfig {
 }
 
 /// FabriX 연결 설정 — 인증이 커스텀 헤더 두 개다(AI Pro 의 Bearer 하나와 대비).
+///
+/// FabriX 에는 **서로 다른 API 가 둘** 있다. 같은 헤더 이름을 쓰지만 기준 주소 · 경로 ·
+/// 모델 id 형식이 모두 달라서, 플래그 하나로 갈라 두고 경로 조립은 `fabrix.rs` 가 한다.
+///
+/// * `chat`(기본) — 네이티브 채팅 API. `{base}/openapi/chat/v1/messages` · `/all-models`.
+/// * `openai` — LLM 게이트웨이(OpenAI 호환, vLLM). `{base}/chat/completions` · `/v1/models`,
+///   모델은 본문이 아니라 `x-llm-model-id` 헤더로 고른다. 바탕화면 FabrixSample 이 이쪽이다.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct FabrixConfig {
-    /// 기준 엔드포인트. `/openapi/chat/v1/...` 는 `fabrix.rs` 가 덧붙인다.
+    /// 기준 엔드포인트. 경로는 `fabrix.rs` 가 방식에 맞춰 덧붙인다.
     #[serde(default)]
     pub endpoint_url: String,
+    /// `"chat"` | `"openai"`. 비어 있으면 `chat` — 이 필드가 생기기 전의 ai.json 이 그대로
+    /// 읽혀야 한다.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub api_style: String,
     /// `x-fabrix-client` 헤더 값.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client: Option<String>,
-    /// `x-openapi-token` 헤더 값.
+    /// `x-openapi-token` 헤더 값. 게이트웨이 방식에서는 `Bearer ` 접두사가 필요한데,
+    /// 빠져 있으면 보낼 때 붙인다(저장된 값은 사용자가 적은 그대로 둔다).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub openapi_token: Option<String>,
+    /// `x-generative-ai-user-email` 헤더 값(선택). 네이티브 모델 조회 예시가 보낸다.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_email: Option<String>,
     #[serde(default)]
     pub allow_invalid_certs: bool,
     /// 출력 토큰 상한 **재정의**. 비어 있으면 호출자가 요청한 값을 쓴다.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_output_tokens: Option<u32>,
+    /// 마지막 성공 조회 캐시 — 백엔드 소유.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub models: Vec<ModelOption>,
+    /// 사용자가 직접 적은 모델 id — 프런트 소유(`AiProConfig::custom_models` 와 같은 규칙).
+    /// 모델 목록 조회가 막힌 환경의 탈출구이고, 있으면 조회 결과보다 우선한다.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub custom_models: Vec<ModelOption>,
+}
+
+impl FabrixConfig {
+    /// LLM 게이트웨이(OpenAI 호환) 방식인가. 그 밖의 값은 전부 네이티브 채팅 API 로 읽는다.
+    pub fn gateway(&self) -> bool {
+        self.api_style == "openai"
+    }
 }
 
 /// 프롬프트 팩을 어느 훅에 붙일지의 배선.
@@ -104,12 +131,18 @@ pub struct ActiveChoice {
 /// 주입 지점. 여기 없는 이름은 `set_prompt_hook` 이 거부하고 `load` 가 걷어낸다 — 오타로
 /// 만들어진 죽은 키가 설정 파일에 쌓이면 왜 안 먹히는지 알 방법이 없다.
 ///
-/// 추천 순위 요청 하나뿐이다. 시스템 프롬프트에는 주입하지 않는다 — 판단의 정체성을
-/// 사용자 지침이 통과하면 결과가 왜 기울었는지 추적할 수 없다(`src/lib/promptPacks.ts` 참조).
-pub const HOOKS: [&str; 1] = ["recommend.rank"];
+/// 지점마다 그 요청의 **출력 계약 앞**에 붙는다. 시스템 프롬프트에는 주입하지 않는다 —
+/// 판단의 정체성을 사용자 지침이 통과하면 결과가 왜 기울었는지 추적할 수 없다
+/// (`src/lib/promptPacks.ts` 참조).
+pub const HOOKS: [&str; 4] = ["recommend.rank", "wiki.ingest", "wiki.query", "wiki.lint"];
 
 /// 훅 하나에 붙일 수 있는 팩 수. 프롬프트가 무한정 길어지는 것을 막는 1차 방어선이다.
 pub const MAX_PACKS_PER_HOOK: usize = 5;
+
+/// 기능별 연결을 고를 수 있는 기능. 추천은 여기 없다 — 추천은 `active`(기본 연결) 그 자체다.
+///
+/// 위키 질의와 점검은 한 연결을 같이 쓴다(둘 다 위키를 읽고 답하는 일이라 모델 성격이 같다).
+pub const ROUTES: [&str; 2] = ["wiki.ingest", "wiki.query"];
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
@@ -126,9 +159,15 @@ pub struct AiSettings {
     /// FabriX 연결. `None` 이면 미설정.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fabrix: Option<FabrixConfig>,
-    /// 추천에 쓸 연결.
+    /// 기본 연결 — 추천이 쓰고, 기능별 연결을 고르지 않은 기능도 이것을 따른다.
     #[serde(default)]
     pub active: ActiveChoice,
+    /// 기능별 연결(`ROUTES`). 키가 없으면 그 기능은 `active` 를 따른다.
+    ///
+    /// 위키 반영처럼 긴 입력을 오래 쓰는 일과 추천처럼 짧게 판단하는 일은 알맞은 모델이
+    /// 다르다 — 값싼 모델을 반영에, 좋은 모델을 질의에 두는 식으로 나눠 쓸 수 있게 한다.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub routes: HashMap<String, ActiveChoice>,
 }
 
 impl AiSettings {
@@ -146,6 +185,28 @@ impl AiSettings {
                 self.agents.remove(id);
             }
         }
+    }
+
+    /// 기능별 연결을 지정(`Some`)하거나 해제(`None` · 빈 agent_id)한다.
+    pub fn set_route(&mut self, feature: &str, choice: Option<ActiveChoice>) -> Result<(), String> {
+        if !ROUTES.contains(&feature) {
+            return Err(format!("알 수 없는 기능입니다: {feature}"));
+        }
+        match choice.filter(|c| !c.agent_id.trim().is_empty()) {
+            Some(c) => {
+                self.routes.insert(
+                    feature.to_string(),
+                    ActiveChoice {
+                        agent_id: c.agent_id.trim().to_string(),
+                        model: c.model.trim().to_string(),
+                    },
+                );
+            }
+            None => {
+                self.routes.remove(feature);
+            }
+        }
+        Ok(())
     }
 
     /// 한 훅의 팩 목록을 통째로 교체한다.
@@ -197,6 +258,9 @@ pub fn load(root: &Path) -> AiSettings {
             // 은퇴한 훅에 배선이 남아 있으면 여기서 걷어낸다. 남겨 두면 설정 화면에
             // 뜨지도, 지울 수도 없는 죽은 배선이 되고 다음 저장이 그것을 다시 써 넣는다.
             s.prompts.hooks.retain(|k, _| HOOKS.contains(&k.as_str()));
+            // 기능별 연결도 같은 이유로 모르는 키와 빈 연결을 걷어낸다.
+            s.routes
+                .retain(|k, v| ROUTES.contains(&k.as_str()) && !v.agent_id.trim().is_empty());
             s
         }
         Err(err) => {
@@ -294,6 +358,55 @@ mod tests {
         assert_eq!(load(&root), s);
     }
 
+    /// 방식 필드가 생기기 전의 ai.json 은 네이티브 채팅 API 로 읽혀야 한다.
+    #[test]
+    fn fabrix_without_style_is_the_native_chat_api() {
+        let root = tmp_root("fabrix-legacy");
+        fs::write(
+            file_path(&root),
+            r#"{"fabrix":{"endpointUrl":"https://f.test","client":"c","openapiToken":"t"}}"#,
+        )
+        .unwrap();
+        let f = load(&root).fabrix.unwrap();
+        assert!(!f.gateway());
+        assert!(f.custom_models.is_empty() && f.user_email.is_none());
+
+        let mut g = f.clone();
+        g.api_style = "openai".into();
+        g.user_email = Some("me@corp.test".into());
+        g.custom_models = vec![ModelOption { id: "16".into(), label: "gpt-oss".into() }];
+        let mut s = AiSettings::default();
+        s.fabrix = Some(g.clone());
+        save(&root, &s).unwrap();
+        assert_eq!(load(&root).fabrix, Some(g));
+    }
+
+    #[test]
+    fn routes_validate_round_trip_and_prune() {
+        let mut s = AiSettings::default();
+        assert!(s.set_route("wiki.nope", None).is_err());
+        let pick = |a: &str| Some(ActiveChoice { agent_id: a.into(), model: " m ".into() });
+        s.set_route("wiki.ingest", pick("fabrix")).unwrap();
+        assert_eq!(s.routes["wiki.ingest"].model, "m");
+        // 빈 연결은 "기본 연결 따름" — 키 자체를 지운다.
+        s.set_route("wiki.query", pick("claude")).unwrap();
+        s.set_route("wiki.query", pick("  ")).unwrap();
+        assert!(!s.routes.contains_key("wiki.query"));
+
+        let root = tmp_root("routes");
+        save(&root, &s).unwrap();
+        assert_eq!(load(&root), s);
+
+        fs::write(
+            file_path(&root),
+            r#"{"routes":{"wiki.ingest":{"agentId":"aipro","model":"x"},"old.feature":{"agentId":"a","model":""},"wiki.query":{"agentId":"","model":""}}}"#,
+        )
+        .unwrap();
+        let loaded = load(&root);
+        assert_eq!(loaded.routes.len(), 1);
+        assert_eq!(loaded.routes["wiki.ingest"].agent_id, "aipro");
+    }
+
     #[test]
     fn clearing_agent_bin_removes_entry() {
         let mut s = AiSettings::default();
@@ -361,6 +474,15 @@ mod tests {
         let loaded = load(&root);
         assert_eq!(loaded.prompts.hooks.len(), 1);
         assert_eq!(loaded.prompts.hooks["recommend.rank"], vec!["b.md"]);
+    }
+
+    #[test]
+    fn wiki_hooks_are_accepted() {
+        let mut s = AiSettings::default();
+        for h in ["wiki.ingest", "wiki.query", "wiki.lint"] {
+            s.set_prompt_hook(h, vec!["a.md".into()]).unwrap();
+        }
+        assert_eq!(s.prompts.hooks.len(), 3);
     }
 
     #[test]

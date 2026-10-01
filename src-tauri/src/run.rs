@@ -56,6 +56,10 @@ pub struct RunArgs {
     /// 자체 상한을 쓰므로 이 값을 무시한다.
     #[serde(default)]
     pub max_tokens: Option<u32>,
+    /// 샘플링 온도. `None` 이면 커넥터의 기본값(0.4)을 쓴다. 위키 반영처럼 원문에 붙어 있어야
+    /// 하는 호출은 낮추고, 로컬 CLI 는 이 값을 받을 길이 없어 무시한다.
+    #[serde(default)]
+    pub temperature: Option<f32>,
 }
 
 /// 원격 커넥터의 기본 출력 상한. 호출자가 `max_tokens` 를 주지 않았을 때의 값이다.
@@ -712,6 +716,7 @@ mod tests {
             model: None,
             session_id: None,
             max_tokens: None,
+            temperature: None,
         };
         assert_eq!(a.max_tokens_or_default(), DEFAULT_MAX_TOKENS);
         a.max_tokens = Some(16_384);

@@ -15,7 +15,14 @@ export interface RunResult {
   error: string | null;
   /** 모델이 출력 상한에 닿아 끊겼다(원격이 알려 준 경우). */
   truncated: boolean;
+  /** 서비스가 알려 준 토큰 사용량(마지막 값). 테스트 대화가 보여 준다. */
+  usage?: { inputTokens?: number; outputTokens?: number };
+  /** 추론 토큰(보여 주지 않는 생각). 답이 비었을 때 "생각만 하다 끝났다" 를 가려내는 데 쓴다. */
+  thinking?: string;
 }
+
+/** 사용자가 끊은 실행의 오류 문구. 재시도 대상이 아니다. */
+export const CANCELED = "취소했습니다";
 
 /** 최대 몇 번까지 실행할지(최초 실행 포함). */
 export const RUN_ATTEMPTS = 3;
@@ -33,6 +40,7 @@ export function backoffMs(attempt: number): number {
  * 408 · 429 · 5xx 는 여기 없으므로 재시도한다.
  */
 const PERMANENT_MARKS = [
+  CANCELED,
   "찾지 못했습니다",
   "알 수 없는 AI 서비스",
   "알 수 없는 원격 서비스",
@@ -52,6 +60,13 @@ export function isRetryable(error: string | null): boolean {
 export interface RunOnceOptions {
   /** 부분 응답이 자랄 때마다. 진행 표시용. */
   onPartial?: (text: string) => void;
+  /** 모든 이벤트(상태 · 추론 · 사용량 포함). 진행 단계 표시용. */
+  onEvent?: (ev: RunEvent) => void;
+  /**
+   * 끊기. 신호가 오면 백엔드 실행을 취소하고 곧바로 `error: CANCELED` 로 끝난다 — 서버의
+   * 생성이 실제로 멈출 때까지 기다리지 않는다(그건 백엔드가 알아서 정리한다).
+   */
+  signal?: AbortSignal;
 }
 
 /**
@@ -66,18 +81,30 @@ export function runOnce(args: RunArgs, opts: RunOnceOptions = {}): Promise<RunRe
   return new Promise((resolve) => {
     const channel = new Channel<RunEvent>();
     let text = "";
+    let thinking = "";
+    let usage: RunResult["usage"];
     let failure: string | null = null;
     let truncated = false;
     let done = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let runId: string | null = null;
 
+    const onAbort = () => {
+      if (runId) void api.cancelRun(runId).catch(() => {});
+      finish({ text, ok: false, error: CANCELED, truncated, usage, thinking });
+    };
     const finish = (r: RunResult) => {
       if (done) return;
       done = true;
       clearTimeout(timer);
+      opts.signal?.removeEventListener("abort", onAbort);
       resolve(r);
     };
+    if (opts.signal?.aborted) {
+      finish({ text: "", ok: false, error: CANCELED, truncated: false });
+      return;
+    }
+    opts.signal?.addEventListener("abort", onAbort, { once: true });
 
     const arm = () => {
       clearTimeout(timer);
@@ -88,17 +115,23 @@ export function runOnce(args: RunArgs, opts: RunOnceOptions = {}): Promise<RunRe
           ok: false,
           error: `AI 서비스가 ${RUN_STALL_MS / 60_000}분 넘게 응답하지 않았습니다.`,
           truncated,
+          usage,
+          thinking,
         });
       }, RUN_STALL_MS);
     };
     arm();
 
     channel.onmessage = (ev) => {
+      if (done) return;
       arm();
+      opts.onEvent?.(ev);
       if (ev.type === "textDelta") {
         text += ev.delta;
         opts.onPartial?.(text);
-      } else if (ev.type === "truncated") truncated = true;
+      } else if (ev.type === "thinkingDelta") thinking += ev.delta;
+      else if (ev.type === "usage") usage = { inputTokens: ev.inputTokens, outputTokens: ev.outputTokens };
+      else if (ev.type === "truncated") truncated = true;
       else if (ev.type === "error") failure = ev.message;
       else if (ev.type === "end") {
         const ok = ev.status === "succeeded";
@@ -107,10 +140,12 @@ export function runOnce(args: RunArgs, opts: RunOnceOptions = {}): Promise<RunRe
           ok,
           error: ok ? null : (failure ?? "실행이 완료되지 못했습니다."),
           truncated,
+          usage,
+          thinking,
         });
       }
-      // `status` · `thinkingDelta` · `usage` 는 추천에 필요하지 않다. 감시 타이머를
-      // 다시 감는 것만으로 충분하다 — 생각 중인 모델을 죽은 것으로 오판하지 않게 한다.
+      // `status` 는 감시 타이머를 다시 감는 것만으로 충분하다 — 생각 중인 모델을 죽은
+      // 것으로 오판하지 않게 한다.
     };
 
     // cwd 는 비워 넘긴다 — 백엔드가 `~/.contextflow/runs/current` 로 해석한다.
@@ -140,8 +175,9 @@ export async function runWithRetry(
 ): Promise<RunResult> {
   let result = await runOnce(args, opts);
   for (let attempt = 2; attempt <= RUN_ATTEMPTS; attempt++) {
-    if (result.ok || !isRetryable(result.error)) break;
+    if (result.ok || !isRetryable(result.error) || opts.signal?.aborted) break;
     await sleep(backoffMs(attempt - 1));
+    if (opts.signal?.aborted) break;
     result = await runOnce(args, opts);
   }
   return result;

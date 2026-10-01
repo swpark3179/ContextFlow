@@ -85,6 +85,22 @@ fn month_prefix() -> String {
     Local::now().format("%Y-%m").to_string()
 }
 
+/// 보관된 업무인가 — 프런트의 `isArchived` 와 같은 규칙(보관함 MOC 와 위키가 함께 쓴다).
+///
+/// `archived` 키가 있으면 그것이 답이다. 없으면(Obsidian 에서 손으로 완료로 고친 경우)
+/// 완료일과 보관 기간으로 판단한다.
+pub fn is_archived(t: &TaskMeta, archive_days: i64) -> bool {
+    if let Some(flag) = t.archived {
+        return flag;
+    }
+    if archive_days <= 0 || t.status != "completed" {
+        return false;
+    }
+    let Some(done) = t.completed_at.as_deref() else { return false };
+    let Ok(date) = chrono::NaiveDate::parse_from_str(done, "%Y-%m-%d") else { return false };
+    (Local::now().date_naive() - date).num_days() >= archive_days
+}
+
 /// Windows forbids `\ / : * ? " < > |` in file names; Obsidian additionally
 /// chokes on `#` and `^` inside links.
 pub fn sanitize_name(name: &str) -> String {

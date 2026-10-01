@@ -22,12 +22,13 @@ import { reorderedList } from "../lib/reorder";
 import { keepTabs, tabKey } from "../lib/tabs";
 import { sanitizeFolderName } from "../lib/vaultPaths";
 import { aiRecommend } from "../lib/aiRecommend";
-import { activeRun, useAi } from "./aiStore";
+import { activeRun, routeRun, useAi } from "./aiStore";
+import { useWiki } from "./wikiStore";
 
 /** Mirrors `SNAPSHOT_FILE` in src-tauri/src/vault.rs. */
 const SNAPSHOT_FILE = ".context_snapshot.json";
 
-export type Screen = "workspace" | "templates" | "archive" | "settings";
+export type Screen = "workspace" | "templates" | "archive" | "settings" | "wiki";
 /** `text` = 편집기, 나머지는 읽기 전용 뷰어. 같은 파일은 한 번에 한 모드로만 열린다. */
 export type TabMode = "md" | "text" | "html" | "bstorm";
 
@@ -101,7 +102,17 @@ export interface Settings {
   archMoc: boolean;
   autoSnap: boolean;
   restoreView: boolean;
+  /**
+   * 옛 설계의 "위키링크 실시간 색인" 토글. 읽는 곳이 없어 화면에서 뺐지만, 기존
+   * settings.json 이 이 키를 들고 있으므로 타입에는 남긴다.
+   */
   wikiIndex: boolean;
+  /** [완료] 직후 그 업무를 LLM 위키에 자동 반영한다(반영 연결이 있을 때만). */
+  wikiAuto: boolean;
+  /** `light` = 소스 페이지만 · `full` = 관련 절차 · 주제 · 시스템 페이지까지 고친다. */
+  wikiDepth: "light" | "full";
+  /** `full` 에서 업무 하나가 함께 고칠 수 있는 페이지 수. */
+  wikiMaxPages: number;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -114,6 +125,9 @@ export const DEFAULT_SETTINGS: Settings = {
   autoSnap: true,
   restoreView: true,
   wikiIndex: true,
+  wikiAuto: true,
+  wikiDepth: "full",
+  wikiMaxPages: 3,
 };
 
 export interface Toast {
@@ -417,7 +431,8 @@ interface Actions {
   renameTask: (folder: string, title: string) => Promise<void>;
   setStatus: (status: string) => Promise<void>;
   /** `close` 를 생략하면 지금 열려 있는 업무일 때만 창을 닫는다. */
-  archiveNow: (folder: string, opts?: { close?: boolean }) => Promise<void>;
+  /** 보관한 뒤의 업무(경로가 바뀌었을 수 있다). 실패하면 `null`. */
+  archiveNow: (folder: string, opts?: { close?: boolean }) => Promise<TaskMeta | null>;
   restoreTask: (folder: string) => Promise<void>;
   peekArchived: (folder: string) => Promise<void>;
   closeArchived: () => void;
@@ -562,6 +577,9 @@ function pruneUi(ui: TaskUi, gone: (path: string) => boolean): Partial<TaskUi> {
 let toastSeq = 0;
 let saveTimer: number | undefined;
 let recTimer: number | undefined;
+
+/** `runRecommend` 의 실행 번호. 마지막으로 시작한 실행의 결과만 화면에 남긴다. */
+let recommendSeq = 0;
 
 export const useStore = create<State & Actions>((set, get) => ({
   ready: false,
@@ -856,7 +874,13 @@ export const useStore = create<State & Actions>((set, get) => ({
       get().noteToday(activeFolder, updated.title);
       await get().persistSnapshot(activeFolder);
       if (normalizeStatus(status) === "completed") {
-        await get().archiveNow(activeFolder, { close: true });
+        const archived = await get().archiveNow(activeFolder, { close: true });
+        // 완료한 업무를 위키에 반영한다 — 뒤에서 돈다(창 닫기 · 목록 갱신을 기다리게 하지
+        // 않는다). [지금 보관함으로] 처럼 완료 없이 보관한 것은 여기를 지나지 않으므로 자동
+        // 반영하지 않고, 위키 화면의 "반영 대기" 에 뜬다.
+        if (archived && get().settings.wikiAuto && routeRun(useAi.getState(), "wiki.ingest")) {
+          useWiki.getState().enqueue(archived.id, archived.title);
+        }
         return;
       }
       // 바뀐 상태는 헤더의 상태 배지에 즉시 나타난다.
@@ -870,7 +894,7 @@ export const useStore = create<State & Actions>((set, get) => ({
   archiveNow: async (folder, opts) => {
     const { settings, tasks, activeFolder } = get();
     // 고른 업무가 없을 때 메뉴에서 들어오면 빈 경로가 온다 — 백엔드에 물어볼 것이 없다.
-    if (!folder) return;
+    if (!folder) return null;
     const target = tasks.find((t) => t.folder === folder);
     // 보관된 업무는 업무 리스트에 없다. 그 창을 열어 둔 채로 두면 목록에서 아무것도
     // 선택되지 않은 화면에 남의 작업공간이 떠 있는 셈이라, 지금 열려 있던 업무를
@@ -917,8 +941,10 @@ export const useStore = create<State & Actions>((set, get) => ({
       // 하나를 자동으로 골라 열어 버려, 방금 닫은 자리에 엉뚱한 업무가 나타난다.
       await get().reloadVault(close);
       await get().syncMoc();
+      return updated;
     } catch (e) {
       get().fail(e, "보관하지 못했습니다");
+      return null;
     }
   },
 
@@ -1505,6 +1531,10 @@ export const useStore = create<State & Actions>((set, get) => ({
   // -------------------------------------------------------------------------
 
   runRecommend: async () => {
+    // 늦게 끝난 이전 실행이 새 결과를 덮어쓰지 않게 한다 — AI 경로는 몇 초씩 걸리고, 그
+    // 사이에 사용자가 제목을 더 쳐서 새 실행이 시작될 수 있다.
+    const seq = ++recommendSeq;
+    const stale = () => seq !== recommendSeq;
     const { nt, settings, tasks } = get();
     const query = `${nt.title} ${nt.summary}`.trim();
     if (nt.title.trim().length < 2) {
@@ -1526,9 +1556,10 @@ export const useStore = create<State & Actions>((set, get) => ({
     try {
       local = await api.recommendTasks(query, candidates, settings.threshold);
     } catch (e) {
-      set({ ntRecs: [], ntLoading: false, ntNote: api.errMessage(e) });
+      if (!stale()) set({ ntRecs: [], ntLoading: false, ntNote: api.errMessage(e) });
       return;
     }
+    if (stale()) return;
 
     const active = activeRun(useAi.getState());
     if (!active) {
@@ -1546,15 +1577,18 @@ export const useStore = create<State & Actions>((set, get) => ({
     set({ ntRecs: local.items, ntEngine: active.agentId, ntNote: "AI 추천 중…" });
 
     const ai = await aiRecommend({ active, query, candidates, threshold: settings.threshold });
-    if (ai) {
-      set({ ntRecs: ai.items, ntLoading: false, ntEngine: ai.engine, ntNote: ai.note });
+    if (stale()) return;
+    if ("result" in ai) {
+      const r = ai.result;
+      set({ ntRecs: r.items, ntLoading: false, ntEngine: r.engine, ntNote: r.note });
     } else {
-      // 폴백. 이미 손에 있는 로컬 결과를 그대로 쓰고 사유만 덧붙인다.
+      // 폴백. 이미 손에 있는 로컬 결과를 그대로 쓰고 사유를 덧붙인다 — 잘림 · 형식 위반 ·
+      // 연결 실패는 사용자가 할 수 있는 조치가 각각 다르다.
       set({
         ntRecs: local.items,
         ntLoading: false,
         ntEngine: local.engine,
-        ntNote: `${local.note} · AI 추천 실패로 대체`,
+        ntNote: `${local.note} · AI 추천 실패로 대체 — ${ai.reason}`,
       });
     }
   },

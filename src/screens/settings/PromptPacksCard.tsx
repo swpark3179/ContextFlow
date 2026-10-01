@@ -3,18 +3,62 @@ import { useAi } from "../../store/aiStore";
 import * as api from "../../lib/api";
 import {
   HOOK_CAP,
+  MAX_PACKS_PER_HOOK,
   PACK_CAP,
   PROMPT_HOOKS,
   composeHook,
   hooksOf,
+  moveFile,
+  type PromptHook,
 } from "../../lib/promptPacks";
-import { Btn, cardStyle, headStyle, hintStyle } from "./shared";
+import { Box } from "../../lib/ui";
+import { Btn, Chip, cardStyle, headStyle, hintStyle } from "./shared";
+
+/** 순서 버튼. 행을 누르는 것(켜고 끄기)과 섞이지 않게 클릭 전파를 막는다. */
+function Arrow({
+  label,
+  title,
+  off,
+  onClick,
+}: {
+  label: string;
+  title: string;
+  off: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <Box
+      title={title}
+      onClick={(e) => {
+        e.stopPropagation();
+        if (!off) onClick();
+      }}
+      style={{
+        width: 20,
+        height: 18,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        border: "1px solid #ddd8cf",
+        borderRadius: 4,
+        fontSize: 10,
+        color: off ? "#cfcabf" : "#6a665e",
+        background: "#fff",
+        cursor: off ? "default" : "pointer",
+      }}
+      hover={off ? undefined : { background: "#ece8e0" }}
+    >
+      {label}
+    </Box>
+  );
+}
 
 /**
  * 프롬프트 팩 카드.
  *
- * 사용자가 `~/.contextflow/prompts/*.md` 에 넣은 지침을 추천 순위 요청에 얹는다. 앱은
- * 이 폴더에 쓰지 않는다 — 목록을 읽고 어느 것을 켤지만 기억한다.
+ * 사용자가 `~/.contextflow/prompts/*.md` 에 넣은 지침을 고른 요청(추천 순위 · 위키 반영 ·
+ * 위키 질의 · 위키 점검)에 얹는다. 앱은 이 폴더에 쓰지 않는다 — 목록을 읽고 지점마다 어느
+ * 것을 어떤 순서로 켤지만 기억한다.
  *
  * 켠 팩이 합성 상한을 넘겨 실리지 못하면 **경고로 알린다.** 조용히 빠뜨리면 사용자는
  * 켜 둔 지침이 실제로는 나가지 않는다는 사실을 알 방법이 없다.
@@ -27,6 +71,7 @@ export default function PromptPacksCard() {
 
   const [dir, setDir] = useState("");
   const [error, setError] = useState("");
+  const [hookId, setHookId] = useState<PromptHook>("recommend.rank");
 
   useEffect(() => {
     void api
@@ -36,16 +81,25 @@ export default function PromptPacksCard() {
   }, []);
 
   const hooks = hooksOf(settings);
-  const hook = PROMPT_HOOKS[0]!;
+  const hook = PROMPT_HOOKS.find((h) => h.id === hookId) ?? PROMPT_HOOKS[0]!;
   const enabled = hooks[hook.id] ?? [];
   const { dropped } = composeHook(hook.id, packs, hooks);
+  const full = enabled.length >= MAX_PACKS_PER_HOOK;
 
-  const toggle = (file: string) => {
-    const next = enabled.includes(file)
-      ? enabled.filter((f) => f !== file)
-      : [...enabled, file];
+  const save = (next: string[]) => {
     setError("");
     void savePromptHook(hook.id, next).catch((e) => setError(api.errMessage(e)));
+  };
+
+  const toggle = (file: string) => {
+    if (enabled.includes(file)) return save(enabled.filter((f) => f !== file));
+    // 백엔드는 상한을 넘는 것을 조용히 잘라 낸다 — 눌렀는데 켜지지 않는 것처럼 보이기 전에
+    // 이유를 말한다.
+    if (full) {
+      setError(`한 지점에는 ${MAX_PACKS_PER_HOOK}개까지 켤 수 있습니다. 다른 팩을 먼저 끄세요.`);
+      return;
+    }
+    save([...enabled, file]);
   };
 
   return (
@@ -70,9 +124,32 @@ export default function PromptPacksCard() {
             <Btn label="목록 갱신" onClick={() => void loadPacks()} />
           </div>
           <div style={{ ...hintStyle, marginTop: 6 }}>
-            이 폴더에 <code>.md</code> 파일을 넣고 아래에서 켜면 <b>{hook.label}</b> 요청의{" "}
-            {hook.note}에 그 내용이 붙습니다. 출력 형식과 충돌하면 형식이 우선합니다 — 지침으로
-            펜스 규격을 바꿀 수는 없습니다.
+            이 폴더에 <code>.md</code> 파일을 넣고 아래에서 지점을 고른 뒤 켜면, 그 요청의 출력
+            형식 앞에 내용이 붙습니다. 출력 형식과 충돌하면 형식이 우선합니다 — 지침으로 응답
+            규격을 바꿀 수는 없습니다.
+          </div>
+        </div>
+
+        <div>
+          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+            {PROMPT_HOOKS.map((h) => {
+              const n = (hooks[h.id] ?? []).length;
+              return (
+                <Chip
+                  key={h.id}
+                  on={h.id === hook.id}
+                  label={n ? `${h.label} · ${n}` : h.label}
+                  onClick={() => {
+                    setError("");
+                    setHookId(h.id);
+                  }}
+                />
+              );
+            })}
+          </div>
+          <div style={{ ...hintStyle, marginTop: 6 }}>
+            <b>{hook.label}</b> — {hook.note}. 켠 순서가 우선순위이고 최대 {MAX_PACKS_PER_HOOK}개,
+            합쳐서 {HOOK_CAP.toLocaleString()}자까지 실립니다.
           </div>
         </div>
 
@@ -134,6 +211,22 @@ export default function PromptPacksCard() {
                 <span style={{ marginLeft: "auto", fontSize: 11, color: "#a09a8f" }}>
                   {p.chars.toLocaleString()}자
                 </span>
+                {on && enabled.length > 1 && (
+                  <span style={{ display: "flex", gap: 3, alignSelf: "center" }}>
+                    <Arrow
+                      label="▲"
+                      title="앞으로 (먼저 실림)"
+                      off={order === 0}
+                      onClick={() => save(moveFile(enabled, p.file, -1))}
+                    />
+                    <Arrow
+                      label="▼"
+                      title="뒤로"
+                      off={order === enabled.length - 1}
+                      onClick={() => save(moveFile(enabled, p.file, 1))}
+                    />
+                  </span>
+                )}
               </div>
               {p.description && (
                 <div style={{ ...hintStyle, marginTop: 3 }}>{p.description}</div>
@@ -147,6 +240,13 @@ export default function PromptPacksCard() {
                 }}
               >
                 {p.file}
+                {p.stage && p.stage !== hook.id && (
+                  <span>
+                    {" "}
+                    · 팩이 권하는 지점:{" "}
+                    {PROMPT_HOOKS.find((h) => h.id === p.stage)?.label ?? p.stage}
+                  </span>
+                )}
               </div>
               {p.error && (
                 <div style={{ ...hintStyle, color: "#c04a4a", marginTop: 3 }}>{p.error}</div>
@@ -159,7 +259,7 @@ export default function PromptPacksCard() {
               {isDropped && (
                 <div style={{ ...hintStyle, color: "#a06a3b", marginTop: 3 }}>
                   합성 상한({HOOK_CAP.toLocaleString()}자)을 넘겨 이 팩은 실리지 않습니다. 앞의
-                  팩을 끄거나 순서를 바꾸세요.
+                  팩을 끄거나 ▲ 로 이 팩을 앞으로 옮기세요.
                 </div>
               )}
             </div>

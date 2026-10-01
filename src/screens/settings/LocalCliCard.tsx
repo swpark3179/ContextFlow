@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Input } from "../../lib/ui";
+import * as api from "../../lib/api";
 import { useAi } from "../../store/aiStore";
 import { Btn, Card, Field, Models, ReadOnlyRow, hintStyle, inputFocus, inputMono } from "./shared";
 import { sourceLabel } from "../../lib/ai";
@@ -20,11 +21,24 @@ export default function LocalCliCard({ id }: { id: string }) {
   const { detectOne, saveAgentBin } = useAi.getState();
 
   const [draft, setDraft] = useState(saved);
+  const [saveError, setSaveError] = useState<string | null>(null);
   // 저장된 값이 바뀌면(저장 · 해제 · 최초 로드) 입력창을 맞춰 준다.
   useEffect(() => setDraft(saved), [saved]);
 
   const info = infos.find((i) => i.id === id);
   const name = info?.name ?? id;
+
+  /** 저장 실패를 카드에 남긴다 — 예전에는 처리되지 않은 프라미스 거절로 조용히 사라졌다. */
+  const guard = (p: Promise<void>) => {
+    setSaveError(null);
+    void p.catch((e) => setSaveError(api.errMessage(e)));
+  };
+
+  /**
+   * 지정한 경로를 쓰지 못하면 백엔드는 조용히 PATH 검색으로 넘어간다(`resolve.rs`). 그
+   * 사실을 출처 배지 하나로만 알리면 놓치기 쉬워서 한 줄로 적는다.
+   */
+  const ignored = !!saved && !!agent && agent.source !== "custom-path";
 
   const browse = () => {
     void (async () => {
@@ -62,7 +76,7 @@ export default function LocalCliCard({ id }: { id: string }) {
           <Input
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
-            placeholder="C:\\Users\\me\\AppData\\Roaming\\npm\\claude.cmd"
+            placeholder={`C:\\Users\\me\\AppData\\Roaming\\npm\\${id}.cmd`}
             style={{ ...inputMono, flex: 1, minWidth: 0 }}
             focusStyle={inputFocus}
           />
@@ -74,16 +88,23 @@ export default function LocalCliCard({ id }: { id: string }) {
         <Btn
           label="저장하고 다시 탐지"
           primary
-          onClick={() => void saveAgentBin(id, draft.trim() || null)}
+          onClick={() => guard(saveAgentBin(id, draft.trim() || null))}
         />
-        {saved && <Btn label="지정 해제" onClick={() => void saveAgentBin(id, null)} />}
+        {saved && <Btn label="지정 해제" onClick={() => guard(saveAgentBin(id, null))} />}
         <Btn label="다시 탐지" onClick={() => void detectOne(id, true)} />
       </div>
+      {saveError && <div style={{ ...hintStyle, color: "#c04a4a" }}>{saveError}</div>}
+      {ignored && (
+        <div style={{ ...hintStyle, color: "#a06a3b" }}>
+          지정한 경로를 쓰지 못해 다른 위치에서 찾았습니다. 절대 경로인지, 그 파일이 실제로
+          있는지 확인하세요.
+        </div>
+      )}
 
       <Models agent={agent} />
       <div style={hintStyle}>
-        추천은 도구 사용을 모두 차단한 채 실행됩니다 — 파일을 읽거나 고치지 않고 텍스트 답변만
-        받습니다.
+        추천 · 위키 반영 모두 도구 사용을 차단한 채 실행됩니다 — 파일을 읽거나 고치지 않고
+        텍스트 답변만 받습니다(필요한 내용은 앱이 프롬프트에 실어 보냅니다).
       </div>
     </Card>
   );
