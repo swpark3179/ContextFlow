@@ -5,7 +5,7 @@ import type { FileEntry } from "../lib/tree";
 import { normalizeStatus, TOAST } from "../lib/design";
 import { basename, daysSince, hhmm, joinPath, nowStamp, today } from "../lib/format";
 import { setImageWidth, splitFrontmatter, toggleTaskLine } from "../lib/markdown";
-import { imageMarkdown, insertOwnLine, type ClipImage } from "../lib/images";
+import { imageMarkdown, insertOwnLine, relativeFromNote, type ClipImage } from "../lib/images";
 import {
   composeDiscardBody,
   EMPTY_LOG,
@@ -138,6 +138,8 @@ export interface Toast {
 }
 
 export interface CtxTarget {
+  /** 트리의 빈 자리를 우클릭했다 — 대상은 업무 폴더 최상위(`path` 는 `""`). */
+  root?: boolean;
   path: string;
   name: string;
   ext: string;
@@ -463,7 +465,8 @@ interface Actions {
   /** 마크다운 뷰어에서 체크박스를 눌렀다. `line` 은 **문서** 기준 줄 번호다. */
   toggleTask: (path: string, line: number) => Promise<void>;
   /**
-   * 붙여넣은 이미지를 노트 옆에 저장하고 그 파일을 가리키는 마크다운을 돌려준다.
+   * 붙여넣은 이미지를 업무 폴더 최상위의 `images/` 에 저장하고(없으면 만든다) 노트에서
+   * 그 파일을 가리키는 상대 경로의 마크다운을 돌려준다.
    * 문서는 건드리지 않는다 — 어디에 넣을지는 부르는 쪽(편집기의 커서)이 안다.
    * 실패하면 토스트를 띄우고 `null`.
    */
@@ -1161,10 +1164,10 @@ export const useStore = create<State & Actions>((set, get) => ({
     if (!folder) return null;
     try {
       const bytes = new Uint8Array(await img.file.arrayBuffer());
-      const name = await api.savePastedImage(folder, path, img.ext, bytes);
+      const rel = await api.savePastedImage(folder, path, img.ext, bytes);
       // 탐색기에 새 파일이 바로 보여야 "어디에 저장됐지?" 를 묻지 않는다.
       await get().refreshFiles();
-      return imageMarkdown(name);
+      return imageMarkdown(relativeFromNote(path, rel));
     } catch (e) {
       get().fail(e, "이미지를 저장하지 못했습니다");
       return null;

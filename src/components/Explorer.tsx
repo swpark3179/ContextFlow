@@ -481,6 +481,30 @@ export default function Explorer() {
           s.set({ dragOver: false });
         }}
         onDrop={(e) => e.preventDefault()}
+        onContextMenu={(e) => {
+          // 행 위의 우클릭은 행이 처리한다. 입력칸(새로 만들기 · 이름 바꾸기)은 웹뷰 기본
+          // 메뉴(붙여넣기 등)를 그대로 둔다.
+          if (e.defaultPrevented) return;
+          const t = e.target as HTMLElement;
+          if (t.closest("input, textarea")) return;
+          if (t.closest("[data-tree-path]") !== e.currentTarget) return;
+          e.preventDefault();
+          if (!activeFolder) return;
+          const base = activeFolder.split(/[\\/]/).filter(Boolean).pop();
+          s.set({
+            ctx: {
+              root: true,
+              path: "",
+              name: task?.relFolder || base || activeFolder,
+              ext: "",
+              isDir: true,
+              bin: false,
+              count: files.length,
+              x: e.clientX,
+              y: e.clientY,
+            },
+          });
+        }}
         style={{
           flex: 1,
           minHeight: 0,

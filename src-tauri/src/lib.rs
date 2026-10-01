@@ -277,8 +277,8 @@ fn create_task_file(folder: String, rel: String) -> Result<String> {
     fsops::create_file(&p(&folder), &rel)
 }
 
-/// 클립보드에서 붙여넣은 이미지를 노트 옆에 저장한다. 돌려주는 값은 파일 이름뿐이다 —
-/// 노트와 같은 폴더이므로 마크다운에는 그 이름만 적으면 된다.
+/// 클립보드에서 붙여넣은 이미지를 업무 폴더 최상위의 `images/` 에 저장한다. 돌려주는 값은
+/// 업무 폴더 기준 경로(`images/image-….png`)다 — 노트에서의 상대 경로는 프런트가 만든다.
 ///
 /// 본문은 JSON 이 아니라 **바이트 그대로** 받는다(`InvokeBody::Raw`). 스크린샷 한 장이
 /// 수 MB 라, 숫자 배열로 직렬화하면 IPC 로 넘기는 양만 몇 배가 된다. 그래서 나머지 인자는

@@ -124,62 +124,66 @@ export default function ContextMenu() {
     },
   ];
 
-  const items: Item[] = ctx.isDir
-    ? [
-        {
-          key: "d1",
-          label: "탐색기에서 열기",
-          hint: "Windows",
-          badge: "↗",
-          badgeFg: "#6a665e",
-          badgeBg: "#f0ede7",
-          run: () => {
-            // 탐색기 창이 뜨는 것이 곧 결과다 — 성공은 알리지 않는다.
-            s.set({ ctx: null });
-            void api.revealPath(abs).catch((e) => s.fail(e));
-          },
-        },
-        {
-          key: "d2",
-          label: "하위 폴더 만들기",
-          hint: "",
-          badge: "＋",
-          badgeFg: "#8f5d17",
-          badgeBg: "#fbf3e6",
-          sep: true,
-          run: () => {
-            s.set({ ctx: null, mk: { kind: "folder", parent: ctx.path, name: "" } });
-            s.setUi({ treeOpen: { ...s.ui.treeOpen, [ctx.path]: true } });
-          },
-        },
-        {
-          key: "d3",
-          label: "이 폴더에 새 파일",
-          hint: "",
-          badge: "＋",
-          badgeFg: "#2f5cbb",
-          badgeBg: "#eef3fd",
-          run: () => {
-            s.set({ ctx: null, mk: { kind: "file", parent: ctx.path, name: "" } });
-            s.setUi({ treeOpen: { ...s.ui.treeOpen, [ctx.path]: true } });
-          },
-        },
-        {
-          key: "d4",
-          label: "새 브레인스토밍",
-          hint: BSTORM_EXT,
-          badge: "BS",
-          badgeFg: "#256b47",
-          badgeBg: "#e9f4ee",
-          run: () => {
-            s.set({ ctx: null, mk: { kind: "bstorm", parent: ctx.path, name: "" } });
-            s.setUi({ treeOpen: { ...s.ui.treeOpen, [ctx.path]: true } });
-          },
-        },
-        copyPath,
-        ...toDesktop,
-        ...editItems,
-      ]
+  const reveal: Item = {
+    key: "d1",
+    label: "탐색기에서 열기",
+    hint: "Windows",
+    badge: "↗",
+    badgeFg: "#6a665e",
+    badgeBg: "#f0ede7",
+    run: () => {
+      // 탐색기 창이 뜨는 것이 곧 결과다 — 성공은 알리지 않는다.
+      s.set({ ctx: null });
+      void api.revealPath(abs).catch((e) => s.fail(e));
+    },
+  };
+
+  /** `parent` 폴더(업무 폴더 기준, 최상위는 `""`) 안에 새로 만드는 일들. */
+  const mkItems = (parent: string): Item[] => {
+    const mk = (kind: "folder" | "file" | "bstorm") => {
+      s.set({ ctx: null, mk: { kind, parent, name: "" } });
+      if (parent) s.setUi({ treeOpen: { ...s.ui.treeOpen, [parent]: true } });
+    };
+    return [
+      {
+        key: "d2",
+        label: parent ? "하위 폴더 만들기" : "새 폴더",
+        hint: "",
+        badge: "＋",
+        badgeFg: "#8f5d17",
+        badgeBg: "#fbf3e6",
+        sep: true,
+        run: () => mk("folder"),
+      },
+      {
+        key: "d3",
+        label: parent ? "이 폴더에 새 파일" : "새 파일",
+        hint: "",
+        badge: "＋",
+        badgeFg: "#2f5cbb",
+        badgeBg: "#eef3fd",
+        run: () => mk("file"),
+      },
+      {
+        key: "d4",
+        label: "새 브레인스토밍",
+        hint: BSTORM_EXT,
+        badge: "BS",
+        badgeFg: "#256b47",
+        badgeBg: "#e9f4ee",
+        run: () => mk("bstorm"),
+      },
+    ];
+  };
+
+  // 트리의 빈 자리 — 업무 폴더 최상위 자체다. 이름 바꾸기 · 삭제 · 바탕화면 내보내기는
+  // 업무 하나를 통째로 건드리는 일이라 여기서는 빼 둔다.
+  const rootItems: Item[] = [{ ...reveal, hint: "업무 폴더" }, ...mkItems(""), copyPath];
+
+  const items: Item[] = ctx.root
+    ? rootItems
+    : ctx.isDir
+    ? [reveal, ...mkItems(ctx.path), copyPath, ...toDesktop, ...editItems]
     : [
         // 쓸 수 없는 열기 방식은 회색으로 남기지 않고 **아예 빼 둔다** — 목록이 짧을수록
         // 이 파일로 무엇을 할 수 있는지가 한눈에 들어온다.
