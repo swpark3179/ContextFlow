@@ -35,6 +35,9 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 # 기본 기능을 끄는 이유는 그 안에 `ffi-sqlite-wasm-rs` 가 들어 있어서다: 웹 타깃용 FFI 라
 # 데스크탑 빌드에는 쓸모가 없고 `bundled` 와 목적이 겹친다.
 rusqlite = { version = "0.40.2", default-features = false, features = ["bundled"] }
+# 웹 검색(`browser.rs`) — PC 의 Chrome · Edge 를 DevTools 프로토콜로 조종하는 WebSocket 클라이언트.
+# 상대가 언제나 127.0.0.1 의 브라우저라 TLS 는 필요 없다(기본 기능을 꺼 TLS 백엔드를 끌어오지 않는다).
+tungstenite = { version = "0.27", default-features = false, features = ["handshake"] }
 
 [profile.release]
 panic = "abort"

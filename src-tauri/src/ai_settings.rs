@@ -106,7 +106,7 @@ pub struct ActiveChoice {
 /// 지점마다 그 요청의 **출력 계약 앞**에 붙는다. 시스템 프롬프트에는 주입하지 않는다 —
 /// 판단의 정체성을 사용자 지침이 통과하면 결과가 왜 기울었는지 추적할 수 없다
 /// (`src/lib/promptPacks.ts` 참조).
-pub const HOOKS: [&str; 4] = ["recommend.rank", "wiki.ingest", "wiki.query", "wiki.lint"];
+pub const HOOKS: [&str; 5] = ["recommend.rank", "wiki.ingest", "wiki.query", "wiki.lint", "wiki.web"];
 
 /// 훅 하나에 붙일 수 있는 팩 수. 프롬프트가 무한정 길어지는 것을 막는 1차 방어선이다.
 pub const MAX_PACKS_PER_HOOK: usize = 5;
@@ -114,7 +114,9 @@ pub const MAX_PACKS_PER_HOOK: usize = 5;
 /// 기능별 연결을 고를 수 있는 기능. 추천은 여기 없다 — 추천은 `active`(기본 연결) 그 자체다.
 ///
 /// 위키 질의와 점검은 한 연결을 같이 쓴다(둘 다 위키를 읽고 답하는 일이라 모델 성격이 같다).
-pub const ROUTES: [&str; 2] = ["wiki.ingest", "wiki.query"];
+/// `wiki.web` 은 위키 질의 중 브라우저로 가져온 웹 페이지를 읽고 정리하는 모델이다 — 페이지
+/// 본문이 길고 잡음이 많아 값싸고 빠른 모델을 따로 두면 질의 모델의 문맥을 아낀다.
+pub const ROUTES: [&str; 3] = ["wiki.ingest", "wiki.query", "wiki.web"];
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
@@ -341,6 +343,8 @@ mod tests {
         let pick = |a: &str| Some(ActiveChoice { agent_id: a.into(), model: " m ".into() });
         s.set_route("wiki.ingest", pick("fabrix")).unwrap();
         assert_eq!(s.routes["wiki.ingest"].model, "m");
+        s.set_route("wiki.web", pick("codex")).unwrap();
+        assert_eq!(s.routes["wiki.web"].agent_id, "codex");
         // 빈 연결은 "기본 연결 따름" — 키 자체를 지운다.
         s.set_route("wiki.query", pick("claude")).unwrap();
         s.set_route("wiki.query", pick("  ")).unwrap();
@@ -465,10 +469,10 @@ mod tests {
     #[test]
     fn wiki_hooks_are_accepted() {
         let mut s = AiSettings::default();
-        for h in ["wiki.ingest", "wiki.query", "wiki.lint"] {
+        for h in ["wiki.ingest", "wiki.query", "wiki.lint", "wiki.web"] {
             s.set_prompt_hook(h, vec!["a.md".into()]).unwrap();
         }
-        assert_eq!(s.prompts.hooks.len(), 3);
+        assert_eq!(s.prompts.hooks.len(), 4);
     }
 
     #[test]

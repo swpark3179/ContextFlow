@@ -19,7 +19,7 @@ import type { AiSettings, PromptPack } from "./ai";
  * 결과가 왜 기울었는지 추적할 방법이 없다. 요청 본문은 이미 확보된 재료(후보 목록 · 업무
  * 원문 · 위키 페이지)를 **읽는 방식**만 바꾸므로 그 문제가 없다.
  */
-export type PromptHook = "recommend.rank" | "wiki.ingest" | "wiki.query" | "wiki.lint";
+export type PromptHook = "recommend.rank" | "wiki.ingest" | "wiki.query" | "wiki.lint" | "wiki.web";
 
 export const PROMPT_HOOKS: { id: PromptHook; label: string; note: string }[] = [
   { id: "recommend.rank", label: "추천 순위", note: "순위 요청의 출력 형식 앞" },
@@ -30,6 +30,11 @@ export const PROMPT_HOOKS: { id: PromptHook; label: string; note: string }[] = [
   },
   { id: "wiki.query", label: "위키 질의", note: "위키에 묻는 요청의 답변 형식 앞" },
   { id: "wiki.lint", label: "위키 점검", note: "위키 점검 요청의 출력 형식 앞" },
+  {
+    id: "wiki.web",
+    label: "웹 검색 정리",
+    note: "브라우저로 가져온 웹 페이지를 정리하는 요청의 출력 형식 앞 (예: 믿을 만한 출처 기준)",
+  },
 ];
 
 /** 한 지점에 붙일 수 있는 팩 수. 원본은 Rust(`MAX_PACKS_PER_HOOK`)이고 여기는 안내용 사본. */

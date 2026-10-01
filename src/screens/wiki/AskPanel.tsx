@@ -6,8 +6,9 @@ import * as api from "../../lib/api";
 import { CANCELED } from "../../lib/runOnce";
 import { resolveLink } from "../../lib/wiki/links";
 import { askWiki, fileAnswer, type AskOutcome } from "../../lib/wiki/pipeline";
+import { inlineWebRefs, type WebSource } from "../../lib/wiki/web";
 import MarkdownView, { WikiLinkContext } from "../../components/MarkdownView";
-import { useStore } from "../../store/useStore";
+import { browserOptions, useStore } from "../../store/useStore";
 import { routeInfo, useAi } from "../../store/aiStore";
 import { useWiki } from "../../store/wikiStore";
 import { NO_PAGES, openTask, smallBtn, useTaskById, wikiLinks } from "./WikiPanels";
@@ -29,6 +30,14 @@ interface Turn {
   saved?: string;
 }
 
+const hostOf = (url: string) => {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
+};
+
 /**
  * AI 에게 묻기 — 위키를 근거로 한 대화.
  *
@@ -40,11 +49,17 @@ interface Turn {
  * 탭을 옮겨도 이 패널을 내리지 않는다(`Wiki.tsx`) — 인용 칩을 눌러 페이지를 읽고 돌아와도
  * 이어서 물을 수 있다. 다른 화면으로 가면 위키 화면이 내려가며 대화도 끝난다. 처음부터 다시
  * 묻고 싶으면 [대화 초기화].
+ *
+ * [웹 검색] 을 켜 두면 위키만으로 답할 수 없을 때 AI 가 PC 의 브라우저로 웹을 찾는다
+ * (`lib/wiki/web.ts`). 찾은 페이지는 "웹 검색" 연결의 모델이 먼저 추리고, 답에 `[웹n]` 으로
+ * 인용된 출처가 칩으로 뜬다 — 누르면 사용자의 기본 브라우저로 연다.
  */
 export function AskPanel({ onOpen }: { onOpen: (path: string) => void }) {
   const s = useStore();
   const ai = useAi();
   const info = routeInfo(ai, "wiki.query");
+  const webInfo = routeInfo(ai, "wiki.web");
+  const webOn = s.settings.webSearch;
   // 셀렉터가 매번 새 배열을 내면 React 가 스냅샷이 불안정하다고 보고 렌더 루프에 빠진다.
   const pages = useWiki((w) => w.status?.pages ?? NO_PAGES);
   const refresh = useWiki((w) => w.refresh);
@@ -69,6 +84,17 @@ export function AskPanel({ onOpen }: { onOpen: (path: string) => void }) {
 
   const patch = (id: number, p: Partial<Turn>) =>
     setTurns((ts) => ts.map((t) => (t.id === id ? { ...t, ...p } : t)));
+  /**
+   * 도는 턴에만 반영한다. [취소] 는 턴을 그 자리에서 끝내는데, 브라우저가 페이지를 여는 중이면
+   * 그 한 장이 끝날 때까지(최대 몇십 초) 결과가 뒤늦게 올 수 있다 — 끝난 턴을 되살리지 않는다.
+   */
+  const live = (id: number, p: Partial<Turn>) =>
+    setTurns((ts) => ts.map((t) => (t.id === id && t.state === "running" ? { ...t, ...p } : t)));
+
+  const cancel = () => {
+    abort.current?.abort();
+    setTurns((ts) => ts.map((t) => (t.state === "running" ? { ...t, state: "canceled", step: "" } : t)));
+  };
 
   const ask = () => {
     const q = question.trim();
@@ -78,12 +104,19 @@ export function AskPanel({ onOpen }: { onOpen: (path: string) => void }) {
     abort.current = ctl;
     // 이력은 끝난 턴만 — 실패 · 취소한 질문은 맥락이 되지 못한다.
     const done = turns.filter((t) => t.state === "done" && t.out);
-    const history = done.map((t) => ({ question: t.question, answer: t.out!.answer }));
+    const history = done.map((t) => ({
+      question: t.question,
+      answer: inlineWebRefs(t.out!.answer, [...t.out!.webCited, ...t.out!.webUsed]),
+    }));
     const carry = done[done.length - 1]?.out?.cited.map((p) => p.path) ?? [];
     const id = ++seq.current;
     stick.current = true;
     setTurns((ts) => [...ts, { id, question: q, text: "", state: "running", step: "위키에서 찾는 중" }]);
     setQuestion("");
+    const web =
+      webOn && webInfo.run
+        ? { route: webInfo.run, browser: browserOptions(s.settings), pages: s.settings.webPages }
+        : null;
     void askWiki({
       root: s.settings.vault,
       question: q,
@@ -91,13 +124,15 @@ export function AskPanel({ onOpen }: { onOpen: (path: string) => void }) {
       ai: { packs: ai.packs, settings: ai.settings },
       history,
       carry,
+      web,
       signal: ctl.signal,
-      onPartial: (text) => patch(id, { text, step: "" }),
+      onPartial: (text) => live(id, { text, step: "" }),
+      onStep: (step) => live(id, { step }),
     })
-      .then((out) => patch(id, { state: "done", text: out.answer, out, step: "" }))
+      .then((out) => live(id, { state: "done", text: out.answer, out, step: "" }))
       .catch((e) => {
         const msg = api.errMessage(e);
-        patch(id, msg === CANCELED ? { state: "canceled", step: "" } : { state: "failed", step: "", error: msg });
+        live(id, msg === CANCELED ? { state: "canceled", step: "" } : { state: "failed", step: "", error: msg });
       });
   };
 
@@ -120,6 +155,7 @@ export function AskPanel({ onOpen }: { onOpen: (path: string) => void }) {
       answer: turn.out.answer,
       cited: turn.out.cited,
       context: before,
+      web: turn.out.webCited.length ? turn.out.webCited : turn.out.webUsed,
     })
       .then(async (r) => {
         const w = r.written[0];
@@ -227,7 +263,7 @@ export function AskPanel({ onOpen }: { onOpen: (path: string) => void }) {
             {busy ? "답하는 중…" : turns.length ? "이어서 묻기 (Ctrl+Enter)" : "AI에게 묻기 (Ctrl+Enter)"}
           </Box>
           {busy && (
-            <Box style={smallBtn} hover={{ background: "#f2efe9" }} onClick={() => abort.current?.abort()}>
+            <Box style={smallBtn} hover={{ background: "#f2efe9" }} onClick={cancel}>
               취소
             </Box>
           )}
@@ -241,13 +277,45 @@ export function AskPanel({ onOpen }: { onOpen: (path: string) => void }) {
               대화 초기화
             </Box>
           )}
-          <span style={{ ...hint, fontSize: 11, marginLeft: "auto" }}>
+          <Box
+            role="switch"
+            aria-checked={webOn}
+            title={
+              webOn
+                ? "위키만으로 답할 수 없으면 AI 가 PC 의 브라우저로 웹을 검색합니다. 검색어는 바깥 검색 엔진으로 나갑니다."
+                : "켜면 위키만으로 답할 수 없을 때 AI 가 PC 의 브라우저로 웹을 검색합니다"
+            }
+            onClick={() => s.patchSettings({ webSearch: !webOn })}
+            style={{
+              ...smallBtn,
+              gap: 5,
+              border: `1px solid ${webOn ? "#cddcf8" : "#e0dcd4"}`,
+              background: webOn ? "#eef3fd" : "#fff",
+              color: webOn ? "#2f5cbb" : "#6a665e",
+              fontWeight: webOn ? 600 : 400,
+            }}
+          >
+            <span
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: "50%",
+                background: webOn ? (webInfo.run ? "#3a6fd8" : "#d9a13b") : "#c9c3b8",
+              }}
+            />
+            웹 검색 {webOn ? "켜짐" : "꺼짐"}
+          </Box>
+          <span style={{ ...hint, fontSize: 11, marginLeft: "auto", textAlign: "right" }}>
             {turns.length > 0 && `대화 ${turns.length}턴 · `}
             {info.run
               ? `${info.name ?? info.run.agentId} · ${info.modelLabel}`
               : info.via === "route"
                 ? `지정한 연결(${info.name})을 지금 쓸 수 없습니다`
                 : "설정 → 기능별 AI 연결에서 연결을 고르세요"}
+            {webOn &&
+              (webInfo.run
+                ? ` · 웹 정리 ${webInfo.name ?? webInfo.run.agentId} · ${webInfo.modelLabel}`
+                : " · 웹 검색 연결이 없어 검색하지 않습니다")}
           </span>
         </div>
       </div>
@@ -295,6 +363,12 @@ function TurnView({
         </span>
       </div>
 
+      {out && out.searches.length > 0 && (
+        <div style={{ ...hint, fontSize: 11, marginBottom: 6 }}>
+          웹 검색: {out.searches.map((q) => `"${q}"`).join(" · ")}
+        </div>
+      )}
+
       {turn.text && <MarkdownView blocks={blocks} inline />}
 
       {turn.state === "running" && (
@@ -314,6 +388,11 @@ function TurnView({
         </div>
       )}
       {turn.state === "canceled" && <div style={{ ...hint, marginTop: 6 }}>취소했습니다</div>}
+      {out && out.webErrors.length > 0 && (
+        <div style={{ ...hint, color: "#a06a3b", marginTop: 6, whiteSpace: "pre-wrap" }}>
+          {out.webErrors.join("\n")}
+        </div>
+      )}
 
       {out && (
         <div
@@ -371,6 +450,9 @@ function TurnView({
               </span>
             );
           })}
+          {(out.webCited.length ? out.webCited : out.webUsed).length > 0 && (
+            <WebChips sources={out.webCited.length ? out.webCited : out.webUsed} cited={out.webCited.length > 0} />
+          )}
           <span style={{ marginLeft: "auto" }}>
             {turn.saved ? (
               <Box style={{ ...smallBtn, color: "#256b47" }} onClick={() => onOpen(turn.saved!)}>
@@ -385,5 +467,43 @@ function TurnView({
         </div>
       )}
     </div>
+  );
+}
+
+/** 웹 출처 칩 — `[웹n]` 번호 + 사이트. 누르면 사용자의 기본 브라우저로 연다. */
+function WebChips({ sources, cited }: { sources: WebSource[]; cited: boolean }) {
+  return (
+    <>
+      <span style={{ ...hint, margin: "0 4px 0 8px" }}>
+        {cited ? `웹 ${sources.length}` : `참고한 웹 ${sources.length}`}
+      </span>
+      {sources.map((w) => (
+        <Box
+          key={w.n}
+          title={`${w.title}\n${w.url}`}
+          onClick={() =>
+            void api
+              .openWebUrl(w.url)
+              .catch((e) => useStore.getState().fail(e, "브라우저로 열지 못했습니다"))
+          }
+          style={{
+            fontSize: 11.5,
+            border: "1px solid #d9e6dc",
+            borderRadius: 4,
+            padding: "1px 7px",
+            background: "#f6faf7",
+            color: "#256b47",
+            cursor: "pointer",
+            maxWidth: 240,
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+          hover={{ borderColor: "#b9d6c2" }}
+        >
+          [웹{w.n}] {hostOf(w.url)} ↗
+        </Box>
+      ))}
+    </>
   );
 }

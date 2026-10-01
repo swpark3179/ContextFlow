@@ -1,5 +1,6 @@
 mod agents;
 mod ai_settings;
+mod browser;
 mod daylog;
 mod detect;
 mod error;
@@ -651,6 +652,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(run::RunRegistry::default())
+        .manage(browser::BrowserState::default())
         .manage(daylog::DayLog::default())
         .invoke_handler(tauri::generate_handler![
             load_settings,
@@ -718,6 +720,10 @@ pub fn run() {
             fabrix::probe_fabrix,
             run::run_agent,
             run::cancel_run,
+            browser::browser_detect,
+            browser::web_search,
+            browser::web_read,
+            browser::browser_close,
             wiki::wiki_init,
             wiki::wiki_status,
             wiki::wiki_read_source,
@@ -727,6 +733,12 @@ pub fn run() {
             wiki::wiki_relink,
             wiki::wiki_lint_local,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running ContextFlow");
+        .build(tauri::generate_context!())
+        .expect("error while running ContextFlow")
+        .run(|app, event| {
+            // 웹 검색에 띄운 브라우저는 앱과 함께 닫는다 — 헤드리스면 창이 없어 사용자가 닫을 길이 없다.
+            if let tauri::RunEvent::Exit = event {
+                app.state::<browser::BrowserState>().shutdown();
+            }
+        });
 }

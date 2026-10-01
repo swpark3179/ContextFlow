@@ -19,6 +19,7 @@ import type { WikiHit, WikiKind, WikiPageMeta, WikiSourceBundle } from "../api";
 import { extractFencedJson } from "../fencedJson";
 import { escapeDelims } from "./blocks";
 import { findByTitle, normTitle } from "./links";
+import { webFindingsBlock, webRequestBlock, type WebFinding } from "./web";
 
 export const PLAN_LABEL = "wikiplan";
 export const LINT_LABEL = "wikilint";
@@ -377,9 +378,16 @@ export function pickContextPages(lists: string[][], cap: number): string[] {
   return out;
 }
 
+/** 질의에 실을 웹 검색 상태 — 남은 검색 횟수와 지금까지 찾은 것. `null` 이면 웹 검색을 끈 질의. */
+export interface QueryWebState {
+  remaining: number;
+  findings: WebFinding[];
+}
+
 /**
  * 질의 — 로컬 검색으로 고른 페이지 본문 + 나머지 페이지 목록. 답은 자유 마크다운.
- * `history` 가 있으면 앞선 대화에 이어지는 질문으로 묻는다.
+ * `history` 가 있으면 앞선 대화에 이어지는 질문으로 묻는다. `web` 이 있으면 웹 검색을
+ * 요청할 수 있음을 알리고(`web.ts`), 이미 찾은 결과를 함께 싣는다.
  */
 export function buildQueryPrompt(i: {
   question: string;
@@ -387,6 +395,7 @@ export function buildQueryPrompt(i: {
   catalog: WikiPageMeta[];
   inject: string;
   history?: ChatTurnText[];
+  web?: QueryWebState | null;
 }): string {
   let used = 0;
   const bodies: string[] = [];
@@ -403,6 +412,8 @@ export function buildQueryPrompt(i: {
     .slice(0, CATALOG_CAP)
     .map((p) => `- [[${p.stem}]] (${KIND_LABEL[p.kind] ?? p.kind}) — ${p.summary}`);
   const history = historyBlock(i.history ?? []);
+  const web = i.web ?? null;
+  const found = web ? webFindingsBlock(web.findings) : "";
   return [
     history,
     history ? "# 지금 질문 (앞선 대화에 이어서)" : "# 질문",
@@ -416,10 +427,17 @@ export function buildQueryPrompt(i: {
     "",
     catalog.length ? catalog.join("\n") : "(없음)",
     "",
+    found,
+    web ? webRequestBlock(web.remaining) : "",
     i.inject,
     "# 답변 형식",
     "",
-    "- 위 페이지에 적힌 내용에 근거해서만 답합니다. 근거가 없으면 \"위키에 없습니다\" 라고 하고, 목록에서 열어 볼 만한 페이지를 제안합니다.",
+    web
+      ? "- 위 위키 페이지와 웹 검색 결과에 적힌 내용에 근거해서만 답합니다. 둘 다 근거가 없으면 그렇다고 말하고, 위키에서 열어 볼 만한 페이지를 제안합니다."
+      : "- 위 페이지에 적힌 내용에 근거해서만 답합니다. 근거가 없으면 \"위키에 없습니다\" 라고 하고, 목록에서 열어 볼 만한 페이지를 제안합니다.",
+    found
+      ? "- 웹 검색 결과에서 온 문장 끝에는 `[웹1]` 처럼 출처 번호를 붙입니다. 위키와 웹이 다르면 둘 다 밝히고, 업무에 관한 것은 위키를 앞세웁니다."
+      : "",
     history
       ? "- 앞선 대화에 이어지는 질문이면 그 맥락(가리키는 대상 · 생략된 주어)을 이어받아 답하고, 앞선 답을 그대로 되풀이하지 않습니다."
       : "",

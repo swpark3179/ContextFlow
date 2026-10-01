@@ -7,6 +7,7 @@ import * as api from "../lib/api";
 import AiConnectionsCard from "./settings/AiConnectionsCard";
 import AiRoutesCard from "./settings/AiRoutesCard";
 import PromptPacksCard from "./settings/PromptPacksCard";
+import WebSearchCard from "./settings/WebSearchCard";
 import WikiCard from "./settings/WikiCard";
 import { Chip, Toggle, cardStyle, headStyle, inputFocus, inputMono, rowStyle } from "./settings/shared";
 
@@ -253,6 +254,7 @@ export default function Settings() {
         <AiConnectionsCard />
         <AiRoutesCard />
         <WikiCard />
+        <WebSearchCard />
         <PromptPacksCard />
 
         {/* 추천 임계값 --------------------------------------------------- */}

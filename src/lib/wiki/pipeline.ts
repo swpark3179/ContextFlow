@@ -28,6 +28,21 @@ import {
   type AiLintIssue,
   type ChatTurnText,
 } from "./prompts";
+import {
+  WEB_READ_MAX_TOKENS,
+  WEB_ROUNDS,
+  WEB_TEMPERATURE,
+  buildWebReadPrompt,
+  buildWebSystemPrompt,
+  citedWebSources,
+  numberSources,
+  parseWebSearch,
+  snippetsAsFindings,
+  stripWebFence,
+  type WebFinding,
+  type WebRequest,
+  type WebSource,
+} from "./web";
 
 export interface Route {
   agentId: string;
@@ -212,6 +227,23 @@ export interface AskOutcome {
   cited: api.WikiPageMeta[];
   /** 프롬프트에 본문을 실은 페이지. */
   used: api.WikiPageMeta[];
+  /** 답이 `[웹n]` 으로 인용한 웹 출처. */
+  webCited: WebSource[];
+  /** 웹 결과 정리에 쓰인 출처(답이 아무것도 인용하지 않았을 때 보여 준다). */
+  webUsed: WebSource[];
+  /** 이번 질문에서 실제로 검색한 검색어. */
+  searches: string[];
+  /** 검색 · 정리 실패 사유(답은 그것 없이 나왔다). */
+  webErrors: string[];
+}
+
+/** 위키 질의 중 웹 검색 — 쓸 정리 모델과 브라우저 옵션. */
+export interface AskWeb {
+  /** 웹 검색 연결(기능별 AI 연결의 "웹 검색"). */
+  route: Route;
+  browser: api.BrowserOptions;
+  /** 검색어마다 본문을 읽을 결과 수. */
+  pages: number;
 }
 
 /** 질의 한 번에 본문을 싣는 페이지 수. */
@@ -231,8 +263,12 @@ export async function askWiki(o: {
   ai: PackSource;
   history?: ChatTurnText[];
   carry?: string[];
+  /** 주면 AI 가 웹 검색을 요청할 수 있다. */
+  web?: AskWeb | null;
   signal?: AbortSignal;
   onPartial?: (text: string) => void;
+  /** 진행 단계 한 줄(웹 검색 · 페이지 읽기 · 정리). */
+  onStep?: (step: string) => void;
 }): Promise<AskOutcome> {
   const status = await api.wikiStatus(o.root, 0);
   const pages = status.pages;
@@ -253,36 +289,162 @@ export async function askWiki(o: {
   const bodies = used.length ? await api.wikiReadPages(o.root, used.map((p) => p.path)) : [];
   canceled(o.signal);
 
-  const run = await runWithRetry(
-    {
-      agentId: o.route.agentId,
-      model: o.route.model,
-      systemPrompt: buildWikiSystemPrompt(),
-      temperature: WIKI_TEMPERATURE,
-      maxTokens: QUERY_MAX_TOKENS,
-      prompt: buildQueryPrompt({
-        question: o.question,
-        pages: used.map((p) => ({
-          stem: p.stem,
-          title: p.title,
-          kind: p.kind,
-          content: bodies.find((b) => b.path === p.path)?.content ?? "",
-        })),
-        catalog: pages,
-        inject: injectionFor("wiki.query", o.ai.packs, o.ai.settings),
-        history,
-      }),
-    },
-    { signal: o.signal, onPartial: o.onPartial },
-  );
-  if (!run.ok && !run.text.trim()) throw new Error(run.error ?? "응답이 비어 있습니다");
+  const queryPages = used.map((p) => ({
+    stem: p.stem,
+    title: p.title,
+    kind: p.kind,
+    content: bodies.find((b) => b.path === p.path)?.content ?? "",
+  }));
+  const findings: WebFinding[] = [];
+  const searches: string[] = [];
+  const webErrors: string[] = [];
+  let answer = "";
+
+  // 웹 검색이 꺼져 있으면 한 바퀴. 켜져 있으면 모델이 검색을 요청할 때마다 검색 → 정리 →
+  // 다시 묻기를 `WEB_ROUNDS` 번까지 하고, 마지막 바퀴는 검색 없이 답하게 한다.
+  for (let round = 0; ; round++) {
+    const remaining = o.web ? WEB_ROUNDS - round : 0;
+    o.onStep?.(round === 0 ? "답 쓰는 중" : "웹 검색 결과로 답 쓰는 중");
+    const run = await runWithRetry(
+      {
+        agentId: o.route.agentId,
+        model: o.route.model,
+        systemPrompt: buildWikiSystemPrompt(),
+        temperature: WIKI_TEMPERATURE,
+        maxTokens: QUERY_MAX_TOKENS,
+        prompt: buildQueryPrompt({
+          question: o.question,
+          pages: queryPages,
+          catalog: pages,
+          inject: injectionFor("wiki.query", o.ai.packs, o.ai.settings),
+          history,
+          web: o.web ? { remaining, findings } : null,
+        }),
+      },
+      {
+        signal: o.signal,
+        // 검색 요청이 시작되면 그 앞까지만 보여 준다 — 펜스가 답처럼 흘러나오면 안 된다.
+        onPartial: o.onPartial ? (t) => o.onPartial!(o.web ? stripWebFence(t) : t) : undefined,
+      },
+    );
+    canceled(o.signal);
+    if (!run.ok && !run.text.trim()) throw new Error(run.error ?? "응답이 비어 있습니다");
+
+    const req = o.web && remaining > 0 ? parseWebSearch(run.text) : null;
+    if (!req) {
+      answer = o.web ? stripWebFence(run.text) : run.text.trim();
+      if (!answer) throw new Error("AI 가 검색만 요청하고 답을 내지 못했습니다");
+      break;
+    }
+    o.onPartial?.("");
+    searches.push(...req.queries);
+    const known = findings.flatMap((f) => f.sources);
+    const finding = await webRound({
+      req,
+      web: o.web!,
+      question: o.question,
+      context: history.map((h) => h.question),
+      known,
+      ai: o.ai,
+      signal: o.signal,
+      onStep: o.onStep,
+    });
+    if (finding.error) webErrors.push(finding.error);
+    findings.push(finding);
+  }
 
   const cited: api.WikiPageMeta[] = [];
-  for (const l of extractWikiLinks(run.text)) {
+  for (const l of extractWikiLinks(answer)) {
     const p = resolveLink(l.target, pages);
     if (p && !cited.includes(p)) cited.push(p);
   }
-  return { answer: run.text.trim(), cited, used };
+  const web = citedWebSources(answer, findings);
+  return { answer, cited, used, webCited: web.cited, webUsed: web.used, searches, webErrors };
+}
+
+const hostOf = (url: string) => {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
+};
+
+/**
+ * 검색 한 바퀴 — 브라우저로 검색하고, 결과 몇 장의 본문을 읽고, 웹 검색 연결의 모델로 추린다.
+ *
+ * 실패해도 던지지 않는다(취소만 던진다). 검색이 막혔거나 정리 모델이 실패해도 질의 모델은 위키로
+ * 답할 수 있어야 하므로, 사유를 `error` 에 담아 돌려준다. 정리 모델이 실패하면 결과 목록의 요약을
+ * 그대로 사실 목록으로 쓴다.
+ */
+async function webRound(o: {
+  req: WebRequest;
+  web: AskWeb;
+  question: string;
+  context: string[];
+  known: WebSource[];
+  ai: PackSource;
+  signal?: AbortSignal;
+  onStep?: (step: string) => void;
+}): Promise<WebFinding> {
+  const step = (s: string) => o.onStep?.(s);
+  const serps: api.SerpResult[] = [];
+  const errors: string[] = [];
+  for (const q of o.req.queries) {
+    step(`웹 검색: ${q}`);
+    try {
+      serps.push(await api.webSearch(o.web.browser, q));
+    } catch (e) {
+      errors.push(api.errMessage(e));
+    }
+    canceled(o.signal);
+  }
+  const startAt = o.known.reduce((m, s) => Math.max(m, s.n), 0);
+  const { sources, read } = numberSources(serps, startAt, Math.max(0, o.web.pages), o.known);
+  const base = { queries: o.req.queries, reason: o.req.reason, sources };
+  if (!sources.length) {
+    const seenOnly = serps.some((r) => r.results.length > 0);
+    const why = seenOnly ? "새 검색 결과가 없습니다 — 앞서 찾은 페이지와 같습니다" : "검색 결과가 없습니다";
+    return { ...base, summary: "", error: errors[0] ?? why };
+  }
+
+  const pages: { source: WebSource; page: api.WebPage }[] = [];
+  for (const [n, src] of read.entries()) {
+    step(`웹 페이지 읽는 중 ${n + 1}/${read.length} · ${hostOf(src.url)}`);
+    try {
+      pages.push({ source: src, page: await api.webRead(o.web.browser, src.url) });
+    } catch {
+      /* 못 연 페이지는 결과 목록의 요약으로 대신한다 */
+    }
+    canceled(o.signal);
+  }
+
+  step("웹 검색 결과 정리 중");
+  const run = await runWithRetry(
+    {
+      agentId: o.web.route.agentId,
+      model: o.web.route.model,
+      systemPrompt: buildWebSystemPrompt(),
+      temperature: WEB_TEMPERATURE,
+      maxTokens: WEB_READ_MAX_TOKENS,
+      prompt: buildWebReadPrompt({
+        question: o.question,
+        context: o.context,
+        reason: o.req.reason,
+        sources,
+        pages,
+        inject: injectionFor("wiki.web", o.ai.packs, o.ai.settings),
+      }),
+    },
+    { signal: o.signal },
+  );
+  canceled(o.signal);
+  if (run.text.trim()) return { ...base, summary: run.text.trim() };
+  return {
+    ...base,
+    summary: snippetsAsFindings(sources),
+    error: `검색 결과를 정리하지 못해 요약만 썼습니다: ${run.error ?? "응답이 비어 있습니다"}`,
+  };
 }
 
 /**
@@ -297,6 +459,8 @@ export async function fileAnswer(o: {
   answer: string;
   cited: api.WikiPageMeta[];
   context?: string[];
+  /** 답이 `[웹n]` 으로 인용한 웹 출처 — 본문 끝에 출처 목록으로 남긴다. */
+  web?: WebSource[];
 }): Promise<api.WikiApplyResult> {
   // 끝의 물음표 · 마침표는 뺀다 — 파일 이름에서 `-` 로 바뀌어 "순서는-.md" 가 된다.
   const q = o.question.trim().replace(/\s+/g, " ").replace(/[?？!.。\s]+$/, "");
@@ -318,6 +482,9 @@ export async function fileAnswer(o: {
           ...(o.context?.length ? [`> 앞선 질문: ${o.context.map((c) => c.trim()).join(" → ")}`] : []),
           "",
           o.answer,
+          ...(o.web?.length
+            ? ["", "## 웹 출처", "", ...o.web.map((w) => `- [웹${w.n}] [${w.title.replace(/[[\]]/g, "")}](${w.url})`)]
+            : []),
         ].join("\n"),
         summary: guessSummary(o.answer),
         sources,
