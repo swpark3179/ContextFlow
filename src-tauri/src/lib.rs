@@ -14,6 +14,7 @@ mod resolve;
 mod run;
 mod shell;
 mod snapshot;
+mod sse;
 mod vault;
 
 use agents::AgentKind;

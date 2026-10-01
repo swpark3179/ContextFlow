@@ -4,8 +4,7 @@
 //! Bearer 하나와 다르다. 모델 목록은 라이브 조회 전용이라 정적 폴백이 없고, 대신
 //! 마지막 성공 조회를 설정에 캐시해 오프라인에서도 즉시 보여 준다.
 
-use std::io::{BufRead, BufReader};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -19,18 +18,18 @@ use crate::run::{RunArgs, RunEvent};
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 const MODELS_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// `timeout` 은 반드시 준다 — 비워 두면 reqwest 가 기본 30초를 건다(`aipro::build_client` 참고).
 fn build_client(
     allow_invalid_certs: bool,
-    total: Option<Duration>,
+    timeout: Duration,
 ) -> Result<reqwest::blocking::Client, String> {
-    let mut b = reqwest::blocking::Client::builder()
+    reqwest::blocking::Client::builder()
         .no_proxy()
         .connect_timeout(CONNECT_TIMEOUT)
-        .danger_accept_invalid_certs(allow_invalid_certs);
-    if let Some(t) = total {
-        b = b.timeout(t);
-    }
-    b.build().map_err(|e| e.to_string())
+        .timeout(timeout)
+        .danger_accept_invalid_certs(allow_invalid_certs)
+        .build()
+        .map_err(|e| e.to_string())
 }
 
 fn load_config() -> Option<FabrixConfig> {
@@ -93,7 +92,7 @@ pub fn parse_models_json(body: &str) -> Result<Vec<ModelOption>, String> {
 }
 
 fn fetch_models(cfg: &FabrixConfig) -> Result<Vec<ModelOption>, String> {
-    let client = build_client(cfg.allow_invalid_certs, Some(MODELS_TIMEOUT))?;
+    let client = build_client(cfg.allow_invalid_certs, MODELS_TIMEOUT)?;
     let url = format!("{}/openapi/chat/v1/all-models", base(cfg));
     let resp = auth(client.get(&url).header("Accept", "application/json"), cfg)
         .send()
@@ -218,7 +217,7 @@ pub fn run_blocking(
         _ => return Err("FabriX 모델을 선택해 주세요.".to_string()),
     };
 
-    let client = build_client(cfg.allow_invalid_certs, None)?;
+    let client = build_client(cfg.allow_invalid_certs, crate::sse::STREAM_IDLE)?;
     let url = format!("{}/openapi/chat/v1/messages", base(&cfg));
     let resp = auth(
         client
@@ -248,45 +247,13 @@ pub fn run_blocking(
         session_id: None,
     });
 
-    let mut reader = BufReader::new(resp);
-    let mut buf = Vec::new();
-    let mut had_error = false;
-    loop {
-        if canceled.load(Ordering::Relaxed) {
-            break;
-        }
-        buf.clear();
-        match reader.read_until(b'\n', &mut buf) {
-            Ok(0) => break,
-            Ok(_) => {
-                let line = String::from_utf8_lossy(&buf);
-                let line = line.trim_end_matches(['\r', '\n']);
-                let data = match line.strip_prefix("data:") {
-                    Some(rest) => rest.trim_start(),
-                    None => continue,
-                };
-                for ev in parse_fabrix_sse_data(data) {
-                    if matches!(ev, RunEvent::Error { .. }) {
-                        had_error = true;
-                    }
-                    on_event(ev);
-                }
-            }
-            Err(_) => {
-                had_error = true;
-                break;
-            }
-        }
-    }
-    drop(reader);
-
-    Ok(if canceled.load(Ordering::Relaxed) {
-        "canceled".to_string()
-    } else if had_error {
-        "failed".to_string()
-    } else {
-        "succeeded".to_string()
-    })
+    Ok(crate::sse::pump(
+        resp,
+        canceled,
+        crate::sse::STREAM_IDLE,
+        &mut |d| parse_fabrix_sse_data(d),
+        on_event,
+    ))
 }
 
 /// 연결 테스트 — 모델 목록을 조회하고 그 결과를 캐시에 반영한다.

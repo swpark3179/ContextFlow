@@ -156,6 +156,8 @@ export interface RunArgs {
   sessionId?: string | null;
   /** 출력 토큰 상한. 생략하면 원격 커넥터의 기본값(8,192)을 쓴다. */
   maxTokens?: number | null;
+  /** 샘플링 온도. 생략하면 원격 커넥터의 기본값(0.4). 로컬 CLI 는 무시한다. */
+  temperature?: number | null;
 }
 
 /* ── 표시용 헬퍼 ───────────────────────────────────── */

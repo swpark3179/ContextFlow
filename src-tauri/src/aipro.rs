@@ -5,8 +5,7 @@
 //! 라이브 조회는 **명시적 재탐지와 연결 테스트에서만** 돈다 — 앱을 열 때마다 사내
 //! 게이트웨이를 때리지 않기 위해서다.
 
-use std::io::{BufRead, BufReader};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -25,21 +24,22 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 const PROBE_TIMEOUT: Duration = Duration::from_secs(30);
 const MODELS_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// `total: None` 이면 전체 요청 타임아웃이 없다 — 스트리밍 대화는 몇 분씩 정상적으로
-/// 이어질 수 있다. 프록시 환경변수는 무시한다(사내 엔드포인트는 직접 도달 가능).
+/// `timeout` 은 **반드시** 준다. reqwest blocking 클라이언트는 비워 두면 기본 30초를 걸고,
+/// 그 값은 헤더를 기다릴 때와 본문을 한 번 읽을 때마다 적용된다 — "전체 타임아웃 없음" 이
+/// 아니다. 스트리밍 대화는 `sse::STREAM_IDLE`(조각 사이 공백 상한)을 넘긴다.
+/// 프록시 환경변수는 무시한다(사내 엔드포인트는 직접 도달 가능).
 fn build_client(
     allow_invalid_certs: bool,
-    total: Option<Duration>,
+    timeout: Duration,
 ) -> Result<reqwest::blocking::Client, String> {
-    let mut b = reqwest::blocking::Client::builder()
+    reqwest::blocking::Client::builder()
         .no_proxy()
         .user_agent(OPENCODE_UA)
         .connect_timeout(CONNECT_TIMEOUT)
-        .danger_accept_invalid_certs(allow_invalid_certs);
-    if let Some(t) = total {
-        b = b.timeout(t);
-    }
-    b.build().map_err(|e| e.to_string())
+        .timeout(timeout)
+        .danger_accept_invalid_certs(allow_invalid_certs)
+        .build()
+        .map_err(|e| e.to_string())
 }
 
 fn load_config() -> Option<AiProConfig> {
@@ -108,7 +108,7 @@ pub fn parse_models_json(body: &str) -> Result<Vec<ModelOption>, String> {
 fn fetch_models(cfg: &AiProConfig) -> Result<Vec<ModelOption>, String> {
     // `build_client` 를 반드시 거칠 것 — `OPENCODE_UA` 가 빠지면 이 게이트웨이는
     // `/models` 에도 406/500 을 준다.
-    let client = build_client(cfg.allow_invalid_certs, Some(MODELS_TIMEOUT))?;
+    let client = build_client(cfg.allow_invalid_certs, MODELS_TIMEOUT)?;
     let url = format!("{}/models", base(cfg));
     let mut req = client.get(&url).header("Accept", "application/json");
     if let Some(k) = cfg.api_key.as_deref() {
@@ -177,33 +177,50 @@ pub fn detect_aipro(cfg: Option<AiProConfig>, force: bool) -> DetectedAgent {
     agent
 }
 
-fn chat_body(
+/// 대화 요청 본문 — OpenAI 호환 서비스 공용. FabriX 의 LLM 게이트웨이 방식도 이것을 쓴다.
+///
+/// `include_usage` 는 AI Pro 만 켠다. FabriX 게이트웨이(vLLM)는 요청하지 않아도 마지막에
+/// usage 조각을 보내고, 오래된 vLLM 은 모르는 필드에 400 을 줄 수 있다.
+pub(crate) fn openai_body(
     model: &str,
     system_prompt: &str,
     prompt: &str,
-    stream: bool,
     max_tokens: u32,
+    temperature: f32,
+    include_usage: bool,
 ) -> Value {
     let system = if system_prompt.trim().is_empty() {
         "사용자 질문에 정확하고 도움이 되게 답합니다.".to_string()
     } else {
         system_prompt.to_string()
     };
-    serde_json::json!({
+    let mut body = serde_json::json!({
         "model": model,
         "messages": [
             { "role": "system", "content": system },
             { "role": "user", "content": prompt },
         ],
-        "stream": stream,
-        "stream_options": { "include_usage": true },
-        "temperature": 0.4,
+        "stream": true,
+        "temperature": temperature,
         "max_tokens": max_tokens
-    })
+    });
+    if include_usage {
+        body["stream_options"] = serde_json::json!({ "include_usage": true });
+    }
+    body
 }
 
-/// OpenAI `chat.completion.chunk` 한 조각 → 이벤트들.
+/// 호출자가 온도를 정하지 않았을 때의 값. 추천처럼 판단을 요구하는 호출에 맞춘 기본이다.
+pub(crate) const DEFAULT_TEMPERATURE: f32 = 0.4;
+
+/// OpenAI `chat.completion.chunk` 한 조각 → 이벤트들. 오류 문구의 서비스 이름은 AI Pro.
 pub fn parse_openai_sse_data(data: &str) -> Vec<RunEvent> {
+    parse_openai_sse(data, "AI Pro")
+}
+
+/// 같은 파서를 서비스 이름만 바꿔 쓴다 — FabriX 게이트웨이의 오류가 "AI Pro 오류" 로 뜨면
+/// 사용자는 엉뚱한 카드를 고친다.
+pub(crate) fn parse_openai_sse(data: &str, label: &str) -> Vec<RunEvent> {
     let data = data.trim();
     if data.is_empty() || data == "[DONE]" {
         return Vec::new();
@@ -218,8 +235,8 @@ pub fn parse_openai_sse_data(data: &str) -> Vec<RunEvent> {
         let msg = err
             .get("message")
             .and_then(|m| m.as_str())
-            .unwrap_or("AI Pro 오류")
-            .to_string();
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("{label} 오류"));
         return vec![RunEvent::Error { message: msg }];
     }
 
@@ -276,18 +293,19 @@ pub fn run_blocking(
         _ => return Err("AI Pro 모델을 선택해 주세요.".to_string()),
     };
 
-    let client = build_client(cfg.allow_invalid_certs, None)?;
+    let client = build_client(cfg.allow_invalid_certs, crate::sse::STREAM_IDLE)?;
     let url = format!("{}/chat/completions", base(&cfg));
     let mut req = client
         .post(&url)
         .header("Accept", "text/event-stream")
-        .json(&chat_body(
+        .json(&openai_body(
             &model,
             &args.system_prompt,
             &args.prompt,
-            true,
             // 설정의 재정의가 있으면 그 값이 이긴다 — 게이트웨이마다 허용 상한이 다르다.
             cfg.max_output_tokens.unwrap_or_else(|| args.max_tokens_or_default()),
+            args.temperature.unwrap_or(DEFAULT_TEMPERATURE),
+            true,
         ));
     if let Some(k) = cfg.api_key.as_deref() {
         req = req.header("Authorization", format!("Bearer {k}"));
@@ -306,52 +324,20 @@ pub fn run_blocking(
         session_id: None,
     });
 
-    let mut reader = BufReader::new(resp);
-    let mut buf = Vec::new();
-    let mut had_error = false;
-    loop {
-        if canceled.load(Ordering::Relaxed) {
-            break;
-        }
-        buf.clear();
-        match reader.read_until(b'\n', &mut buf) {
-            Ok(0) => break,
-            Ok(_) => {
-                let line = String::from_utf8_lossy(&buf);
-                let line = line.trim_end_matches(['\r', '\n']);
-                let data = match line.strip_prefix("data:") {
-                    Some(rest) => rest.trim_start(),
-                    None => continue,
-                };
-                for ev in parse_openai_sse_data(data) {
-                    if matches!(ev, RunEvent::Error { .. }) {
-                        had_error = true;
-                    }
-                    on_event(ev);
-                }
-            }
-            Err(_) => {
-                had_error = true;
-                break;
-            }
-        }
-    }
-    // 취소는 연결을 끊어 서버 쪽 생성도 멈추게 한다.
-    drop(reader);
-
-    Ok(if canceled.load(Ordering::Relaxed) {
-        "canceled".to_string()
-    } else if had_error {
-        "failed".to_string()
-    } else {
-        "succeeded".to_string()
-    })
+    // 취소는 연결을 끊어 서버 쪽 생성도 멈추게 한다(읽기 스레드가 응답을 놓으면서).
+    Ok(crate::sse::pump(
+        resp,
+        canceled,
+        crate::sse::STREAM_IDLE,
+        &mut |d| parse_openai_sse_data(d),
+        on_event,
+    ))
 }
 
 /// 최소 비스트림 채팅 1회로 도달성을 확인한다. 토큰을 태우므로 `/models` 가 실패한
 /// 뒤에만 부른다.
 fn probe_chat(cfg: &AiProConfig, model: &str) -> Result<(), String> {
-    let client = build_client(cfg.allow_invalid_certs, Some(PROBE_TIMEOUT))?;
+    let client = build_client(cfg.allow_invalid_certs, PROBE_TIMEOUT)?;
     let url = format!("{}/chat/completions", base(cfg));
     let body = serde_json::json!({
         "model": model,
@@ -604,7 +590,7 @@ mod tests {
 
     #[test]
     fn chat_body_uses_the_given_system_prompt() {
-        let b = chat_body("glm-5.2", "당신은 업무 맥락 분석가입니다.", "질문", true, 8192);
+        let b = openai_body("glm-5.2", "당신은 업무 맥락 분석가입니다.", "질문", 8192, 0.4, true);
         assert_eq!(b["messages"][0]["role"], "system");
         assert_eq!(b["messages"][0]["content"], "당신은 업무 맥락 분석가입니다.");
         assert_eq!(b["messages"][1]["content"], "질문");
@@ -612,8 +598,24 @@ mod tests {
 
     #[test]
     fn chat_body_carries_the_requested_output_ceiling() {
-        assert_eq!(chat_body("m", "", "q", true, 8192)["max_tokens"], 8192);
-        assert_eq!(chat_body("m", "", "q", true, 16_384)["max_tokens"], 16_384);
+        assert_eq!(openai_body("m", "", "q", 8192, 0.4, true)["max_tokens"], 8192);
+        assert_eq!(openai_body("m", "", "q", 16_384, 0.4, true)["max_tokens"], 16_384);
+    }
+
+    /// 온도는 호출마다 다르다(위키 반영은 낮게). usage 요청은 켠 쪽에만 실린다 — 오래된
+    /// vLLM 은 모르는 필드를 400 으로 거절한다.
+    #[test]
+    fn chat_body_temperature_and_usage_switch() {
+        let b = openai_body("m", "", "q", 100, 0.2, false);
+        assert!((b["temperature"].as_f64().unwrap() - 0.2).abs() < 1e-6);
+        assert!(b.get("stream_options").is_none());
+        assert_eq!(openai_body("m", "", "q", 100, 0.4, true)["stream_options"]["include_usage"], true);
+    }
+
+    #[test]
+    fn error_label_follows_the_service() {
+        let evs = parse_openai_sse(r#"{"error":{}}"#, "FabriX");
+        assert_eq!(evs, vec![RunEvent::Error { message: "FabriX 오류".into() }]);
     }
 
     /// 상한에 닿아 끊긴 응답은 오류가 아니라 `Truncated` 다. 이 신호가 있어야 프런트가
