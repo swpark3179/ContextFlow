@@ -2,7 +2,7 @@
 //!
 //! 상주 데몬이나 HTTP 서버는 없다. 실행 1건 = 워커 스레드 1개이며, 그 스레드가 자식
 //! 프로세스(로컬 CLI)나 SSE 연결(원격)을 소유하고 정규화된 `RunEvent` 를 채널로 밀어
-//! 넣는다. 네 서비스 모두 이 하나의 이벤트 어휘로 수렴한다.
+//! 넣는다. 세 서비스 모두 이 하나의 이벤트 어휘로 수렴한다.
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
@@ -352,7 +352,6 @@ pub fn execute_blocking(
 
     if def.kind == AgentKind::Remote {
         let result = match def.id {
-            "aipro" => crate::aipro::run_blocking(args, canceled, on_event),
             "fabrix" => crate::fabrix::run_blocking(args, canceled, on_event),
             other => Err(format!("알 수 없는 원격 서비스입니다: {other}")),
         };
@@ -709,7 +708,7 @@ mod tests {
     #[test]
     fn max_tokens_falls_back_to_the_default() {
         let mut a = RunArgs {
-            agent_id: "aipro".into(),
+            agent_id: "fabrix".into(),
             prompt: "q".into(),
             cwd: String::new(),
             system_prompt: String::new(),

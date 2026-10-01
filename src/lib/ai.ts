@@ -1,10 +1,9 @@
 /**
  * AI 연결 계층의 타입과 표시 헬퍼 — Rust 쪽(`detect.rs` · `ai_settings.rs` · `run.rs`)과 1:1.
  *
- * 연결 방법은 네 가지이고 전부 채팅이다:
+ * 연결 방법은 세 가지이고 전부 채팅이다(표시 순서는 Rust 레지스트리 `agents.rs` 가 정한다):
+ *   * `fabrix` — 사내 전용 API(커스텀 헤더 두 개). 채팅 API · LLM 게이트웨이 두 방식.
  *   * `claude` · `codex` — 로컬 CLI. 자식 프로세스를 띄워 stdout 스트림을 읽는다.
- *   * `aipro`  — 사내 OpenAI 호환 게이트웨이(Bearer 키 하나).
- *   * `fabrix` — 사내 전용 API(커스텀 헤더 두 개).
  */
 
 export interface ModelOption {
@@ -49,7 +48,7 @@ export interface AgentInfo {
   envVar: string | null;
 }
 
-/** 진단 코드 → 사용자 안내문. 카드 4장이 공유하므로 서비스 중립 문구로 쓴다. */
+/** 진단 코드 → 사용자 안내문. 연결 탭 셋이 공유하므로 서비스 중립 문구로 쓴다. */
 export const DIAGNOSTIC_HINT: Record<Diagnostic, string> = {
   "not-on-path":
     "PATH 와 알려진 설치 위치에서 실행 파일을 찾지 못했습니다. 아래에서 경로를 직접 지정하세요.",
@@ -63,26 +62,6 @@ export const DIAGNOSTIC_HINT: Record<Diagnostic, string> = {
 
 export interface AgentConfig {
   customBin: string | null;
-}
-
-export interface AiProConfig {
-  endpointUrl: string;
-  apiKey?: string | null;
-  allowInvalidCerts: boolean;
-  /**
-   * 출력 토큰 상한 **재정의**. 비우면 호출자가 요청한 값을 쓴다.
-   * 값이 있으면 이 서비스의 모든 호출이 이 값을 쓴다.
-   */
-  maxOutputTokens?: number | null;
-  /** 백엔드 소유 캐시 — 프런트는 읽기만 하고 보내지 않는다. */
-  models?: ModelOption[];
-  /**
-   * 사용자가 직접 적은 모델 id. 위의 `models` 캐시와 달리 **프런트가 소유하므로**
-   * 저장할 때 반드시 실어 보내야 한다 — 빼면 백엔드가 비운 것으로 받는다.
-   *
-   * 있으면 라이브 조회보다 우선한다. 게이트웨이가 `/models` 를 주지 않는 환경의 탈출구다.
-   */
-  customModels?: ModelOption[];
 }
 
 /**
@@ -101,10 +80,18 @@ export interface FabrixConfig {
   /** `x-generative-ai-user-email` 헤더(선택). */
   userEmail?: string | null;
   allowInvalidCerts: boolean;
+  /**
+   * 출력 토큰 상한 **재정의**. 비우면 호출자가 요청한 값을 쓴다.
+   * 값이 있으면 이 서비스의 모든 호출이 이 값을 쓴다.
+   */
   maxOutputTokens?: number | null;
-  /** 백엔드 소유 캐시 — 보내지 않는다. */
+  /** 백엔드 소유 캐시 — 프런트는 읽기만 하고 보내지 않는다. */
   models?: ModelOption[];
-  /** 사용자가 직접 적은 모델 id — 프런트 소유라 저장할 때 반드시 실어 보낸다. */
+  /**
+   * 사용자가 직접 적은 모델 id. 위의 `models` 캐시와 달리 **프런트가 소유하므로**
+   * 저장할 때 반드시 실어 보내야 한다 — 빼면 백엔드가 비운 것으로 받는다.
+   * 있으면 라이브 조회보다 우선한다. 모델 목록 조회가 막힌 환경의 탈출구다.
+   */
   customModels?: ModelOption[];
 }
 
@@ -141,7 +128,6 @@ export const AI_FEATURES: { id: AiFeature; label: string; note: string }[] = [
 export interface AiSettings {
   agents: Record<string, AgentConfig>;
   prompts?: PromptConfig | null;
-  aipro?: AiProConfig | null;
   fabrix?: FabrixConfig | null;
   /** 기본 연결 — 추천이 쓰고, 기능별 연결을 고르지 않은 기능도 이것을 따른다. */
   active: ActiveChoice;

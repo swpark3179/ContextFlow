@@ -4,7 +4,6 @@ import type { DayEntry } from "./daylog";
 import type { FileEntry } from "./tree";
 import type {
   AgentInfo,
-  AiProConfig,
   AiSettings,
   DetectedAgent,
   FabrixConfig,
@@ -326,8 +325,6 @@ export const detectAgent = (id: string, force = false) =>
 export const getAiSettings = () => invoke<AiSettings>("get_ai_settings");
 export const setAgentBin = (id: string, path: string | null) =>
   invoke<AiSettings>("set_agent_bin", { id, path });
-export const setAiProConfig = (config: AiProConfig | null) =>
-  invoke<AiSettings>("set_aipro_config", { config });
 export const setFabrixConfig = (config: FabrixConfig | null) =>
   invoke<AiSettings>("set_fabrix_config", { config });
 export const setActiveAi = (agentId: string, model: string) =>
@@ -336,7 +333,6 @@ export const setActiveAi = (agentId: string, model: string) =>
 export const setAiRoute = (feature: string, agentId: string, model: string) =>
   invoke<AiSettings>("set_ai_route", { feature, agentId, model });
 
-export const probeAiPro = () => invoke<string>("probe_aipro");
 export const probeFabrix = () => invoke<string>("probe_fabrix");
 
 // -- 프롬프트 팩 -----------------------------------------------------------

@@ -1,6 +1,5 @@
 mod agents;
 mod ai_settings;
-mod aipro;
 mod daylog;
 mod detect;
 mod error;
@@ -8,6 +7,7 @@ mod exec;
 mod fabrix;
 mod frontmatter;
 mod fsops;
+mod openai;
 mod prompts;
 mod recommend;
 mod resolve;
@@ -19,7 +19,7 @@ mod vault;
 mod wiki;
 
 use agents::AgentKind;
-use ai_settings::{AiProConfig, AiSettings, FabrixConfig};
+use ai_settings::{AiSettings, FabrixConfig};
 use detect::{AgentInfo, DetectedAgent};
 use error::{AppError, Result};
 use serde_json::Value;
@@ -508,7 +508,6 @@ fn list_agents() -> Vec<AgentInfo> {
 fn cache_live_models(root: &Path, id: &str, models: &[detect::ModelOption]) {
     let mut s = ai_settings::load(root);
     let slot = match id {
-        "aipro" => s.aipro.as_mut().map(|a| &mut a.models),
         "fabrix" => s.fabrix.as_mut().map(|f| &mut f.models),
         _ => None,
     };
@@ -529,7 +528,6 @@ async fn detect_agent(id: String, force: Option<bool>) -> AiResult<DetectedAgent
         let s = ai_settings::load(&root);
 
         let agent = match def.id {
-            "aipro" => aipro::detect_aipro(s.aipro.clone(), force),
             "fabrix" => fabrix::detect_fabrix(s.fabrix.clone(), force),
             _ => detect::detect_local(def, s.agent_custom_bin(def.id).as_deref()),
         };
@@ -542,13 +540,13 @@ async fn detect_agent(id: String, force: Option<bool>) -> AiResult<DetectedAgent
     .map_err(|e| format!("탐지가 중단되었습니다: {e}"))?
 }
 
-/// AI 설정을 읽는다. `ai.json` 이 아직 없으면 임베딩 시절의 `settings.json` 필드에서
-/// 1회 마이그레이션한다.
+/// AI 설정을 읽는다. 파일이 없으면 기본값.
+///
+/// 예전에는 `ai.json` 이 없을 때 임베딩 시절의 `settings.json` 필드(`api` · `apiKey`)를 AI Pro
+/// 연결로 옮겼다. AI Pro 를 걷어 내면서 옮길 곳이 없어져 그 마이그레이션도 함께 뺐다.
 #[tauri::command]
-fn get_ai_settings(app: tauri::AppHandle) -> AiResult<AiSettings> {
-    let root = app_home()?;
-    let legacy = load_settings(app).unwrap_or(Value::Null);
-    Ok(ai_settings::migrate_from_legacy(&root, &legacy))
+fn get_ai_settings() -> AiResult<AiSettings> {
+    Ok(ai_settings::load(&app_home()?))
 }
 
 /// 사용자 지정 실행 파일 경로를 저장(`Some`)하거나 해제(`None`)한다.
@@ -574,42 +572,13 @@ fn set_prompt_hook(stage: String, files: Vec<String>) -> AiResult<AiSettings> {
 /// 추천에 쓸 연결과 모델. 빈 `agent_id` 는 "AI 를 쓰지 않는다" 는 뜻이다.
 #[tauri::command]
 fn set_active_ai(agent_id: String, model: String) -> AiResult<AiSettings> {
+    let agent_id = agent_id.trim().to_string();
+    if !agent_id.is_empty() && agents::find(&agent_id).is_none() {
+        return Err(format!("알 수 없는 AI 서비스입니다: {agent_id}"));
+    }
     let root = app_home()?;
     let mut s = ai_settings::load(&root);
-    s.active = ai_settings::ActiveChoice {
-        agent_id: agent_id.trim().to_string(),
-        model: model.trim().to_string(),
-    };
-    ai_settings::save(&root, &s)?;
-    Ok(s)
-}
-
-/// AI Pro 연결을 저장하거나(빈 엔드포인트면) 해제한다.
-///
-/// 모델 목록은 소유자가 둘로 갈린다. `models`(라이브 조회 캐시)는 백엔드 것이라
-/// 연결 정보가 그대로면 이월하고 바뀌면 버린다. `custom_models`(사용자가 직접 적은 id)는
-/// 프런트 것이므로 받은 값을 그대로 쓴다 — 엔드포인트를 고쳤다고 사용자가 적은 값을
-/// 앱이 임의로 지우면 왜 사라졌는지 알 방법이 없다.
-#[tauri::command]
-fn set_aipro_config(config: Option<AiProConfig>) -> AiResult<AiSettings> {
-    let root = app_home()?;
-    let mut s = ai_settings::load(&root);
-    let prev = s.aipro.clone();
-
-    s.aipro = match config {
-        Some(mut c) if !c.endpoint_url.trim().is_empty() => {
-            c.endpoint_url = ai_settings::normalize_endpoint(&c.endpoint_url);
-            c.api_key = ai_settings::normalize_secret(c.api_key);
-            c.models = match &prev {
-                Some(p) if p.endpoint_url == c.endpoint_url && p.api_key == c.api_key => {
-                    p.models.clone()
-                }
-                _ => Vec::new(),
-            };
-            Some(c)
-        }
-        _ => None,
-    };
+    s.active = ai_settings::ActiveChoice { agent_id, model: model.trim().to_string() };
     ai_settings::save(&root, &s)?;
     Ok(s)
 }
@@ -732,7 +701,6 @@ pub fn run() {
             detect_agent,
             get_ai_settings,
             set_agent_bin,
-            set_aipro_config,
             set_fabrix_config,
             set_active_ai,
             set_ai_route,
@@ -747,7 +715,6 @@ pub fn run() {
             prompts::list_prompt_packs,
             prompts::prompt_dir_path,
             prompts::open_prompt_dir,
-            aipro::probe_aipro,
             fabrix::probe_fabrix,
             run::run_agent,
             run::cancel_run,

@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAi } from "../../store/aiStore";
 import * as api from "../../lib/api";
-import { OptionCard } from "../../modals/Modal";
 import {
   modelLines,
   parseMaxTokens,
@@ -11,9 +10,11 @@ import {
 } from "../../lib/ai";
 import {
   Btn,
-  Card,
+  Chip,
+  ConnectionPanel,
   CustomModelsField,
   DirtyMark,
+  Field,
   Models,
   ProbeLine,
   TextField,
@@ -21,6 +22,9 @@ import {
   hintStyle,
   rowStyle,
 } from "./shared";
+
+/** 두 칸 격자 — 짝을 이루는 입력(헤더 두 개 · 이메일과 상한)을 나란히 둬 탭 높이를 줄인다. */
+const pair = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 } as const;
 
 const ID = "fabrix";
 
@@ -91,13 +95,15 @@ function draftOf(cfg: FabrixConfig | null): Draft {
 }
 
 /**
- * FabriX 카드 — 사내 전용 API.
+ * FabriX 탭 — 사내 전용 API.
  *
- * AI Pro 와 다른 점은 인증이 커스텀 헤더 두 개라는 것과, API 가 둘이라는 것이다(네이티브
- * 채팅 API · LLM 게이트웨이). 모델 목록은 정적 카탈로그가 없어 조회 결과(또는 직접 지정)가
+ * 인증은 커스텀 헤더 두 개이고, API 가 둘이다(네이티브 채팅 API · LLM 게이트웨이). 모델 목록은 정적 카탈로그가 없어 조회 결과(또는 직접 지정)가
  * 곧 쓸 수 있는 모델이다.
+ *
+ * 입력은 초안으로 들고 있다가 [저장] 에서 한 번에 보낸다. 탭을 옮겨도 이 컴포넌트는 숨겨질
+ * 뿐 살아 있어 초안이 남고, `onDirtyChange` 로 탭 머리에 "저장 안 됨" 을 띄운다.
  */
-export default function FabrixCard() {
+export default function FabrixCard({ onDirtyChange }: { onDirtyChange?: (dirty: boolean) => void }) {
   const agent = useAi((s) => s.detected[ID] ?? null);
   const loading = useAi((s) => !!s.loading[ID]);
   const error = useAi((s) => s.errors[ID]);
@@ -115,6 +121,7 @@ export default function FabrixCard() {
   const saved = useMemo(() => JSON.stringify(draftOf(cfg)), [cfg]);
   const dirty = JSON.stringify(d) !== saved;
   const text = STYLE_TEXT[d.style];
+  useEffect(() => onDirtyChange?.(dirty), [dirty]);
 
   const save = () => {
     setProbe(null);
@@ -131,19 +138,19 @@ export default function FabrixCard() {
   };
 
   return (
-    <Card name="FabriX" kind="remote" agent={agent} loading={loading} error={error}>
-      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        <div style={{ fontSize: 12.5, fontWeight: 500 }}>API 방식</div>
-        {(["chat", "openai"] as const).map((k) => (
-          <OptionCard
-            key={k}
-            on={d.style === k}
-            label={STYLE_TEXT[k].label}
-            desc={STYLE_TEXT[k].desc}
-            onClick={() => patch({ style: k })}
-          />
-        ))}
-      </div>
+    <ConnectionPanel kind="remote" agent={agent} loading={loading} error={error}>
+      <Field label="API 방식" note={text.desc}>
+        <div style={{ display: "flex", gap: 4 }}>
+          {(["chat", "openai"] as const).map((k) => (
+            <Chip
+              key={k}
+              on={d.style === k}
+              label={STYLE_TEXT[k].label}
+              onClick={() => patch({ style: k })}
+            />
+          ))}
+        </div>
+      </Field>
       <TextField
         label="엔드포인트"
         value={d.endpoint}
@@ -151,35 +158,43 @@ export default function FabrixCard() {
         placeholder={text.placeholder}
         note={text.note}
       />
-      <TextField
-        label="x-fabrix-client"
-        value={d.client}
-        onChange={(v) => patch({ client: v })}
-        placeholder="발급받은 클라이언트 값"
-        password
-      />
-      <TextField
-        label="x-openapi-token"
-        value={d.token}
-        onChange={(v) => patch({ token: v })}
-        placeholder={text.token}
-        password
-        note="두 값 모두 ~/.contextflow/ai.json 에 평문으로 저장됩니다."
-      />
-      <TextField
-        label="사용자 이메일 (선택)"
-        value={d.email}
-        onChange={(v) => patch({ email: v })}
-        placeholder="name@company.com"
-        note="적으면 x-generative-ai-user-email 헤더로 함께 보냅니다(사용자별 사용량 집계용)."
-      />
-      <TextField
-        label="출력 토큰 상한 (선택)"
-        value={d.maxTokens}
-        onChange={(v) => patch({ maxTokens: v })}
-        placeholder="비우면 기능마다 정한 값 (추천 4,096 · 위키 반영 최대 16,384)"
-        note="적으면 이 연결의 모든 호출이 이 값을 씁니다. 응답이 잘리면 올리고, 거부되면 낮추세요."
-      />
+      <div>
+        <div style={pair}>
+          <TextField
+            label="x-fabrix-client"
+            value={d.client}
+            onChange={(v) => patch({ client: v })}
+            placeholder="발급받은 클라이언트 값"
+            password
+          />
+          <TextField
+            label="x-openapi-token"
+            value={d.token}
+            onChange={(v) => patch({ token: v })}
+            placeholder={text.token}
+            password
+          />
+        </div>
+        <div style={{ ...hintStyle, marginTop: 5 }}>
+          두 값 모두 ~/.contextflow/ai.json 에 평문으로 저장됩니다.
+        </div>
+      </div>
+      <div style={pair}>
+        <TextField
+          label="사용자 이메일 (선택)"
+          value={d.email}
+          onChange={(v) => patch({ email: v })}
+          placeholder="name@company.com"
+          note="적으면 x-generative-ai-user-email 헤더로 함께 보냅니다(사용량 집계용)."
+        />
+        <TextField
+          label="출력 토큰 상한 (선택)"
+          value={d.maxTokens}
+          onChange={(v) => patch({ maxTokens: v })}
+          placeholder="비우면 기능별 값"
+          note="적으면 모든 호출이 이 값을 씁니다(기본: 추천 4,096 · 위키 반영 최대 16,384). 잘리면 올리고 거부되면 낮추세요."
+        />
+      </div>
       <CustomModelsField
         value={d.custom}
         onChange={(v) => patch({ custom: v })}
@@ -221,6 +236,6 @@ export default function FabrixCard() {
       <ProbeLine probe={probe} />
 
       <Models agent={agent} />
-    </Card>
+    </ConnectionPanel>
   );
 }

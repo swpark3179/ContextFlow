@@ -3,7 +3,6 @@ import type {
   ActiveChoice,
   AgentInfo,
   AiFeature,
-  AiProConfig,
   AiSettings,
   DetectedAgent,
   FabrixConfig,
@@ -42,14 +41,13 @@ interface AiState {
   refreshAll: () => Promise<void>;
   detectOne: (id: string, force?: boolean) => Promise<void>;
   saveAgentBin: (id: string, path: string | null) => Promise<void>;
-  saveAiPro: (config: AiProConfig | null) => Promise<void>;
   saveFabrix: (config: FabrixConfig | null) => Promise<void>;
   /**
    * 원격 연결 테스트. 성공하면 백엔드가 모델 캐시를 고쳐 두므로 설정 사본과 탐지 결과를
    * 다시 읽는다 — 예전에는 카드가 결과 문구만 띄워, 모델 칩과 선택기가 [모델 다시 조회] 를
    * 누를 때까지 옛 목록에 머물렀다. 실패는 그대로 던진다(카드가 사유를 보여 준다).
    */
-  probeOne: (id: "aipro" | "fabrix") => Promise<string>;
+  probeOne: (id: "fabrix") => Promise<string>;
   saveActive: (agentId: string, model: string) => Promise<void>;
   /** 기능별 연결. 빈 `agentId` = 기본 연결을 따른다. */
   saveRoute: (feature: AiFeature, agentId: string, model: string) => Promise<void>;
@@ -175,18 +173,13 @@ export const useAi = create<AiState>((set, get) => ({
     await get().detectOne(id, true);
   },
 
-  saveAiPro: async (config) => {
-    set({ settings: await api.setAiProConfig(config) });
-    await get().detectOne("aipro", true);
-  },
-
   saveFabrix: async (config) => {
     set({ settings: await api.setFabrixConfig(config) });
     await get().detectOne("fabrix", true);
   },
 
   probeOne: async (id) => {
-    const msg = id === "aipro" ? await api.probeAiPro() : await api.probeFabrix();
+    const msg = await api.probeFabrix();
     try {
       set({ settings: await api.getAiSettings() });
     } catch {

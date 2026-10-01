@@ -5,7 +5,7 @@ import { extractFencedJson } from "./fencedJson";
  * 유사 업무 추천 프롬프트.
  *
  * 출력 계약은 "자유롭게 판단 근거를 서술한 뒤 **맨 마지막에** ```recommend 펜스 하나" 다.
- * 네 연결(Claude Code · Codex CLI · AI Pro · FabriX) 중 어느 것으로 보내도 같은 계약을
+ * 세 연결(FabriX · Claude Code · Codex CLI) 중 어느 것으로 보내도 같은 계약을
  * 쓰고, 파싱은 `fencedJson.ts` 의 공통 관문을 지난다.
  *
  * **펜스 규격은 모듈 적재 시 한 번 만들어 재사용한다.** 최초 요청과 재질의가 같은

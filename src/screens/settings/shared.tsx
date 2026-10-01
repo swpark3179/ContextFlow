@@ -203,7 +203,7 @@ export function TextField({
 }
 
 /**
- * `모델 직접 지정` textarea — AI Pro 와 FabriX 가 같은 형식(`id` 또는 `id | 표시이름`)을 쓴다.
+ * `모델 직접 지정` textarea — 형식은 한 줄에 `id` 또는 `id | 표시이름`.
  * 파싱은 `parseModelLines`, 되돌리기는 `modelLines` (`src/lib/ai.ts`).
  */
 export function CustomModelsField({
@@ -285,16 +285,22 @@ export function ReadOnlyRow({ label, value, badge }: { label: string; value: str
   );
 }
 
-/** 카드 헤더의 상태 점 + 한 줄. */
-export function Card({
-  name,
+/** 연결 상태 점의 색 — 확인 중 · 연결됨 · 안 됨. 탭과 패널이 같은 색을 쓴다. */
+export function statusColor(agent: DetectedAgent | null, loading: boolean): string {
+  return loading ? "#d9a13b" : agent?.available ? GREEN : "#b5afa2";
+}
+
+/**
+ * 연결 탭 하나의 본문. 이름과 상태 점은 탭 머리(`AiConnectionsCard`)가 그리므로 여기는 종류
+ * 배지 · 상태 한 줄 · 입력 · 진단만 둔다.
+ */
+export function ConnectionPanel({
   kind,
   agent,
   loading,
   error,
   children,
 }: {
-  name: string;
   kind: "local" | "remote";
   agent: DetectedAgent | null;
   loading: boolean;
@@ -303,25 +309,11 @@ export function Card({
 }) {
   const ok = !!agent?.available;
   return (
-    <div style={cardStyle}>
-      <div style={{ ...headStyle, display: "flex", alignItems: "center", gap: 8 }}>
-        <div
-          style={{
-            width: 6,
-            height: 6,
-            borderRadius: "50%",
-            flex: "0 0 6px",
-            background: loading ? "#d9a13b" : ok ? GREEN : "#b5afa2",
-          }}
-        />
-        <span style={{ fontSize: 12, fontWeight: 600, letterSpacing: 0, color: "#4e4a43" }}>
-          {name}
-        </span>
+    <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <span
           style={{
             fontSize: 10.5,
-            fontWeight: 400,
-            letterSpacing: 0,
             color: "#8a857c",
             background: "#ece8e0",
             borderRadius: 3,
@@ -330,17 +322,15 @@ export function Card({
         >
           {kind === "local" ? "로컬 CLI" : "원격 API"}
         </span>
-        <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 400, letterSpacing: 0, color: "#8a857c" }}>
+        <span style={{ ...HINT, fontSize: 11, color: ok ? "#3c7d5c" : "#8a857c" }}>
           {loading ? "확인 중…" : ok ? "연결됨" : "연결 안 됨"}
         </span>
       </div>
-      <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 12 }}>
-        {children}
-        {!ok && !loading && agent?.diagnostic && (
-          <div style={{ ...HINT, color: "#a06a3b" }}>{DIAGNOSTIC_HINT[agent.diagnostic]}</div>
-        )}
-        {error && <div style={{ ...HINT, color: "#c04a4a" }}>{error}</div>}
-      </div>
+      {children}
+      {!ok && !loading && agent?.diagnostic && (
+        <div style={{ ...HINT, color: "#a06a3b" }}>{DIAGNOSTIC_HINT[agent.diagnostic]}</div>
+      )}
+      {error && <div style={{ ...HINT, color: "#c04a4a" }}>{error}</div>}
     </div>
   );
 }

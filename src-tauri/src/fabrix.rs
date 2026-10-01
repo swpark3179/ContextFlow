@@ -1,8 +1,7 @@
 //! FabriX 커넥터 — 원격 HTTP API + SSE.
 //!
-//! 인증이 커스텀 헤더 두 개(`x-fabrix-client` · `x-openapi-token`)라는 점이 AI Pro 의
-//! Bearer 하나와 다르다. 모델 목록은 정적 폴백이 없고, 대신 마지막 성공 조회를 설정에
-//! 캐시해 오프라인에서도 즉시 보여 준다.
+//! 인증은 커스텀 헤더 두 개(`x-fabrix-client` · `x-openapi-token`)다. 모델 목록은 정적
+//! 폴백이 없고, 대신 마지막 성공 조회를 설정에 캐시해 오프라인에서도 즉시 보여 준다.
 //!
 //! **API 가 둘이다**(`FabrixConfig::api_style`).
 //!
@@ -14,8 +13,8 @@
 //! | 토큰 | 받은 그대로 | `Bearer ` 접두사 필수 |
 //! | 스트림 | FabriX 자체 프레임 | OpenAI `chat.completion.chunk` + `[DONE]` |
 //!
-//! 게이트웨이 쪽은 바탕화면 FabrixSample 의 규약을 따른다. 본문 조립과 SSE 파싱은 AI Pro
-//! 와 같은 것을 쓰고(`aipro::openai_body` · `aipro::parse_openai_sse`), 다른 것은 헤더뿐이다.
+//! 게이트웨이 쪽은 바탕화면 FabrixSample 의 규약을 따른다. 본문 조립과 SSE 파싱은 OpenAI
+//! 호환 공용 모듈(`openai::openai_body` · `openai::parse_openai_sse`)을 쓰고, 다른 것은 헤더뿐이다.
 
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -32,7 +31,10 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 const MODELS_TIMEOUT: Duration = Duration::from_secs(30);
 const PROBE_TIMEOUT: Duration = Duration::from_secs(60);
 
-/// `timeout` 은 반드시 준다 — 비워 두면 reqwest 가 기본 30초를 건다(`aipro::build_client` 참고).
+/// `timeout` 은 **반드시** 준다. reqwest blocking 클라이언트는 비워 두면 기본 30초를 걸고,
+/// 그 값은 헤더를 기다릴 때와 본문을 한 번 읽을 때마다 적용된다 — "전체 타임아웃 없음" 이
+/// 아니다. 스트리밍 대화는 `sse::STREAM_IDLE`(조각 사이 공백 상한)을 넘긴다.
+/// 프록시 환경변수는 무시한다(사내 엔드포인트는 직접 도달 가능).
 fn build_client(
     allow_invalid_certs: bool,
     timeout: Duration,
@@ -427,11 +429,11 @@ pub fn run_blocking(
     };
     // 설정의 재정의가 있으면 그 값이 이긴다 — 게이트웨이마다 허용 상한이 다르다.
     let max_tokens = cfg.max_output_tokens.unwrap_or_else(|| args.max_tokens_or_default());
-    let temperature = args.temperature.unwrap_or(crate::aipro::DEFAULT_TEMPERATURE);
+    let temperature = args.temperature.unwrap_or(crate::openai::DEFAULT_TEMPERATURE);
 
     let client = build_client(cfg.allow_invalid_certs, crate::sse::STREAM_IDLE)?;
     let body = if cfg.gateway() {
-        crate::aipro::openai_body(
+        crate::openai::openai_body(
             &model,
             &args.system_prompt,
             &args.prompt,
@@ -470,7 +472,7 @@ pub fn run_blocking(
         crate::sse::STREAM_IDLE,
         &mut |d| {
             if gateway {
-                crate::aipro::parse_openai_sse(d, "FabriX")
+                crate::openai::parse_openai_sse(d, "FabriX")
             } else {
                 parse_fabrix_sse_data(d)
             }
@@ -504,7 +506,7 @@ fn probe_chat(cfg: &FabrixConfig, model: &str) -> Result<(), String> {
     }
 }
 
-/// 연결 테스트 — 2단계(AI Pro 와 같은 모양).
+/// 연결 테스트 — 2단계.
 ///
 /// ① 모델 목록 조회. 성공하면 캐시에 반영하고 끝 — 토큰을 태우지 않는다.
 /// ② 실패하면 첫 유효 모델(직접 지정 → 캐시)로 최소 대화 1회.

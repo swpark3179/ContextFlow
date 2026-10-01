@@ -43,7 +43,7 @@ pub struct RunSpec {
 }
 
 /// 전송 계층. `Local` 은 파일시스템에서 해석해 자식 프로세스로 띄우고, `Remote` 는
-/// HTTP API 라 resolve/spawn 을 건너뛰고 `aipro.rs`/`fabrix.rs` 로 간다.
+/// HTTP API 라 resolve/spawn 을 건너뛰고 `fabrix.rs` 로 간다.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum AgentKind {
     Local,
@@ -175,8 +175,21 @@ fn codex_build_args(ctx: &RunCtx) -> Vec<String> {
     a
 }
 
-/// 이 앱이 다루는 AI 서비스, 화면 표시 순서대로.
-pub static AGENT_DEFS: [AgentDef; 4] = [
+/// 이 앱이 다루는 AI 서비스, 화면 표시 순서대로 — 설정의 탭과 연결 선택기가 이 순서를 그대로
+/// 따른다. 사내에서 주로 쓰는 FabriX 가 맨 앞이다.
+pub static AGENT_DEFS: [AgentDef; 3] = [
+    AgentDef {
+        // FabriX — 원격 HTTP API. 모델 목록은 라이브 조회 전용이라 정적 폴백이 없다.
+        id: "fabrix",
+        name: "FabriX",
+        kind: AgentKind::Remote,
+        bin_candidates: &[],
+        env_var: None,
+        extra_search_subdirs: &[],
+        version_timeout: VERSION_TIMEOUT,
+        fallback_models: &[],
+        run: None,
+    },
     AgentDef {
         id: "claude",
         name: "Claude Code",
@@ -229,36 +242,6 @@ pub static AGENT_DEFS: [AgentDef; 4] = [
             env: &[],
         }),
     },
-    AgentDef {
-        // 사내 AI Pro — OpenAI 호환 원격 HTTP 서비스. CLI 필드는 비어 있고 탐지·실행이
-        // `aipro.rs` 로 간다. 모델은 항상 정적 카탈로그다(게이트웨이에 값싼 헬스
-        // 엔드포인트가 없어, 탐지 때마다 조회하면 매번 토큰을 태우게 된다).
-        id: "aipro",
-        name: "AI Pro",
-        kind: AgentKind::Remote,
-        bin_candidates: &[],
-        env_var: None,
-        extra_search_subdirs: &[],
-        version_timeout: VERSION_TIMEOUT,
-        fallback_models: &[
-            ("glm-5.2", "GLM-5.2"),
-            ("qwen3.6-27b", "Qwen3.6-27b"),
-            ("gpt-oss-120b", "Gpt-Oss-120b"),
-        ],
-        run: None,
-    },
-    AgentDef {
-        // FabriX — 원격 HTTP API. 모델 목록은 라이브 조회 전용이라 정적 폴백이 없다.
-        id: "fabrix",
-        name: "FabriX",
-        kind: AgentKind::Remote,
-        bin_candidates: &[],
-        env_var: None,
-        extra_search_subdirs: &[],
-        version_timeout: VERSION_TIMEOUT,
-        fallback_models: &[],
-        run: None,
-    },
 ];
 
 pub fn all() -> &'static [AgentDef] {
@@ -280,11 +263,14 @@ mod tests {
     #[test]
     fn registry_ids_are_unique_and_findable() {
         let ids: Vec<&str> = AGENT_DEFS.iter().map(|d| d.id).collect();
-        assert_eq!(ids, vec!["claude", "codex", "aipro", "fabrix"]);
+        // 표시 순서다 — FabriX 가 맨 앞.
+        assert_eq!(ids, vec!["fabrix", "claude", "codex"]);
         for id in &ids {
             assert!(find(id).is_some());
         }
         assert!(find("gemini").is_none());
+        // 걷어 낸 서비스는 레지스트리에 없다 — 남은 ai.json 의 선택은 `ai_settings::load` 가 지운다.
+        assert!(find("aipro").is_none());
     }
 
     #[test]
@@ -295,7 +281,7 @@ mod tests {
             assert!(d.run.is_some());
             assert!(!d.bin_candidates.is_empty());
         }
-        for id in ["aipro", "fabrix"] {
+        for id in ["fabrix"] {
             let d = find(id).unwrap();
             assert_eq!(d.kind, AgentKind::Remote);
             assert!(d.run.is_none());

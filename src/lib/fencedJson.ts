@@ -146,8 +146,8 @@ function repairJson(raw: string): unknown | null {
 /**
  * 출력이 잘린 것으로 보이는가 — 원격이 종료 사유를 주지 않을 때의 대비책이다.
  *
- * AI Pro 는 `finish_reason: "length"` 를 주지만(`RunEvent.truncated`) FabriX 는 주지 않고
- * 로컬 CLI 도 주지 않는다. 그때는 모양으로 판단한다: 펜스를 열고 닫지 않았거나, 펜스
+ * FabriX 의 LLM 게이트웨이는 `finish_reason: "length"` 를 주지만(`RunEvent.truncated`) 채팅
+ * API 는 늘 주지는 않고 로컬 CLI 는 주지 않는다. 그때는 모양으로 판단한다: 펜스를 열고 닫지 않았거나, 펜스
  * 없이 괄호가 열린 채로 끝났다.
  */
 export function looksTruncated(text: string, label: string): boolean {
