@@ -410,3 +410,130 @@ export const importDayLog = (
   day: string,
   rows: { folder: string; title: string; at: string }[],
 ) => invoke<number>("import_day_log", { vault, day, rows });
+
+// -- LLM 위키 (src-tauri/src/wiki.rs) ---------------------------------------
+
+/** 페이지 유형. 순서가 색인의 순서다(절차가 맨 앞). */
+export type WikiKind = "procedure" | "topic" | "entity" | "source" | "answer";
+
+export interface WikiPageMeta {
+  /** `Wiki/` 기준 경로. 예: `procedures/배포 절차.md` */
+  path: string;
+  /** 확장자를 뺀 파일 이름 — 위키링크의 대상. */
+  stem: string;
+  kind: WikiKind;
+  title: string;
+  summary: string;
+  tags: string[];
+  /** 이 페이지를 뒷받침하는 업무 id. */
+  sources: string[];
+  created: string;
+  updated: string;
+  taskId: string | null;
+  taskPath: string | null;
+  sourceSig: string | null;
+  hash: string;
+}
+
+export interface WikiSourceState {
+  taskId: string;
+  title: string;
+  folder: string;
+  relFolder: string;
+  completedAt: string | null;
+  /** `fresh` = 반영됨 · `stale` = 반영 뒤 업무가 바뀜 · `missing` = 아직 반영 안 됨 */
+  state: "fresh" | "stale" | "missing";
+  page: string | null;
+}
+
+export interface WikiStatus {
+  dir: string;
+  exists: boolean;
+  pages: WikiPageMeta[];
+  /** 보관된 업무만. */
+  tasks: WikiSourceState[];
+  orphans: string[];
+  moved: string[];
+  logTail: string[];
+}
+
+export interface WikiSourceFile {
+  rel: string;
+  chars: number;
+  text: string | null;
+  truncated: boolean;
+  skipped: string | null;
+}
+
+export interface WikiSourceBundle {
+  task: TaskMeta;
+  sig: string;
+  sourcePath: string;
+  sourceStem: string;
+  reingest: boolean;
+  files: WikiSourceFile[];
+  totalChars: number;
+}
+
+export interface WikiPage {
+  path: string;
+  content: string;
+  hash: string;
+}
+
+export interface WikiHit {
+  path: string;
+  stem: string;
+  kind: WikiKind;
+  title: string;
+  summary: string;
+  score: number;
+  snippet: string;
+}
+
+export interface WikiPageWrite {
+  kind: WikiKind;
+  title: string;
+  body: string;
+  summary?: string | null;
+  tags?: string[];
+  sources?: string[];
+  /** 모델에게 보여 준 기존 내용의 해시. 없는데 같은 이름이 있으면 백엔드가 덧붙인다. */
+  baseHash?: string | null;
+}
+
+export interface WikiApplyReq {
+  op: "ingest" | "query" | "lint";
+  title: string;
+  taskId?: string | null;
+  pages: WikiPageWrite[];
+  log?: string[];
+}
+
+export interface WikiApplyResult {
+  written: { path: string; stem: string; title: string; action: "created" | "updated" | "appended" }[];
+  skipped: { title: string; reason: string }[];
+}
+
+export interface WikiLintIssue {
+  kind: string;
+  path: string;
+  detail: string;
+}
+
+export const wikiInit = (root: string) =>
+  invoke<{ dir: string; seeded: boolean }>("wiki_init", { root });
+export const wikiStatus = (root: string, archDays: number) =>
+  invoke<WikiStatus>("wiki_status", { root, archDays });
+export const wikiReadSource = (root: string, taskId: string) =>
+  invoke<WikiSourceBundle>("wiki_read_source", { root, taskId });
+export const wikiReadPages = (root: string, paths: string[]) =>
+  invoke<WikiPage[]>("wiki_read_pages", { root, paths });
+export const wikiSearch = (root: string, query: string, limit?: number) =>
+  invoke<WikiHit[]>("wiki_search", { root, query, limit });
+export const wikiApply = (root: string, req: WikiApplyReq) =>
+  invoke<WikiApplyResult>("wiki_apply", { root, req });
+export const wikiRelink = (root: string, archDays: number) =>
+  invoke<number>("wiki_relink", { root, archDays });
+export const wikiLintLocal = (root: string, archDays: number) =>
+  invoke<WikiLintIssue[]>("wiki_lint_local", { root, archDays });

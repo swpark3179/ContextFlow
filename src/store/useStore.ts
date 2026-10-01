@@ -101,7 +101,17 @@ export interface Settings {
   archMoc: boolean;
   autoSnap: boolean;
   restoreView: boolean;
+  /**
+   * 옛 설계의 "위키링크 실시간 색인" 토글. 읽는 곳이 없어 화면에서 뺐지만, 기존
+   * settings.json 이 이 키를 들고 있으므로 타입에는 남긴다.
+   */
   wikiIndex: boolean;
+  /** [완료] 직후 그 업무를 LLM 위키에 자동 반영한다(반영 연결이 있을 때만). */
+  wikiAuto: boolean;
+  /** `light` = 소스 페이지만 · `full` = 관련 절차 · 주제 · 시스템 페이지까지 고친다. */
+  wikiDepth: "light" | "full";
+  /** `full` 에서 업무 하나가 함께 고칠 수 있는 페이지 수. */
+  wikiMaxPages: number;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -114,6 +124,9 @@ export const DEFAULT_SETTINGS: Settings = {
   autoSnap: true,
   restoreView: true,
   wikiIndex: true,
+  wikiAuto: true,
+  wikiDepth: "full",
+  wikiMaxPages: 3,
 };
 
 export interface Toast {
