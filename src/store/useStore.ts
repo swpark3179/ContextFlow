@@ -317,9 +317,13 @@ export function reportObsidianOpen(res: api.OpenOutcome): void {
   const { toast } = useStore.getState();
   if (res.opened === "obsidian") return;
   if (res.opened === "unregistered") {
+    // "등록했는데?" 싶을 때 어느 경로와 어긋났는지 바로 견줄 수 있게 Obsidian 쪽 목록을 붙인다.
+    const known = res.known?.length
+      ? ` · Obsidian이 아는 vault: ${res.known.slice(0, 3).join(", ")}${res.known.length > 3 ? " 외" : ""}`
+      : "";
     toast(
       "Obsidian에 등록되지 않은 Vault입니다",
-      `탐색기에서 열었습니다 · Obsidian에서 [폴더를 vault로 열기]로 ${res.detail} 를 한 번 등록하세요`,
+      `탐색기에서 열었습니다 · Obsidian에서 [폴더를 vault로 열기]로 ${res.detail} 를 한 번 등록하세요${known}`,
       TOAST.warn,
     );
     return;

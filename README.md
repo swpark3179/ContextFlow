@@ -856,8 +856,8 @@ macOS `~/Library/Application Support/obsidian/`, Linux `~/.config/obsidian/`). *
 
 | 상황 | 동작 |
 | --- | --- |
-| 등록된 vault 안 | `obsidian://open?vault=<이름>&file=<상대경로>` 로 연다 |
-| 등록된 vault 밖 | 죽은 URL 을 쏘지 않고 탐색기로 열며 등록 방법을 토스트로 알린다 |
+| 등록된 vault 안 | `obsidian://open?vault=<vault ID>&file=<상대경로>` 로 연다 |
+| 등록된 vault 밖 | 죽은 URL 을 쏘지 않고 탐색기로 열며 등록 방법과 Obsidian 이 아는 vault 경로를 토스트로 알린다 |
 | 목록을 못 읽음 | 아무것도 단정하지 않고 예전처럼 `path=` 로 쏜다 |
 | `HKCR\obsidian` 미등록 | 탐색기로 폴더를 연다 |
 
@@ -865,6 +865,17 @@ macOS `~/Library/Application Support/obsidian/`, Linux `~/.config/obsidian/`). *
 쓰는 vault 루트와 ContextFlow 의 Vault 경로가 달라도(예: `Tasks/` 만 vault 로 등록해 두면 업무
 노트는 열리는데 루트의 `_index/Archive.md` 만 안 열린다) 충돌하지 않는다. vault 가 중첩돼 있으면
 가장 깊은 것을 고른다 — Obsidian 이 실제로 그 파일을 여는 vault 가 그쪽이다.
+
+vault 는 이름이 아니라 `obsidian.json` 의 **ID** 로 지정한다. 이름은 폴더 이름이라 서로 다른 곳의
+`Notes` 두 개처럼 겹칠 수 있지만 ID 는 겹치지 않는다.
+
+"안에 있는가" 는 적힌 경로와 **실제 위치(`canonicalize`)** 를 모두 견준다. 같은 폴더도 정션 ·
+심볼릭 링크(OneDrive 의 `문서` ↔ `Documents`), 매핑 드라이브 ↔ UNC, 8.3 짧은 이름으로 다르게
+불리고, Obsidian 이 기억하는 표기와 설정의 표기가 다르면 문자열 비교만으로는 등록된 vault 를
+"등록 안 됨" 으로 오판한다.
+
+URL 은 `cmd /C start` 가 아니라 `rundll32 url.dll,FileProtocolHandler` 로 넘긴다. cmd 는 URL 의
+`&` 를 명령 구분자로 읽어 `&file=…` 을 잘라 버린다 — 그러면 vault 만 열리고 노트는 열리지 않는다.
 
 "목록을 못 읽음" 을 "등록 안 됨" 과 섞지 않는 것이 중요하다. 포터블 설치이거나 Obsidian 을 아직
 한 번도 실행하지 않았을 수 있고, 그 경우에도 열기는 잘 된다. 둘을 섞으면 멀쩡히 쓰던 사용자의

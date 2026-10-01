@@ -79,6 +79,8 @@ export interface OpenOutcome {
    */
   opened: "obsidian" | "explorer" | "unregistered";
   detail: string;
+  /** `unregistered` 일 때 Obsidian 이 아는 vault 경로들 — 어느 경로와 어긋났는지 보여 준다. */
+  known?: string[];
 }
 
 export interface VaultStatus {
@@ -86,6 +88,8 @@ export interface VaultStatus {
   registryFound: boolean;
   registered: boolean;
   vaultName: string | null;
+  /** Obsidian 이 아는 vault 경로들. */
+  known: string[];
 }
 
 export interface RecCandidate {

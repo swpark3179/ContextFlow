@@ -61,7 +61,8 @@ function ObsidianRegistration({ vault }: { vault: string }) {
     : st.registered
       ? [`Obsidian에 등록됨 · vault "${st.vaultName}"`, "#2f7f57"]
       : [
-          "Obsidian에 등록되지 않았습니다 · Obsidian에서 [폴더를 vault로 열기]로 이 경로를 한 번 등록하세요",
+          "Obsidian에 등록되지 않았습니다 · Obsidian에서 [폴더를 vault로 열기]로 이 경로를 한 번 등록하세요" +
+            (st.known.length ? ` · Obsidian이 아는 vault: ${st.known.join(", ")}` : ""),
           "#b07520",
         ];
 
