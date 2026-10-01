@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AiSettings, PromptPack } from "./ai";
-import { HOOK_CAP, composeHook, hooksOf, injectionFor } from "./promptPacks";
+import { HOOK_CAP, composeHook, hooksOf, injectionFor, moveFile } from "./promptPacks";
 
 function pack(file: string, body: string, error: string | null = null): PromptPack {
   return {
@@ -74,5 +74,32 @@ describe("hooksOf", () => {
   it("defaults to no hooks for missing or null settings", () => {
     expect(hooksOf(null)).toEqual({});
     expect(hooksOf({ agents: {}, active: { agentId: "", model: "" } })).toEqual({});
+  });
+});
+
+describe("moveFile", () => {
+  it("swaps with the neighbour and stops at the ends", () => {
+    expect(moveFile(["a", "b", "c"], "b", -1)).toEqual(["b", "a", "c"]);
+    expect(moveFile(["a", "b", "c"], "b", 1)).toEqual(["a", "c", "b"]);
+    expect(moveFile(["a", "b"], "a", -1)).toEqual(["a", "b"]);
+    expect(moveFile(["a", "b"], "b", 1)).toEqual(["a", "b"]);
+    expect(moveFile(["a"], "zz", 1)).toEqual(["a"]);
+  });
+
+  it("each wiki hook composes independently of recommend.rank", () => {
+    const packs = [
+      {
+        file: "a.md",
+        name: "a",
+        description: "",
+        stage: "",
+        body: "A",
+        chars: 1,
+        truncated: false,
+        error: null,
+      },
+    ];
+    expect(composeHook("wiki.ingest", packs, { "recommend.rank": ["a.md"] }).text).toBe("");
+    expect(composeHook("wiki.ingest", packs, { "wiki.ingest": ["a.md"] }).text).toBe("A");
   });
 });

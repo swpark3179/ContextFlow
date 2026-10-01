@@ -13,17 +13,40 @@ import type { AiSettings, PromptPack } from "./ai";
  */
 
 /**
- * 주입 지점은 **추천 순위 요청 하나뿐이다.**
+ * 주입 지점 — Rust `ai_settings::HOOKS` 와 1:1. 지점마다 그 요청의 **출력 계약 앞**에 붙는다.
  *
  * 시스템 프롬프트에는 붙이지 않는다. 판단하는 쪽의 정체성을 사용자 지침이 통과하면
- * 점수가 왜 기울었는지 추적할 방법이 없고, 결과는 여전히 중립적인 유사도처럼 보인다.
- * 순위 요청은 이미 확보된 후보 목록을 **읽는 방식**만 바꾸므로 그 문제가 없다.
+ * 결과가 왜 기울었는지 추적할 방법이 없다. 요청 본문은 이미 확보된 재료(후보 목록 · 업무
+ * 원문 · 위키 페이지)를 **읽는 방식**만 바꾸므로 그 문제가 없다.
  */
-export type PromptHook = "recommend.rank";
+export type PromptHook = "recommend.rank" | "wiki.ingest" | "wiki.query" | "wiki.lint";
 
 export const PROMPT_HOOKS: { id: PromptHook; label: string; note: string }[] = [
   { id: "recommend.rank", label: "추천 순위", note: "순위 요청의 출력 형식 앞" },
+  {
+    id: "wiki.ingest",
+    label: "위키 반영",
+    note: "업무를 위키로 옮겨 쓰는 요청의 출력 형식 앞 (예: 강조할 관점 · 용어 규칙)",
+  },
+  { id: "wiki.query", label: "위키 질의", note: "위키에 묻는 요청의 답변 형식 앞" },
+  { id: "wiki.lint", label: "위키 점검", note: "위키 점검 요청의 출력 형식 앞" },
 ];
+
+/** 한 지점에 붙일 수 있는 팩 수. 원본은 Rust(`MAX_PACKS_PER_HOOK`)이고 여기는 안내용 사본. */
+export const MAX_PACKS_PER_HOOK = 5;
+
+/**
+ * 켜진 팩 목록에서 하나를 앞뒤로 옮긴다. 순서가 곧 우선순위다 — 합성 상한에 닿으면 뒤의
+ * 팩부터 빠진다(`composeHook`). 끝을 넘어가면 그대로 둔다.
+ */
+export function moveFile(list: string[], file: string, delta: -1 | 1): string[] {
+  const i = list.indexOf(file);
+  const j = i + delta;
+  if (i < 0 || j < 0 || j >= list.length) return list;
+  const next = [...list];
+  [next[i], next[j]] = [next[j]!, next[i]!];
+  return next;
+}
 
 /**
  * 훅 1개의 합성 상한.

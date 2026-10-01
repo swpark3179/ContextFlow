@@ -131,9 +131,10 @@ pub struct ActiveChoice {
 /// 주입 지점. 여기 없는 이름은 `set_prompt_hook` 이 거부하고 `load` 가 걷어낸다 — 오타로
 /// 만들어진 죽은 키가 설정 파일에 쌓이면 왜 안 먹히는지 알 방법이 없다.
 ///
-/// 추천 순위 요청 하나뿐이다. 시스템 프롬프트에는 주입하지 않는다 — 판단의 정체성을
-/// 사용자 지침이 통과하면 결과가 왜 기울었는지 추적할 수 없다(`src/lib/promptPacks.ts` 참조).
-pub const HOOKS: [&str; 1] = ["recommend.rank"];
+/// 지점마다 그 요청의 **출력 계약 앞**에 붙는다. 시스템 프롬프트에는 주입하지 않는다 —
+/// 판단의 정체성을 사용자 지침이 통과하면 결과가 왜 기울었는지 추적할 수 없다
+/// (`src/lib/promptPacks.ts` 참조).
+pub const HOOKS: [&str; 4] = ["recommend.rank", "wiki.ingest", "wiki.query", "wiki.lint"];
 
 /// 훅 하나에 붙일 수 있는 팩 수. 프롬프트가 무한정 길어지는 것을 막는 1차 방어선이다.
 pub const MAX_PACKS_PER_HOOK: usize = 5;
@@ -473,6 +474,15 @@ mod tests {
         let loaded = load(&root);
         assert_eq!(loaded.prompts.hooks.len(), 1);
         assert_eq!(loaded.prompts.hooks["recommend.rank"], vec!["b.md"]);
+    }
+
+    #[test]
+    fn wiki_hooks_are_accepted() {
+        let mut s = AiSettings::default();
+        for h in ["wiki.ingest", "wiki.query", "wiki.lint"] {
+            s.set_prompt_hook(h, vec!["a.md".into()]).unwrap();
+        }
+        assert_eq!(s.prompts.hooks.len(), 3);
     }
 
     #[test]
