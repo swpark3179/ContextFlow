@@ -1,9 +1,10 @@
 /**
  * 마크다운 노트의 이미지 — 클립보드에서 꺼내기, 링크 만들기, 경로 풀기.
  *
- * 저장은 Rust 가 한다(`save_pasted_image`). 여기 있는 것은 전부 순수 함수라 테스트가
- * 붙는다. 경로를 **어디 기준으로 푸는가** 가 요점이다: 마크다운의 상대 경로는 노트가
- * 들어 있는 폴더 기준이고(Obsidian · GitHub 와 같다), 업무 폴더 기준이 아니다.
+ * 저장은 Rust 가 한다(`save_pasted_image` — 업무 폴더 최상위의 `images/`). 여기 있는 것은
+ * 전부 순수 함수라 테스트가 붙는다. 경로를 **어디 기준으로 푸는가** 가 요점이다: 마크다운의
+ * 상대 경로는 노트가 들어 있는 폴더 기준이고(Obsidian · GitHub 와 같다), 업무 폴더 기준이
+ * 아니다. 그래서 `refs/회의록.md` 에 붙인 그림은 `../images/…` 로 적힌다.
  */
 
 const MIME_EXT: Record<string, string> = {
@@ -45,6 +46,18 @@ export function imageMarkdown(name: string): string {
   // encodeURIComponent 는 괄호를 남기므로 직접 적는다.
   const dest = name.replace(/[ ()<>]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
   return `![](${dest})`;
+}
+
+/**
+ * 노트(`noteRel`)에서 업무 폴더 기준 경로 `targetRel` 을 가리키는 상대 경로. 둘 다 업무
+ * 폴더 기준이고 `/` 로 나뉜다. `refs/a/n.md` → `images/x.png` 는 `../../images/x.png`.
+ */
+export function relativeFromNote(noteRel: string, targetRel: string): string {
+  const from = noteRel.split("/").filter(Boolean).slice(0, -1);
+  const to = targetRel.split("/").filter(Boolean);
+  let i = 0;
+  while (i < from.length && i < to.length - 1 && from[i] === to[i]) i++;
+  return [...from.slice(i).map(() => ".."), ...to.slice(i)].join("/");
 }
 
 /**
@@ -93,7 +106,7 @@ function normalize(path: string): string {
  * 마크다운 표기의 경로는 퍼센트 인코딩되어 있을 수 있어(`%20`) 풀어서 쓰고, 위키
  * 표기(`![[…]]`)는 인코딩하지 않는 문법이라 그대로 쓴다. Obsidian 은 위키 표기를 Vault
  * 전체에서 이름으로 찾지만, 여기서는 노트 옆에서만 찾는다 — 붙여넣은 이미지는 언제나
- * 노트 옆에 저장되므로 그것으로 충분하다.
+ * 노트에서의 상대 경로가 든 마크다운 표기로 들어가므로 그것으로 충분하다.
  */
 export function resolveImageSrc(noteRel: string, src: string, wiki = false): ImageRef {
   const s = src.trim();

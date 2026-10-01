@@ -306,10 +306,18 @@ pub(crate) fn busy_files(root: &Path, limit: usize) -> Vec<String> {
 /// 붙여넣기로 받을 수 있는 이미지 확장자. 웹뷰가 클립보드에서 내주는 형식이 이 범위다.
 const IMAGE_EXT: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp"];
 
-/// 스크린샷 한 장으로는 넉넉하고, 실수로 거대한 데이터를 노트 옆에 쏟지 않을 상한.
+/// 스크린샷 한 장으로는 넉넉하고, 실수로 거대한 데이터를 업무 폴더에 쏟지 않을 상한.
 const IMAGE_MAX: usize = 32 * 1024 * 1024;
 
-/// 클립보드에서 붙여넣은 이미지를 **노트와 같은 폴더**에 저장하고 파일 이름을 돌려준다.
+/// 붙여넣은 이미지가 모이는 폴더. 업무 폴더 최상위 바로 아래이며, 없으면 만든다.
+const IMAGE_DIR: &str = "images";
+
+/// 클립보드에서 붙여넣은 이미지를 **업무 폴더 최상위의 `images/`** 에 저장하고, 업무 폴더
+/// 기준 경로(`images/image-….png`)를 돌려준다. 노트에서 가리키는 상대 경로는 노트가 어느
+/// 폴더에 있느냐에 따라 달라지므로 부르는 쪽(`relativeFromNote`)이 만든다.
+///
+/// `note_rel` 은 저장 위치를 정하지 않지만, 업무 폴더 밖을 가리키는 노트에서 온 요청은
+/// 그대로 거절한다.
 ///
 /// 이름은 `image-YYYYMMDD-HHMMSS.png` 다. 공백도 한글도 넣지 않는다 — 마크다운 링크의
 /// 경로에 그대로 들어가므로, 인코딩 없이 Obsidian 과 이 뷰어 양쪽에서 똑같이 읽혀야 한다.
@@ -329,8 +337,8 @@ pub fn save_image(folder: &Path, note_rel: &str, ext: &str, bytes: &[u8]) -> Res
             format!("이미지가 너무 큽니다 ({})", human_size(bytes.len() as u64)),
         ));
     }
-    let note = safe_join(folder, note_rel)?;
-    let dir = note.parent().map(Path::to_path_buf).unwrap_or_else(|| folder.to_path_buf());
+    safe_join(folder, note_rel)?;
+    let dir = folder.join(IMAGE_DIR);
     fs::create_dir_all(&dir)?;
     let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
     for n in 1..1000 {
@@ -350,7 +358,7 @@ pub fn save_image(folder: &Path, note_rel: &str, ext: &str, bytes: &[u8]) -> Res
             let _ = fs::remove_file(dir.join(&name));
             return Err(e.into());
         }
-        return Ok(name);
+        return Ok(format!("{}/{}", IMAGE_DIR, name));
     }
     Err(AppError::new("already_exists", "이미지 파일 이름을 정하지 못했습니다"))
 }
@@ -636,16 +644,18 @@ mod tests {
     }
 
     #[test]
-    fn pasted_images_land_next_to_their_note_without_clobbering() {
+    fn pasted_images_land_in_top_level_images_without_clobbering() {
         let d = TempDir::new("img");
+        assert!(!d.path().join("images").exists());
         let a = save_image(d.path(), "refs/회의록.md", "PNG", b"one").unwrap();
         let b = save_image(d.path(), "refs/회의록.md", ".png", b"two").unwrap();
-        assert!(a.starts_with("image-") && a.ends_with(".png") && !a.contains(' '));
+        assert!(a.starts_with("images/image-") && a.ends_with(".png") && !a.contains(' '));
         assert_ne!(a, b);
-        assert_eq!(fs::read(d.path().join("refs").join(&a)).unwrap(), b"one");
-        assert_eq!(fs::read(d.path().join("refs").join(&b)).unwrap(), b"two");
+        assert_eq!(fs::read(d.path().join(&a)).unwrap(), b"one");
+        assert_eq!(fs::read(d.path().join(&b)).unwrap(), b"two");
+        assert!(!d.path().join("refs").exists());
         let top = save_image(d.path(), "index.md", "jpg", b"x").unwrap();
-        assert!(d.path().join(&top).is_file());
+        assert!(top.starts_with("images/") && d.path().join(&top).is_file());
     }
 
     #[test]

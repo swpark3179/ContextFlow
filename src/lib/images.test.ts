@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { imageMarkdown, insertOwnLine, resolveImageSrc } from "./images";
+import { imageMarkdown, insertOwnLine, relativeFromNote, resolveImageSrc } from "./images";
 import { mdParse, setImageWidth } from "./markdown";
 
 describe("mdParse — 이미지", () => {
@@ -108,6 +108,27 @@ describe("imageMarkdown · insertOwnLine", () => {
 
   it("고른 구간을 바꿔 넣는다", () => {
     expect(insertOwnLine("a\nsel\nb", 2, 5, "X").text).toBe("a\nX\nb");
+  });
+});
+
+describe("relativeFromNote", () => {
+  it("노트가 있는 폴더에서 업무 폴더 최상위의 images/ 를 가리킨다", () => {
+    expect(relativeFromNote("index.md", "images/a.png")).toBe("images/a.png");
+    expect(relativeFromNote("refs/n.md", "images/a.png")).toBe("../images/a.png");
+    expect(relativeFromNote("refs/sub/n.md", "images/a.png")).toBe("../../images/a.png");
+  });
+
+  it("같은 폴더 아래의 노트는 위로 올라가지 않는다", () => {
+    expect(relativeFromNote("images/n.md", "images/a.png")).toBe("a.png");
+    expect(relativeFromNote("images/sub/n.md", "images/a.png")).toBe("../a.png");
+  });
+
+  it("만든 경로는 resolveImageSrc 로 다시 같은 파일이 된다", () => {
+    for (const note of ["index.md", "refs/n.md", "a/b/c/n.md", "images/n.md"]) {
+      const md = imageMarkdown(relativeFromNote(note, "images/image-1.png"));
+      const src = md.slice(4, -1);
+      expect(resolveImageSrc(note, src)).toEqual({ kind: "rel", path: "images/image-1.png" });
+    }
   });
 });
 
