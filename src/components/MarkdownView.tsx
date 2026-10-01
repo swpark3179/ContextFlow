@@ -71,7 +71,15 @@ const Viewport = createContext<{ el: HTMLDivElement | null; height: number }>({
   height: 0,
 });
 
+/**
+ * 위키링크를 누르면 부를 함수. 위키 화면만 이 값을 주고, 다른 화면(업무 노트)은 주지 않아
+ * 링크가 예전처럼 보이기만 한다 — 업무 노트의 `[[…]]` 는 Obsidian 의 vault 전체를 가리키는데,
+ * 이 앱은 그 해석기를 갖고 있지 않다.
+ */
+export const WikiLinkContext = createContext<((target: string) => void) | null>(null);
+
 function Inline({ segs }: { segs: Seg[] }) {
+  const onWikiLink = useContext(WikiLinkContext);
   return (
     <>
       {segs.map((g) => {
@@ -107,19 +115,28 @@ function Inline({ segs }: { segs: Seg[] }) {
               {g.text}
             </span>
           );
-        if (g.isLink)
-          // 위키링크는 아직 이동을 지원하지 않는다. 눌렀을 때 링크 텍스트를 그대로
-          // 되읽어 주는 토스트를 띄우느니, 누를 수 있는 것처럼 보이지 않게 두는 편이
-          // 정직하다.
+        if (g.isLink) {
+          // `[[대상|별칭]]` 은 별칭만 보인다(Obsidian 과 같다). 이동은 위키 화면에서만 —
+          // 그 밖에서는 눌렀을 때 아무 일도 없을 링크를 누를 수 있는 것처럼 그리지 않는다.
+          const [target, ...alias] = g.text.split("|");
+          const label = alias.join("|").trim() || (target ?? "").trim();
+          const go = onWikiLink && target?.trim() ? () => onWikiLink(target.trim()) : undefined;
           return (
             <span
               key={g.key}
-              title={g.text}
-              style={{ display: "inline", color: "#3a6fd8", borderBottom: "1px solid #cddcf8" }}
+              title={target}
+              onClick={go}
+              style={{
+                display: "inline",
+                color: "#3a6fd8",
+                borderBottom: "1px solid #cddcf8",
+                cursor: go ? "pointer" : undefined,
+              }}
             >
-              {g.text}
+              {label}
             </span>
           );
+        }
         return <span key={g.key}>{g.text}</span>;
       })}
     </>

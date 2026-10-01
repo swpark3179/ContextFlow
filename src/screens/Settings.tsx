@@ -9,6 +9,7 @@ import AiProCard from "./settings/AiProCard";
 import FabrixCard from "./settings/FabrixCard";
 import LocalCliCard from "./settings/LocalCliCard";
 import PromptPacksCard from "./settings/PromptPacksCard";
+import WikiCard from "./settings/WikiCard";
 import { Chip, Toggle, cardStyle, headStyle, inputFocus, inputMono, rowStyle } from "./settings/shared";
 
 const TOGGLES: [keyof S, string, string][] = [
@@ -23,7 +24,8 @@ const TOGGLES: [keyof S, string, string][] = [
     "업무 전환·보류 시 열린 탭/미저장 텍스트/메모를 .context_snapshot.json에 기록",
   ],
   ["restoreView", "뷰 레이아웃 복원", "업무별 분할 패널 구성과 열어둔 파일을 그대로 되살림"],
-  ["wikiIndex", "위키링크 실시간 색인", "[[링크]] 변경 시 Vault 그래프를 즉시 갱신"],
+  // "위키링크 실시간 색인"(wikiIndex)은 설계 목업에서 온 토글인데 읽는 곳이 없었다. 새
+  // "LLM 위키" 와 이름이 겹쳐 혼동만 낳으므로 화면에서 뺀다(키는 settings.json 에 남는다).
 ];
 
 /**
@@ -254,6 +256,7 @@ export default function Settings() {
         <AiProCard />
         <FabrixCard />
         <AiRoutesCard />
+        <WikiCard />
         <PromptPacksCard />
 
         {/* 추천 임계값 --------------------------------------------------- */}

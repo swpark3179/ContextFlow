@@ -22,12 +22,13 @@ import { reorderedList } from "../lib/reorder";
 import { keepTabs, tabKey } from "../lib/tabs";
 import { sanitizeFolderName } from "../lib/vaultPaths";
 import { aiRecommend } from "../lib/aiRecommend";
-import { activeRun, useAi } from "./aiStore";
+import { activeRun, routeRun, useAi } from "./aiStore";
+import { useWiki } from "./wikiStore";
 
 /** Mirrors `SNAPSHOT_FILE` in src-tauri/src/vault.rs. */
 const SNAPSHOT_FILE = ".context_snapshot.json";
 
-export type Screen = "workspace" | "templates" | "archive" | "settings";
+export type Screen = "workspace" | "templates" | "archive" | "settings" | "wiki";
 /** `text` = 편집기, 나머지는 읽기 전용 뷰어. 같은 파일은 한 번에 한 모드로만 열린다. */
 export type TabMode = "md" | "text" | "html" | "bstorm";
 
@@ -430,7 +431,8 @@ interface Actions {
   renameTask: (folder: string, title: string) => Promise<void>;
   setStatus: (status: string) => Promise<void>;
   /** `close` 를 생략하면 지금 열려 있는 업무일 때만 창을 닫는다. */
-  archiveNow: (folder: string, opts?: { close?: boolean }) => Promise<void>;
+  /** 보관한 뒤의 업무(경로가 바뀌었을 수 있다). 실패하면 `null`. */
+  archiveNow: (folder: string, opts?: { close?: boolean }) => Promise<TaskMeta | null>;
   restoreTask: (folder: string) => Promise<void>;
   peekArchived: (folder: string) => Promise<void>;
   closeArchived: () => void;
@@ -872,7 +874,13 @@ export const useStore = create<State & Actions>((set, get) => ({
       get().noteToday(activeFolder, updated.title);
       await get().persistSnapshot(activeFolder);
       if (normalizeStatus(status) === "completed") {
-        await get().archiveNow(activeFolder, { close: true });
+        const archived = await get().archiveNow(activeFolder, { close: true });
+        // 완료한 업무를 위키에 반영한다 — 뒤에서 돈다(창 닫기 · 목록 갱신을 기다리게 하지
+        // 않는다). [지금 보관함으로] 처럼 완료 없이 보관한 것은 여기를 지나지 않으므로 자동
+        // 반영하지 않고, 위키 화면의 "반영 대기" 에 뜬다.
+        if (archived && get().settings.wikiAuto && routeRun(useAi.getState(), "wiki.ingest")) {
+          useWiki.getState().enqueue(archived.id, archived.title);
+        }
         return;
       }
       // 바뀐 상태는 헤더의 상태 배지에 즉시 나타난다.
@@ -886,7 +894,7 @@ export const useStore = create<State & Actions>((set, get) => ({
   archiveNow: async (folder, opts) => {
     const { settings, tasks, activeFolder } = get();
     // 고른 업무가 없을 때 메뉴에서 들어오면 빈 경로가 온다 — 백엔드에 물어볼 것이 없다.
-    if (!folder) return;
+    if (!folder) return null;
     const target = tasks.find((t) => t.folder === folder);
     // 보관된 업무는 업무 리스트에 없다. 그 창을 열어 둔 채로 두면 목록에서 아무것도
     // 선택되지 않은 화면에 남의 작업공간이 떠 있는 셈이라, 지금 열려 있던 업무를
@@ -933,8 +941,10 @@ export const useStore = create<State & Actions>((set, get) => ({
       // 하나를 자동으로 골라 열어 버려, 방금 닫은 자리에 엉뚱한 업무가 나타난다.
       await get().reloadVault(close);
       await get().syncMoc();
+      return updated;
     } catch (e) {
       get().fail(e, "보관하지 못했습니다");
+      return null;
     }
   },
 

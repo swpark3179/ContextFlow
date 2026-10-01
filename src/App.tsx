@@ -10,6 +10,7 @@ import Workspace from "./screens/Workspace";
 import Templates from "./screens/Templates";
 import Archive from "./screens/Archive";
 import Settings from "./screens/Settings";
+import Wiki from "./screens/Wiki";
 import NewTaskModal from "./modals/NewTaskModal";
 import MergeModal from "./modals/MergeModal";
 import DayLogModal from "./modals/DayLogModal";
@@ -23,12 +24,17 @@ import SplitModal from "./modals/SplitModal";
 import { Box } from "./lib/ui";
 import { useStore } from "./store/useStore";
 import { useAi } from "./store/aiStore";
+import { useWiki } from "./store/wikiStore";
 
 export default function App() {
   const s = useStore();
 
   useEffect(() => {
-    void useStore.getState().boot();
+    // 위키 상태는 Vault 를 연 뒤에 읽는다 — 사이드바 도크의 페이지 수가 거기서 나온다.
+    void useStore
+      .getState()
+      .boot()
+      .then(() => useWiki.getState().refresh());
     // AI 연결 탐지는 Vault 부팅과 독립이다 — 캐시 우선이라 네트워크를 타지 않고,
     // 실패해도 앱은 로컬 유사도로 정상 동작한다.
     void useAi.getState().refreshAll();
@@ -240,6 +246,7 @@ export default function App() {
               {s.screen === "templates" && <Templates />}
               {s.screen === "archive" && <Archive />}
               {s.screen === "settings" && <Settings />}
+              {s.screen === "wiki" && <Wiki />}
             </>
           )}
         </div>

@@ -4,6 +4,7 @@ import { BLUE, normalizeStatus, statusOf } from "../lib/design";
 import { useDropGuard, useLongPress } from "../lib/longPress";
 import { shortStamp, today } from "../lib/format";
 import { isArchived, useStore, type Screen } from "../store/useStore";
+import { useWiki } from "../store/wikiStore";
 
 /**
  * 상태 필터. `완료` 칸은 두지 않는다 — 앱에서 완료로 바꾼 업무는 그 자리에서 보관되어
@@ -22,6 +23,64 @@ const NAV: [Screen, string][] = [
   ["archive", "보관함"],
   ["settings", "설정"],
 ];
+
+/**
+ * LLM 위키로 가는 도크 버튼. 2×2 NAV 에 다섯째 칸을 끼우면 격자가 깨지므로 "보관함" 도크와
+ * 같은 모양으로 그 아래에 둔다 — 위키는 보관된 업무에서 자라므로 자리도 그 옆이다.
+ *
+ * 반영은 화면 밖(`Wiki/` 폴더)에서 일어난다. 위키 화면에 있지 않아도 지금 돌고 있다는
+ * 것이 보이도록 진행 수를 여기에 적는다.
+ */
+function WikiDock() {
+  const screen = useStore((s) => s.screen);
+  const setScreen = useStore((s) => s.setScreen);
+  const pages = useWiki((w) => w.status?.pages.length ?? 0);
+  const running = useWiki((w) => w.running);
+  const total = useWiki((w) => w.queue.length);
+  const done = useWiki(
+    (w) => w.queue.filter((q) => q.state !== "queued" && q.state !== "running").length,
+  );
+  const on = screen === "wiki";
+  return (
+    <Box
+      onClick={() => setScreen("wiki")}
+      title="완료한 업무를 AI 가 정리한 위키"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 7,
+        height: 25,
+        padding: "0 8px",
+        borderRadius: 4,
+        cursor: "pointer",
+        background: on ? "#fff" : "#ebe7df",
+        border: on ? "1px solid #d9d4ca" : "1px solid transparent",
+      }}
+      hover={{ background: on ? "#fff" : "#e2ded4" }}
+    >
+      <div
+        style={{
+          width: 9,
+          height: 9,
+          borderRadius: 2,
+          background: running ? "#a78bfa" : "#cfc6ec",
+          flex: "0 0 9px",
+        }}
+      />
+      <span style={{ fontSize: 11.5, color: "#6a665e", flex: 1, minWidth: 0 }}>위키</span>
+      <span
+        style={{
+          fontFamily: "'Roboto Mono',monospace",
+          fontSize: 11,
+          color: running ? "#6a54c6" : "#8a857c",
+          flex: "0 0 auto",
+        }}
+      >
+        {running ? `반영 중 ${done + 1}/${total}` : `${pages}페이지`}
+      </span>
+    </Box>
+  );
+}
 
 /**
  * 오늘의 한일 — **오늘** 손댄 업무의 제목을 모아 둔 목록.
@@ -893,6 +952,7 @@ export default function Sidebar() {
             {archived.length}개
           </span>
         </Box>
+        <WikiDock />
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4 }}>
           {NAV.map(([k, label]) => {
             const on = s.screen === k;
