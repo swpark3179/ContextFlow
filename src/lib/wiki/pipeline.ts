@@ -24,7 +24,9 @@ import {
   buildWikiSystemPrompt,
   parseLint,
   parsePlan,
+  pickContextPages,
   type AiLintIssue,
+  type ChatTurnText,
 } from "./prompts";
 
 export interface Route {
@@ -212,21 +214,41 @@ export interface AskOutcome {
   used: api.WikiPageMeta[];
 }
 
-/** 위키에 묻는다 — 로컬 검색으로 페이지를 고르고, 그 본문으로 답하게 한다. */
+/** 질의 한 번에 본문을 싣는 페이지 수. */
+const QUERY_PAGES = 6;
+
+/**
+ * 위키에 묻는다 — 로컬 검색으로 페이지를 고르고, 그 본문으로 답하게 한다.
+ *
+ * 대화를 이어 갈 때는 `history`(앞선 턴의 질문과 답)와 `carry`(앞선 답이 인용한 페이지
+ * 경로)를 준다. 이어지는 질문은 그것만으로는 검색이 안 되므로, 앞선 질문과 합친 검색과
+ * 앞선 인용을 함께 후보로 둔다(`pickContextPages`).
+ */
 export async function askWiki(o: {
   root: string;
   question: string;
   route: Route;
   ai: PackSource;
+  history?: ChatTurnText[];
+  carry?: string[];
   signal?: AbortSignal;
   onPartial?: (text: string) => void;
 }): Promise<AskOutcome> {
   const status = await api.wikiStatus(o.root, 0);
   const pages = status.pages;
   if (!pages.length) throw new Error("위키가 비어 있습니다 — 먼저 업무를 반영하세요");
-  const hits = await api.wikiSearch(o.root, o.question, 6);
-  const used = hits
-    .map((h) => pages.find((p) => p.path === h.path))
+  const history = o.history ?? [];
+  const prev = history[history.length - 1]?.question;
+  const [hits, ctxHits] = await Promise.all([
+    api.wikiSearch(o.root, o.question, QUERY_PAGES),
+    prev ? api.wikiSearch(o.root, `${o.question} ${prev}`, QUERY_PAGES) : Promise.resolve([]),
+  ]);
+  const picked = pickContextPages(
+    [hits.map((h) => h.path), (o.carry ?? []).slice(0, 3), ctxHits.map((h) => h.path)],
+    QUERY_PAGES,
+  );
+  const used = picked
+    .map((path) => pages.find((p) => p.path === path))
     .filter((p): p is api.WikiPageMeta => !!p);
   const bodies = used.length ? await api.wikiReadPages(o.root, used.map((p) => p.path)) : [];
   canceled(o.signal);
@@ -248,6 +270,7 @@ export async function askWiki(o: {
         })),
         catalog: pages,
         inject: injectionFor("wiki.query", o.ai.packs, o.ai.settings),
+        history,
       }),
     },
     { signal: o.signal, onPartial: o.onPartial },
@@ -262,12 +285,18 @@ export async function askWiki(o: {
   return { answer: run.text.trim(), cited, used };
 }
 
-/** 답변을 위키로 되돌린다 — `answers/` 페이지 + log 의 `query` 항목. */
+/**
+ * 답변을 위키로 되돌린다 — `answers/` 페이지 + log 의 `query` 항목.
+ *
+ * 대화 중간의 답이면 `context` 에 앞선 질문을 준다. "그럼 두 번째는?" 같은 질문은 그것만
+ * 남기면 나중에 읽을 때 무엇을 물었는지 알 수 없다.
+ */
 export async function fileAnswer(o: {
   root: string;
   question: string;
   answer: string;
   cited: api.WikiPageMeta[];
+  context?: string[];
 }): Promise<api.WikiApplyResult> {
   // 끝의 물음표 · 마침표는 뺀다 — 파일 이름에서 `-` 로 바뀌어 "순서는-.md" 가 된다.
   const q = o.question.trim().replace(/\s+/g, " ").replace(/[?？!.。\s]+$/, "");
@@ -282,7 +311,14 @@ export async function fileAnswer(o: {
       {
         kind: "answer",
         title,
-        body: [`# ${title}`, "", `> 질문: ${o.question.trim()}`, "", o.answer].join("\n"),
+        body: [
+          `# ${title}`,
+          "",
+          `> 질문: ${o.question.trim()}`,
+          ...(o.context?.length ? [`> 앞선 질문: ${o.context.map((c) => c.trim()).join(" → ")}`] : []),
+          "",
+          o.answer,
+        ].join("\n"),
         summary: guessSummary(o.answer),
         sources,
       },
