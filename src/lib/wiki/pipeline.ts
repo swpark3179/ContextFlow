@@ -29,6 +29,7 @@ import {
   type ChatTurnText,
 } from "./prompts";
 import {
+  WEB_LABEL,
   WEB_READ_MAX_TOKENS,
   WEB_ROUNDS,
   WEB_TEMPERATURE,
@@ -333,7 +334,10 @@ export async function askWiki(o: {
     const req = o.web && remaining > 0 ? parseWebSearch(run.text) : null;
     if (!req) {
       answer = o.web ? stripWebFence(run.text) : run.text.trim();
-      if (!answer) throw new Error("AI 가 검색만 요청하고 답을 내지 못했습니다");
+      if (!answer) {
+        const asked = o.web && run.text.includes("```" + WEB_LABEL);
+        throw new Error(asked ? "AI 가 검색만 요청하고 답을 내지 못했습니다" : (run.error ?? "응답이 비어 있습니다"));
+      }
       break;
     }
     o.onPartial?.("");

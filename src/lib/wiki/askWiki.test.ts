@@ -118,6 +118,11 @@ describe("askWiki — conversation", () => {
     expect(calls.some((c) => c.cmd.startsWith("web_"))).toBe(false);
   });
 
+  it("reports an empty reply as empty, not as a search loop", async () => {
+    replies = ["   "];
+    await expect(askWiki({ root: "/v", question: "QA 배포?", route: QUERY, ai: AI })).rejects.toThrow("응답이 비어 있습니다");
+  });
+
   it("finds pages for a follow-up through the previous question and citations", async () => {
     replies = ["두 번째는 헬스 체크 [[QA 배포]]"];
     const out = await askWiki({

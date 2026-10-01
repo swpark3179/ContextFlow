@@ -26,7 +26,8 @@ use std::io::ErrorKind;
 use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::{Mutex, PoisonError};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
@@ -48,6 +49,9 @@ const CALL_TIMEOUT: Duration = Duration::from_secs(20);
 const PAGE_TEXT_CAP: usize = 12_000;
 /// 검색 결과 수 상한.
 const MAX_RESULTS: usize = 10;
+/// 이만큼 쓰지 않으면 띄운 브라우저를 닫는다 — 헤드리스면 창이 없어 사용자가 닫을 길이 없고,
+/// 검색 한 번 뒤로 하루 종일 메모리를 붙들 이유가 없다. 다음 검색이 다시 띄운다.
+const IDLE_CLOSE: Duration = Duration::from_secs(10 * 60);
 
 /// 프런트가 고르는 실행 방식(`settings.json` 의 웹 검색 항목).
 #[derive(Deserialize, Clone, Debug, Default)]
@@ -605,18 +609,58 @@ fn env_extra_args() -> Vec<String> {
 
 /// 앱이 쥔 브라우저. 한 번에 한 작업만 한다(뮤텍스) — 검색 엔진에 요청을 겹쳐 보내면 보안
 /// 문자가 뜨기 쉽고, 위키 질의도 한 번에 하나다.
-#[derive(Default)]
 pub struct BrowserState {
-    inner: Mutex<Option<Session>>,
+    inner: Arc<Mutex<Option<Session>>>,
+    /// 마지막으로 쓴 때 — `IDLE_CLOSE` 가 지나면 정리 스레드가 닫는다.
+    last_used: Arc<Mutex<Instant>>,
+    reaper: AtomicBool,
     /// 테스트용 — 프로필 폴더와 추가 인자.
     profile_override: Option<PathBuf>,
     extra: Vec<String>,
 }
 
+impl Default for BrowserState {
+    fn default() -> Self {
+        BrowserState {
+            inner: Arc::new(Mutex::new(None)),
+            last_used: Arc::new(Mutex::new(Instant::now())),
+            reaper: AtomicBool::new(false),
+            profile_override: None,
+            extra: Vec::new(),
+        }
+    }
+}
+
 impl BrowserState {
     #[cfg(test)]
     fn for_test(profile: PathBuf, extra: Vec<String>) -> BrowserState {
-        BrowserState { inner: Mutex::new(None), profile_override: Some(profile), extra }
+        BrowserState { profile_override: Some(profile), extra, ..BrowserState::default() }
+    }
+
+    fn touch(&self) {
+        *self.last_used.lock().unwrap_or_else(PoisonError::into_inner) = Instant::now();
+    }
+
+    /// 쓰지 않는 브라우저를 닫는 스레드 — 처음 띄울 때 한 번만 만든다. 작업 중이면(뮤텍스를
+    /// 쥐고 있으면) 건드리지 않는다.
+    fn start_reaper(&self) {
+        if self.reaper.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let inner = self.inner.clone();
+        let last = self.last_used.clone();
+        std::thread::spawn(move || loop {
+            std::thread::sleep(Duration::from_secs(30));
+            let idle = last.lock().unwrap_or_else(PoisonError::into_inner).elapsed();
+            if idle < IDLE_CLOSE {
+                continue;
+            }
+            if let Ok(mut slot) = inner.try_lock() {
+                if let Some(s) = slot.take() {
+                    shutdown_session(s);
+                }
+            }
+        });
     }
 
     fn profile(&self) -> Result<PathBuf, String> {
@@ -647,6 +691,7 @@ impl BrowserState {
             shutdown_session(old);
         }
 
+        self.start_reaper();
         let profile = self.profile()?;
         std::fs::create_dir_all(&profile).map_err(|e| format!("브라우저 프로필 폴더를 만들 수 없습니다: {e}"))?;
 
@@ -712,12 +757,15 @@ impl BrowserState {
         }
         let mut slot = self.lock();
         let ws = self.ensure(&mut slot, opts)?;
+        self.touch();
         let engine = engine_id(&opts.engine);
         let url = search_url(engine, query);
-        let (results, blocked, final_url) = with_tab(&ws, |cdp, s| {
+        let serp = with_tab(&ws, |cdp, s| {
             navigate(cdp, s, &url)?;
             extract_serp(cdp, s, engine)
-        })?;
+        });
+        self.touch();
+        let (results, blocked, final_url) = serp?;
         if blocked {
             return Err(format!(
                 "검색 엔진({engine})이 자동 검색을 막았습니다(보안 문자). 설정 → 웹 검색 브라우저에서 \
@@ -735,10 +783,13 @@ impl BrowserState {
         }
         let mut slot = self.lock();
         let ws = self.ensure(&mut slot, opts)?;
-        with_tab(&ws, |cdp, s| {
+        self.touch();
+        let page = with_tab(&ws, |cdp, s| {
             navigate(cdp, s, url)?;
             extract_page(cdp, s, url)
-        })
+        });
+        self.touch();
+        page
     }
 
     pub fn running(&self) -> bool {
