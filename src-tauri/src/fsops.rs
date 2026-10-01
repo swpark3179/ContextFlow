@@ -303,6 +303,58 @@ pub(crate) fn busy_files(root: &Path, limit: usize) -> Vec<String> {
     out
 }
 
+/// 붙여넣기로 받을 수 있는 이미지 확장자. 웹뷰가 클립보드에서 내주는 형식이 이 범위다.
+const IMAGE_EXT: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp"];
+
+/// 스크린샷 한 장으로는 넉넉하고, 실수로 거대한 데이터를 노트 옆에 쏟지 않을 상한.
+const IMAGE_MAX: usize = 32 * 1024 * 1024;
+
+/// 클립보드에서 붙여넣은 이미지를 **노트와 같은 폴더**에 저장하고 파일 이름을 돌려준다.
+///
+/// 이름은 `image-YYYYMMDD-HHMMSS.png` 다. 공백도 한글도 넣지 않는다 — 마크다운 링크의
+/// 경로에 그대로 들어가므로, 인코딩 없이 Obsidian 과 이 뷰어 양쪽에서 똑같이 읽혀야 한다.
+/// 같은 초에 두 장을 붙이면 `-2`, `-3` 을 붙인다(`unique_dest` 의 ` (2)` 는 공백이 든다).
+/// 이미 있는 파일은 절대 덮어쓰지 않는다(`create_new`).
+pub fn save_image(folder: &Path, note_rel: &str, ext: &str, bytes: &[u8]) -> Result<String> {
+    let ext = ext.trim().trim_start_matches('.').to_ascii_lowercase();
+    if !IMAGE_EXT.contains(&ext.as_str()) {
+        return Err(AppError::new("invalid_image", format!("지원하지 않는 이미지 형식입니다: {}", ext)));
+    }
+    if bytes.is_empty() {
+        return Err(AppError::new("invalid_image", "이미지 데이터가 비어 있습니다"));
+    }
+    if bytes.len() > IMAGE_MAX {
+        return Err(AppError::new(
+            "invalid_image",
+            format!("이미지가 너무 큽니다 ({})", human_size(bytes.len() as u64)),
+        ));
+    }
+    let note = safe_join(folder, note_rel)?;
+    let dir = note.parent().map(Path::to_path_buf).unwrap_or_else(|| folder.to_path_buf());
+    fs::create_dir_all(&dir)?;
+    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
+    for n in 1..1000 {
+        let name = if n == 1 {
+            format!("image-{}.{}", stamp, ext)
+        } else {
+            format!("image-{}-{}.{}", stamp, n, ext)
+        };
+        let mut file = match fs::OpenOptions::new().write(true).create_new(true).open(dir.join(&name)) {
+            Ok(f) => f,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e.into()),
+        };
+        use std::io::Write;
+        if let Err(e) = file.write_all(bytes) {
+            drop(file);
+            let _ = fs::remove_file(dir.join(&name));
+            return Err(e.into());
+        }
+        return Ok(name);
+    }
+    Err(AppError::new("already_exists", "이미지 파일 이름을 정하지 못했습니다"))
+}
+
 /// First free `dir/name`, appending ` (2)`, ` (3)`… before the extension.
 /// Shared by every write that must not clobber an existing entry.
 pub(crate) fn unique_dest(dir: &Path, name: &str) -> PathBuf {
@@ -581,6 +633,27 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn pasted_images_land_next_to_their_note_without_clobbering() {
+        let d = TempDir::new("img");
+        let a = save_image(d.path(), "refs/회의록.md", "PNG", b"one").unwrap();
+        let b = save_image(d.path(), "refs/회의록.md", ".png", b"two").unwrap();
+        assert!(a.starts_with("image-") && a.ends_with(".png") && !a.contains(' '));
+        assert_ne!(a, b);
+        assert_eq!(fs::read(d.path().join("refs").join(&a)).unwrap(), b"one");
+        assert_eq!(fs::read(d.path().join("refs").join(&b)).unwrap(), b"two");
+        let top = save_image(d.path(), "index.md", "jpg", b"x").unwrap();
+        assert!(d.path().join(&top).is_file());
+    }
+
+    #[test]
+    fn pasted_images_refuse_odd_types_empty_data_and_escapes() {
+        let d = TempDir::new("img-bad");
+        assert_eq!(save_image(d.path(), "a.md", "exe", b"x").unwrap_err().kind, "invalid_image");
+        assert_eq!(save_image(d.path(), "a.md", "png", b"").unwrap_err().kind, "invalid_image");
+        assert!(save_image(d.path(), "../a.md", "png", b"x").is_err());
     }
 
     #[test]

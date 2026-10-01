@@ -276,6 +276,33 @@ fn create_task_file(folder: String, rel: String) -> Result<String> {
     fsops::create_file(&p(&folder), &rel)
 }
 
+/// 클립보드에서 붙여넣은 이미지를 노트 옆에 저장한다. 돌려주는 값은 파일 이름뿐이다 —
+/// 노트와 같은 폴더이므로 마크다운에는 그 이름만 적으면 된다.
+///
+/// 본문은 JSON 이 아니라 **바이트 그대로** 받는다(`InvokeBody::Raw`). 스크린샷 한 장이
+/// 수 MB 라, 숫자 배열로 직렬화하면 IPC 로 넘기는 양만 몇 배가 된다. 그래서 나머지 인자는
+/// 머리글로 오고, 경로에 한글이 들어가므로 퍼센트 인코딩되어 있다.
+#[tauri::command]
+fn save_pasted_image(request: tauri::ipc::Request<'_>) -> Result<String> {
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err(AppError::new("invalid_image", "이미지 데이터가 바이트로 오지 않았습니다"));
+    };
+    let header = |key: &str| -> Result<String> {
+        let raw = request
+            .headers()
+            .get(key)
+            .and_then(|v| v.to_str().ok())
+            .ok_or_else(|| AppError::new("invalid_args", format!("{} 머리글이 없습니다", key)))?;
+        urlencoding::decode(raw)
+            .map(|v| v.into_owned())
+            .map_err(|e| AppError::new("invalid_args", e.to_string()))
+    };
+    let folder = header("x-cf-folder")?;
+    let note = header("x-cf-note")?;
+    let ext = header("x-cf-ext")?;
+    fsops::save_image(&p(&folder), &note, &ext, bytes)
+}
+
 #[tauri::command]
 fn create_task_dir(folder: String, rel: String) -> Result<String> {
     fsops::create_dir(&p(&folder), &rel)
@@ -669,6 +696,7 @@ pub fn run() {
             write_text_file,
             list_task_files,
             create_task_file,
+            save_pasted_image,
             create_task_dir,
             preview_delete,
             delete_task_path,

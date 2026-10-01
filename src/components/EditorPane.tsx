@@ -4,8 +4,10 @@ import { Box } from "../lib/ui";
 import { extOf, LANG, statusOf } from "../lib/design";
 import { fmValue, mdParse, splitFrontmatter } from "../lib/markdown";
 import { cutLine } from "../lib/editing";
+import { clipboardImage, insertOwnLine, resolveImageSrc } from "../lib/images";
 import { basename, joinPath } from "../lib/format";
 import { useStore, viewerFor, type TabMode } from "../store/useStore";
+import type { Block } from "../lib/markdown";
 import BrainstormPane, { BrainstormViewTabs } from "./BrainstormPane";
 import MarkdownView from "./MarkdownView";
 
@@ -124,6 +126,60 @@ export default function EditorPane() {
   const onEdit = (next: string) => {
     if (!tab) return;
     s.editDoc(tab.path, editingBodyOnly ? `---\n${fm}\n---\n${next}` : next);
+  };
+
+  /**
+   * 이미지 블록의 `<img src>`. 상대 경로는 **노트가 있는 폴더** 기준으로 풀고(`resolveImageSrc`),
+   * asset: 로 읽는다 — Vault 루트가 asset 스코프에 들어 있다(`lib.rs` 의 `allow_directory`).
+   */
+  const imageUrl = (b: Block): string | null => {
+    if (!tab) return null;
+    const ref = resolveImageSrc(tab.path, b.src, b.wiki);
+    if (ref.kind === "url") return ref.url;
+    if (ref.kind === "remote") return null;
+    return convertFileSrc(ref.kind === "abs" ? ref.path : joinPath(activeFolder, ref.path));
+  };
+
+  /**
+   * 마크다운 편집기에 이미지를 붙여넣었다. 파일을 노트 옆에 저장한 뒤 그 링크를 커서
+   * 자리에 **한 줄로** 넣는다(뷰어는 이미지만 있는 줄을 그림으로 그린다).
+   *
+   * 넣는 것은 `insertText` 로 웹뷰에 맡긴다 — 되돌리기(Ctrl+Z)가 네이티브 그대로 남고
+   * 값은 평소처럼 onChange 로 따라온다(Ctrl+X 와 같은 방식). 저장을 기다리는 사이에 다른
+   * 탭으로 옮겨 갔으면 커서가 없으므로 원래 노트의 끝에 붙인다.
+   */
+  const onPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    if (!tab || ext !== "md") return;
+    const img = clipboardImage(e.clipboardData);
+    if (!img) return;
+    e.preventDefault();
+    const el = e.currentTarget;
+    const path = tab.path;
+    void s.saveImage(path, img).then((md) => {
+      if (!md) return;
+      const st = useStore.getState();
+      if (st.ui.activeTab !== `text|${path}` || !el.isConnected) {
+        const cur = st.ui.docs[path];
+        if (cur) st.editDoc(path, insertOwnLine(cur.text, cur.text.length, cur.text.length, md).text);
+        return;
+      }
+      const from = el.selectionStart ?? el.value.length;
+      const to = el.selectionEnd ?? from;
+      const ins = insertOwnLine(el.value, from, to, md);
+      el.focus();
+      el.setSelectionRange(from, to);
+      let native = false;
+      try {
+        native = document.execCommand("insertText", false, ins.insert);
+      } catch {
+        native = false;
+      }
+      if (!native) {
+        onEdit(ins.text);
+        requestAnimationFrame(() => el.setSelectionRange(ins.caret, ins.caret));
+      }
+      requestAnimationFrame(() => showCaret(el));
+    });
   };
 
   const showCaret = (el: HTMLTextAreaElement) => {
@@ -382,7 +438,7 @@ export default function EditorPane() {
         <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", background: "#fff" }}>
           <PaneHeader
             label="마크다운 뷰어"
-            hint="체크박스 클릭 · 위키링크 활성"
+            hint="체크박스 클릭 · 이미지 붙여넣기(Ctrl+V)"
             action="텍스트로 편집"
             onAction={() => void s.setTabMode(tab.path, "md", "text")}
           />
@@ -394,6 +450,11 @@ export default function EditorPane() {
           <MarkdownView
             blocks={blocks}
             onToggle={(line) => void s.toggleTask(tab.path, split.bodyLine + line)}
+            imageUrl={imageUrl}
+            onImageWidth={(line, idx, w) =>
+              void s.setImageWidth(tab.path, split.bodyLine + line, idx, w)
+            }
+            onPasteImage={(img) => void s.appendImage(tab.path, img)}
           />
         </div>
       )}
@@ -498,6 +559,7 @@ export default function EditorPane() {
             value={editorValue}
             onChange={(e) => onEdit(e.target.value)}
             onKeyDown={onCut}
+            onPaste={onPaste}
             onKeyUp={onCaret}
             onClick={onCaret}
             spellCheck={false}
