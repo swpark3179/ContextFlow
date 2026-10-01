@@ -17,10 +17,14 @@ import { useAi } from "../store/aiStore";
 /**
  * AI 기반 유사 업무 추천.
  *
- * 성공하면 `RecommendResult`(engine = 에이전트 id), 어느 단계든 실패하면 `null` 을 돌려
+ * 성공하면 `{ result }`(engine = 에이전트 id), 어느 단계든 실패하면 `{ reason }` 을 돌려
  * 호출부가 로컬 유사도로 폴백하게 한다. **여기서 예외를 던지지 않는다** — AI 는 추천의
  * 부가 기능이고, 실패가 새 업무 추가 흐름을 막아서는 안 된다.
+ *
+ * 사유를 돌려주는 이유: 예전에는 콘솔에만 남겨 화면에는 "AI 추천 실패로 대체" 만 떴다.
+ * 잘림과 형식 위반과 연결 실패는 사용자가 할 수 있는 조치가 각각 다르다.
  */
+export type AiRecommendOutcome = { result: RecommendResult } | { reason: string };
 
 /** 화면에 낼 카드 수. 로컬 엔진의 기본값과 같다. */
 const MAX_ITEMS = 3;
@@ -63,14 +67,14 @@ async function shortlist(input: AiRecommendInput): Promise<RecCandidate[]> {
   return picked;
 }
 
-export async function aiRecommend(input: AiRecommendInput): Promise<RecommendResult | null> {
+export async function aiRecommend(input: AiRecommendInput): Promise<AiRecommendOutcome> {
   const { active, query, threshold } = input;
   const agentName =
     useAi.getState().detected[active.agentId]?.name ?? active.agentId;
 
   try {
     const candidates = await shortlist(input);
-    if (candidates.length === 0) return null;
+    if (candidates.length === 0) return { reason: "로컬 유사도로 걸리는 후보가 없어 AI 에게 묻지 않았습니다" };
 
     const ai = useAi.getState();
     const systemPrompt = buildSystemPrompt();
@@ -90,7 +94,7 @@ export async function aiRecommend(input: AiRecommendInput): Promise<RecommendRes
     };
 
     let run = await runWithRetry({ ...base, prompt });
-    if (!run.ok && !run.text.trim()) return null;
+    if (!run.ok && !run.text.trim()) return { reason: run.error ?? "응답이 비어 있습니다" };
 
     let parsed = parseRecommend(run.text, candidates, MAX_ITEMS);
 
@@ -124,11 +128,11 @@ export async function aiRecommend(input: AiRecommendInput): Promise<RecommendRes
       ? `${agentName} · 응답이 잘려 뒤쪽 항목 일부가 빠졌습니다`
       : `${agentName} · ${active.model || "기본 모델"}`;
 
-    return { engine: active.agentId, note, items: parsed.items };
+    return { result: { engine: active.agentId, note, items: parsed.items } };
   } catch (e) {
-    // 폴백 사유는 호출부가 로컬 note 뒤에 붙일 수 있도록 콘솔에만 남긴다. 토스트로
-    // 띄우면 오프라인에서 업무를 추가할 때마다 경고가 뜬다.
+    // 사유는 호출부가 로컬 note 뒤에 붙인다. 토스트로 띄우면 오프라인에서 업무를 추가할
+    // 때마다 경고가 뜬다.
     console.warn(`[contextflow] ${agentName} 추천 실패 — 로컬 유사도로 대체:`, e);
-    return null;
+    return { reason: api.errMessage(e) };
   }
 }

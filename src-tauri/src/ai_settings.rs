@@ -138,6 +138,11 @@ pub const HOOKS: [&str; 1] = ["recommend.rank"];
 /// 훅 하나에 붙일 수 있는 팩 수. 프롬프트가 무한정 길어지는 것을 막는 1차 방어선이다.
 pub const MAX_PACKS_PER_HOOK: usize = 5;
 
+/// 기능별 연결을 고를 수 있는 기능. 추천은 여기 없다 — 추천은 `active`(기본 연결) 그 자체다.
+///
+/// 위키 질의와 점검은 한 연결을 같이 쓴다(둘 다 위키를 읽고 답하는 일이라 모델 성격이 같다).
+pub const ROUTES: [&str; 2] = ["wiki.ingest", "wiki.query"];
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct AiSettings {
@@ -153,9 +158,15 @@ pub struct AiSettings {
     /// FabriX 연결. `None` 이면 미설정.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fabrix: Option<FabrixConfig>,
-    /// 추천에 쓸 연결.
+    /// 기본 연결 — 추천이 쓰고, 기능별 연결을 고르지 않은 기능도 이것을 따른다.
     #[serde(default)]
     pub active: ActiveChoice,
+    /// 기능별 연결(`ROUTES`). 키가 없으면 그 기능은 `active` 를 따른다.
+    ///
+    /// 위키 반영처럼 긴 입력을 오래 쓰는 일과 추천처럼 짧게 판단하는 일은 알맞은 모델이
+    /// 다르다 — 값싼 모델을 반영에, 좋은 모델을 질의에 두는 식으로 나눠 쓸 수 있게 한다.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub routes: HashMap<String, ActiveChoice>,
 }
 
 impl AiSettings {
@@ -173,6 +184,28 @@ impl AiSettings {
                 self.agents.remove(id);
             }
         }
+    }
+
+    /// 기능별 연결을 지정(`Some`)하거나 해제(`None` · 빈 agent_id)한다.
+    pub fn set_route(&mut self, feature: &str, choice: Option<ActiveChoice>) -> Result<(), String> {
+        if !ROUTES.contains(&feature) {
+            return Err(format!("알 수 없는 기능입니다: {feature}"));
+        }
+        match choice.filter(|c| !c.agent_id.trim().is_empty()) {
+            Some(c) => {
+                self.routes.insert(
+                    feature.to_string(),
+                    ActiveChoice {
+                        agent_id: c.agent_id.trim().to_string(),
+                        model: c.model.trim().to_string(),
+                    },
+                );
+            }
+            None => {
+                self.routes.remove(feature);
+            }
+        }
+        Ok(())
     }
 
     /// 한 훅의 팩 목록을 통째로 교체한다.
@@ -224,6 +257,9 @@ pub fn load(root: &Path) -> AiSettings {
             // 은퇴한 훅에 배선이 남아 있으면 여기서 걷어낸다. 남겨 두면 설정 화면에
             // 뜨지도, 지울 수도 없는 죽은 배선이 되고 다음 저장이 그것을 다시 써 넣는다.
             s.prompts.hooks.retain(|k, _| HOOKS.contains(&k.as_str()));
+            // 기능별 연결도 같은 이유로 모르는 키와 빈 연결을 걷어낸다.
+            s.routes
+                .retain(|k, v| ROUTES.contains(&k.as_str()) && !v.agent_id.trim().is_empty());
             s
         }
         Err(err) => {
@@ -342,6 +378,32 @@ mod tests {
         s.fabrix = Some(g.clone());
         save(&root, &s).unwrap();
         assert_eq!(load(&root).fabrix, Some(g));
+    }
+
+    #[test]
+    fn routes_validate_round_trip_and_prune() {
+        let mut s = AiSettings::default();
+        assert!(s.set_route("wiki.nope", None).is_err());
+        let pick = |a: &str| Some(ActiveChoice { agent_id: a.into(), model: " m ".into() });
+        s.set_route("wiki.ingest", pick("fabrix")).unwrap();
+        assert_eq!(s.routes["wiki.ingest"].model, "m");
+        // 빈 연결은 "기본 연결 따름" — 키 자체를 지운다.
+        s.set_route("wiki.query", pick("claude")).unwrap();
+        s.set_route("wiki.query", pick("  ")).unwrap();
+        assert!(!s.routes.contains_key("wiki.query"));
+
+        let root = tmp_root("routes");
+        save(&root, &s).unwrap();
+        assert_eq!(load(&root), s);
+
+        fs::write(
+            file_path(&root),
+            r#"{"routes":{"wiki.ingest":{"agentId":"aipro","model":"x"},"old.feature":{"agentId":"a","model":""},"wiki.query":{"agentId":"","model":""}}}"#,
+        )
+        .unwrap();
+        let loaded = load(&root);
+        assert_eq!(loaded.routes.len(), 1);
+        assert_eq!(loaded.routes["wiki.ingest"].agent_id, "aipro");
     }
 
     #[test]

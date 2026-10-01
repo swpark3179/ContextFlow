@@ -563,6 +563,9 @@ let toastSeq = 0;
 let saveTimer: number | undefined;
 let recTimer: number | undefined;
 
+/** `runRecommend` 의 실행 번호. 마지막으로 시작한 실행의 결과만 화면에 남긴다. */
+let recommendSeq = 0;
+
 export const useStore = create<State & Actions>((set, get) => ({
   ready: false,
   bootError: "",
@@ -1505,6 +1508,10 @@ export const useStore = create<State & Actions>((set, get) => ({
   // -------------------------------------------------------------------------
 
   runRecommend: async () => {
+    // 늦게 끝난 이전 실행이 새 결과를 덮어쓰지 않게 한다 — AI 경로는 몇 초씩 걸리고, 그
+    // 사이에 사용자가 제목을 더 쳐서 새 실행이 시작될 수 있다.
+    const seq = ++recommendSeq;
+    const stale = () => seq !== recommendSeq;
     const { nt, settings, tasks } = get();
     const query = `${nt.title} ${nt.summary}`.trim();
     if (nt.title.trim().length < 2) {
@@ -1526,9 +1533,10 @@ export const useStore = create<State & Actions>((set, get) => ({
     try {
       local = await api.recommendTasks(query, candidates, settings.threshold);
     } catch (e) {
-      set({ ntRecs: [], ntLoading: false, ntNote: api.errMessage(e) });
+      if (!stale()) set({ ntRecs: [], ntLoading: false, ntNote: api.errMessage(e) });
       return;
     }
+    if (stale()) return;
 
     const active = activeRun(useAi.getState());
     if (!active) {
@@ -1546,15 +1554,18 @@ export const useStore = create<State & Actions>((set, get) => ({
     set({ ntRecs: local.items, ntEngine: active.agentId, ntNote: "AI 추천 중…" });
 
     const ai = await aiRecommend({ active, query, candidates, threshold: settings.threshold });
-    if (ai) {
-      set({ ntRecs: ai.items, ntLoading: false, ntEngine: ai.engine, ntNote: ai.note });
+    if (stale()) return;
+    if ("result" in ai) {
+      const r = ai.result;
+      set({ ntRecs: r.items, ntLoading: false, ntEngine: r.engine, ntNote: r.note });
     } else {
-      // 폴백. 이미 손에 있는 로컬 결과를 그대로 쓰고 사유만 덧붙인다.
+      // 폴백. 이미 손에 있는 로컬 결과를 그대로 쓰고 사유를 덧붙인다 — 잘림 · 형식 위반 ·
+      // 연결 실패는 사용자가 할 수 있는 조치가 각각 다르다.
       set({
         ntRecs: local.items,
         ntLoading: false,
         ntEngine: local.engine,
-        ntNote: `${local.note} · AI 추천 실패로 대체`,
+        ntNote: `${local.note} · AI 추천 실패로 대체 — ${ai.reason}`,
       });
     }
   },

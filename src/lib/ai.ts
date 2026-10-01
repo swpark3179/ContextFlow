@@ -119,12 +119,34 @@ export interface ActiveChoice {
   model: string;
 }
 
+/**
+ * 기능별 연결을 따로 고를 수 있는 기능 — Rust `ai_settings::ROUTES` 와 1:1.
+ * 추천은 여기 없다: 추천이 쓰는 것이 곧 기본 연결(`active`)이다.
+ */
+export type AiFeature = "wiki.ingest" | "wiki.query";
+
+export const AI_FEATURES: { id: AiFeature; label: string; note: string }[] = [
+  {
+    id: "wiki.ingest",
+    label: "위키 반영",
+    note: "완료한 업무를 읽어 위키 페이지를 쓰는 일 — 입력이 길고 출력도 길다",
+  },
+  {
+    id: "wiki.query",
+    label: "위키 질의 · 점검",
+    note: "위키 페이지를 읽고 답하거나 모순을 찾는 일",
+  },
+];
+
 export interface AiSettings {
   agents: Record<string, AgentConfig>;
   prompts?: PromptConfig | null;
   aipro?: AiProConfig | null;
   fabrix?: FabrixConfig | null;
+  /** 기본 연결 — 추천이 쓰고, 기능별 연결을 고르지 않은 기능도 이것을 따른다. */
   active: ActiveChoice;
+  /** 기능별 연결. 키가 없으면 그 기능은 `active` 를 따른다. */
+  routes?: Partial<Record<AiFeature, ActiveChoice>>;
 }
 
 /** `~/.contextflow/prompts/` 에서 읽어 온 프롬프트 팩 (Rust `prompts::PromptPack` 미러). */

@@ -328,6 +328,9 @@ export const setFabrixConfig = (config: FabrixConfig | null) =>
   invoke<AiSettings>("set_fabrix_config", { config });
 export const setActiveAi = (agentId: string, model: string) =>
   invoke<AiSettings>("set_active_ai", { agentId, model });
+/** 빈 `agentId` = 지정 해제(기본 연결을 따른다). */
+export const setAiRoute = (feature: string, agentId: string, model: string) =>
+  invoke<AiSettings>("set_ai_route", { feature, agentId, model });
 
 export const probeAiPro = () => invoke<string>("probe_aipro");
 export const probeFabrix = () => invoke<string>("probe_fabrix");

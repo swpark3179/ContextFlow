@@ -667,6 +667,16 @@ fn set_fabrix_config(config: Option<FabrixConfig>) -> AiResult<AiSettings> {
     Ok(s)
 }
 
+/// 기능별 연결. 빈 `agent_id` 는 지정 해제 — 그 기능은 기본 연결을 따른다.
+#[tauri::command]
+fn set_ai_route(feature: String, agent_id: String, model: String) -> AiResult<AiSettings> {
+    let root = app_home()?;
+    let mut s = ai_settings::load(&root);
+    s.set_route(&feature, Some(ai_settings::ActiveChoice { agent_id, model }))?;
+    ai_settings::save(&root, &s)?;
+    Ok(s)
+}
+
 #[tauri::command]
 fn search_full_text(root: String, query: String) -> Result<Vec<vault::SearchHit>> {
     let root = p(&root);
@@ -738,6 +748,7 @@ pub fn run() {
             set_aipro_config,
             set_fabrix_config,
             set_active_ai,
+            set_ai_route,
             set_prompt_hook,
             daylog::day_entries,
             daylog::day_index,

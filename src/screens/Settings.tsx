@@ -4,7 +4,7 @@ import { VIOLET } from "../lib/design";
 import { OptionCard } from "../modals/Modal";
 import { useStore, type Settings as S } from "../store/useStore";
 import * as api from "../lib/api";
-import ActiveAiCard from "./settings/ActiveAiCard";
+import AiRoutesCard from "./settings/AiRoutesCard";
 import AiProCard from "./settings/AiProCard";
 import FabrixCard from "./settings/FabrixCard";
 import LocalCliCard from "./settings/LocalCliCard";
@@ -253,7 +253,7 @@ export default function Settings() {
         <LocalCliCard id="codex" />
         <AiProCard />
         <FabrixCard />
-        <ActiveAiCard />
+        <AiRoutesCard />
         <PromptPacksCard />
 
         {/* 추천 임계값 --------------------------------------------------- */}
