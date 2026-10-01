@@ -16,10 +16,10 @@ mod shell;
 mod snapshot;
 mod sse;
 mod vault;
+mod wiki;
 
 use agents::AgentKind;
 use ai_settings::{AiProConfig, AiSettings, FabrixConfig};
-use chrono::NaiveDate;
 use detect::{AgentInfo, DetectedAgent};
 use error::{AppError, Result};
 use serde_json::Value;
@@ -454,25 +454,12 @@ fn create_template_from_folder(
     Ok(path.to_string_lossy().replace('\\', "/"))
 }
 
-/// Mirrors the frontend's archive rule so the MOC matches what the app shows.
-fn is_archived(t: &vault::TaskMeta, archive_days: i64) -> bool {
-    if let Some(flag) = t.archived {
-        return flag;
-    }
-    if archive_days <= 0 || t.status != "completed" {
-        return false;
-    }
-    let Some(done) = t.completed_at.as_deref() else { return false };
-    let Ok(date) = NaiveDate::parse_from_str(done, "%Y-%m-%d") else { return false };
-    (chrono::Local::now().date_naive() - date).num_days() >= archive_days
-}
-
 #[tauri::command]
 fn write_archive_moc(root: String, archive_days: i64) -> Result<String> {
     let root = p(&root);
     let tasks = vault::scan(&root)?;
     let archived: Vec<vault::TaskMeta> =
-        tasks.into_iter().filter(|t| is_archived(t, archive_days)).collect();
+        tasks.into_iter().filter(|t| vault::is_archived(t, archive_days)).collect();
     let path = vault::write_archive_moc(&root, &archived)?;
     Ok(path.to_string_lossy().replace('\\', "/"))
 }
@@ -764,6 +751,14 @@ pub fn run() {
             fabrix::probe_fabrix,
             run::run_agent,
             run::cancel_run,
+            wiki::wiki_init,
+            wiki::wiki_status,
+            wiki::wiki_read_source,
+            wiki::wiki_read_pages,
+            wiki::wiki_search,
+            wiki::wiki_apply,
+            wiki::wiki_relink,
+            wiki::wiki_lint_local,
         ])
         .run(tauri::generate_context!())
         .expect("error while running ContextFlow");
