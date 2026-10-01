@@ -56,25 +56,52 @@ pub struct AiProConfig {
 }
 
 /// FabriX 연결 설정 — 인증이 커스텀 헤더 두 개다(AI Pro 의 Bearer 하나와 대비).
+///
+/// FabriX 에는 **서로 다른 API 가 둘** 있다. 같은 헤더 이름을 쓰지만 기준 주소 · 경로 ·
+/// 모델 id 형식이 모두 달라서, 플래그 하나로 갈라 두고 경로 조립은 `fabrix.rs` 가 한다.
+///
+/// * `chat`(기본) — 네이티브 채팅 API. `{base}/openapi/chat/v1/messages` · `/all-models`.
+/// * `openai` — LLM 게이트웨이(OpenAI 호환, vLLM). `{base}/chat/completions` · `/v1/models`,
+///   모델은 본문이 아니라 `x-llm-model-id` 헤더로 고른다. 바탕화면 FabrixSample 이 이쪽이다.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct FabrixConfig {
-    /// 기준 엔드포인트. `/openapi/chat/v1/...` 는 `fabrix.rs` 가 덧붙인다.
+    /// 기준 엔드포인트. 경로는 `fabrix.rs` 가 방식에 맞춰 덧붙인다.
     #[serde(default)]
     pub endpoint_url: String,
+    /// `"chat"` | `"openai"`. 비어 있으면 `chat` — 이 필드가 생기기 전의 ai.json 이 그대로
+    /// 읽혀야 한다.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub api_style: String,
     /// `x-fabrix-client` 헤더 값.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client: Option<String>,
-    /// `x-openapi-token` 헤더 값.
+    /// `x-openapi-token` 헤더 값. 게이트웨이 방식에서는 `Bearer ` 접두사가 필요한데,
+    /// 빠져 있으면 보낼 때 붙인다(저장된 값은 사용자가 적은 그대로 둔다).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub openapi_token: Option<String>,
+    /// `x-generative-ai-user-email` 헤더 값(선택). 네이티브 모델 조회 예시가 보낸다.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_email: Option<String>,
     #[serde(default)]
     pub allow_invalid_certs: bool,
     /// 출력 토큰 상한 **재정의**. 비어 있으면 호출자가 요청한 값을 쓴다.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_output_tokens: Option<u32>,
+    /// 마지막 성공 조회 캐시 — 백엔드 소유.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub models: Vec<ModelOption>,
+    /// 사용자가 직접 적은 모델 id — 프런트 소유(`AiProConfig::custom_models` 와 같은 규칙).
+    /// 모델 목록 조회가 막힌 환경의 탈출구이고, 있으면 조회 결과보다 우선한다.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub custom_models: Vec<ModelOption>,
+}
+
+impl FabrixConfig {
+    /// LLM 게이트웨이(OpenAI 호환) 방식인가. 그 밖의 값은 전부 네이티브 채팅 API 로 읽는다.
+    pub fn gateway(&self) -> bool {
+        self.api_style == "openai"
+    }
 }
 
 /// 프롬프트 팩을 어느 훅에 붙일지의 배선.
@@ -292,6 +319,29 @@ mod tests {
         s.active = ActiveChoice { agent_id: "aipro".into(), model: "glm-5.2".into() };
         save(&root, &s).unwrap();
         assert_eq!(load(&root), s);
+    }
+
+    /// 방식 필드가 생기기 전의 ai.json 은 네이티브 채팅 API 로 읽혀야 한다.
+    #[test]
+    fn fabrix_without_style_is_the_native_chat_api() {
+        let root = tmp_root("fabrix-legacy");
+        fs::write(
+            file_path(&root),
+            r#"{"fabrix":{"endpointUrl":"https://f.test","client":"c","openapiToken":"t"}}"#,
+        )
+        .unwrap();
+        let f = load(&root).fabrix.unwrap();
+        assert!(!f.gateway());
+        assert!(f.custom_models.is_empty() && f.user_email.is_none());
+
+        let mut g = f.clone();
+        g.api_style = "openai".into();
+        g.user_email = Some("me@corp.test".into());
+        g.custom_models = vec![ModelOption { id: "16".into(), label: "gpt-oss".into() }];
+        let mut s = AiSettings::default();
+        s.fabrix = Some(g.clone());
+        save(&root, &s).unwrap();
+        assert_eq!(load(&root).fabrix, Some(g));
     }
 
     #[test]

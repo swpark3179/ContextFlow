@@ -5,7 +5,7 @@
  * 옮겨 온 관례이므로 AI 카드도 같은 방식을 따른다.
  */
 import type { CSSProperties, ReactNode } from "react";
-import { Box, Input } from "../../lib/ui";
+import { Box, Input, TextArea } from "../../lib/ui";
 import { GREEN } from "../../lib/design";
 import type { DetectedAgent } from "../../lib/ai";
 import { DIAGNOSTIC_HINT, MODELS_SOURCE_LABEL } from "../../lib/ai";
@@ -199,6 +199,55 @@ export function TextField({
         focusStyle={inputFocus}
       />
     </Field>
+  );
+}
+
+/**
+ * `모델 직접 지정` textarea — AI Pro 와 FabriX 가 같은 형식(`id` 또는 `id | 표시이름`)을 쓴다.
+ * 파싱은 `parseModelLines`, 되돌리기는 `modelLines` (`src/lib/ai.ts`).
+ */
+export function CustomModelsField({
+  value,
+  onChange,
+  placeholder,
+  note,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+  note: string;
+}) {
+  return (
+    <Field label="모델 직접 지정 (선택)" note={note}>
+      <TextArea
+        rows={3}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        style={{
+          ...inputMono,
+          height: "auto",
+          width: "100%",
+          boxSizing: "border-box",
+          padding: "6px 9px",
+          lineHeight: 1.6,
+          resize: "vertical",
+        }}
+        focusStyle={inputFocus}
+      />
+    </Field>
+  );
+}
+
+/**
+ * 저장 버튼 옆의 "저장되지 않은 변경" 표시. 원격 카드는 입력을 초안으로 들고 있다가
+ * [저장] 에서 한 번에 보내므로, 고쳐 놓고 다른 카드로 넘어가면 그대로 사라진다 — 그 전에
+ * 눈에 띄게 한다.
+ */
+export function DirtyMark({ dirty }: { dirty: boolean }) {
+  if (!dirty) return null;
+  return (
+    <span style={{ ...HINT, color: "#b07520", alignSelf: "center" }}>● 저장되지 않은 변경</span>
   );
 }
 

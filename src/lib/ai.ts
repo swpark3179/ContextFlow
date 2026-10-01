@@ -18,7 +18,7 @@ export type AgentSource = "custom-path" | "path" | "not-found" | "remote";
  * 목록의 출처. `live` = 방금 조회 · `cache` = 지난 조회 · `custom` = 사용자가 직접 적은 id ·
  * `fallback` = 내장 정적 카탈로그.
  *
- * FabriX 는 `live` 와 `fallback` 만 쓴다(캐시도 `fallback` 로 묶는다).
+ * FabriX 는 내장 카탈로그가 없어 `fallback` 을 쓰지 않는다(`custom` · `live` · `cache`).
  */
 export type ModelsSource = "live" | "cache" | "custom" | "fallback";
 
@@ -85,15 +85,27 @@ export interface AiProConfig {
   customModels?: ModelOption[];
 }
 
+/**
+ * FabriX 의 두 API. 같은 헤더 이름을 쓰지만 기준 주소 · 경로 · 모델 id 형식이 모두 다르다
+ * (`src-tauri/src/fabrix.rs` 머리말 표). 빈 값은 `chat` 이다 — 이 필드가 생기기 전의 설정.
+ */
+export type FabrixApiStyle = "chat" | "openai";
+
 export interface FabrixConfig {
   endpointUrl: string;
+  apiStyle?: FabrixApiStyle | "";
   /** `x-fabrix-client` 헤더 */
   client?: string | null;
-  /** `x-openapi-token` 헤더 */
+  /** `x-openapi-token` 헤더. 게이트웨이 방식이면 `Bearer ` 가 없을 때 백엔드가 붙인다. */
   openapiToken?: string | null;
+  /** `x-generative-ai-user-email` 헤더(선택). */
+  userEmail?: string | null;
   allowInvalidCerts: boolean;
   maxOutputTokens?: number | null;
+  /** 백엔드 소유 캐시 — 보내지 않는다. */
   models?: ModelOption[];
+  /** 사용자가 직접 적은 모델 id — 프런트 소유라 저장할 때 반드시 실어 보낸다. */
+  customModels?: ModelOption[];
 }
 
 /** 프롬프트 팩 배선 — 훅 이름 → 적용 순서대로의 팩 파일명. */

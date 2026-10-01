@@ -628,6 +628,10 @@ fn set_aipro_config(config: Option<AiProConfig>) -> AiResult<AiSettings> {
 }
 
 /// FabriX 연결을 저장하거나(빈 엔드포인트면) 해제한다.
+///
+/// 모델 캐시는 연결을 가리키는 값이 **하나라도** 바뀌면 버린다. 특히 API 방식(`api_style`)은
+/// 플래그가 아니라 다른 서비스다 — 네이티브 API 의 모델 id 를 게이트웨이에 보내면 그대로
+/// 실패하므로, 예전 목록을 이월하면 선택기에 쓸 수 없는 모델이 남는다.
 #[tauri::command]
 fn set_fabrix_config(config: Option<FabrixConfig>) -> AiResult<AiSettings> {
     let root = app_home()?;
@@ -639,11 +643,17 @@ fn set_fabrix_config(config: Option<FabrixConfig>) -> AiResult<AiSettings> {
             c.endpoint_url = ai_settings::normalize_endpoint(&c.endpoint_url);
             c.client = ai_settings::normalize_secret(c.client);
             c.openapi_token = ai_settings::normalize_secret(c.openapi_token);
+            c.user_email = ai_settings::normalize_secret(c.user_email);
+            if c.api_style != "openai" {
+                c.api_style = String::new(); // 기본(chat)은 파일에 적지 않는다
+            }
             c.models = match &prev {
                 Some(p)
                     if p.endpoint_url == c.endpoint_url
+                        && p.api_style == c.api_style
                         && p.client == c.client
-                        && p.openapi_token == c.openapi_token =>
+                        && p.openapi_token == c.openapi_token
+                        && p.user_email == c.user_email =>
                 {
                     p.models.clone()
                 }
