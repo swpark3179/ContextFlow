@@ -704,6 +704,12 @@ export default function Sidebar() {
         }),
     },
     { label: "모두 펼치기", off: bulkOff, run: () => s.patchSettings({ catClosed: [] }) },
+    {
+      label: "카테고리 관리…",
+      line: true,
+      // 보고 있는 업무의 카테고리에서 연다 — 대개 그 묶음을 정리하려고 여는 것이다.
+      run: () => s.openCatMgr(keyOf(tasks.find((t) => t.folder === s.activeFolder)?.category ?? null)),
+    },
   ];
 
   const listRef = useRef<HTMLDivElement | null>(null);

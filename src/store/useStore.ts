@@ -8,9 +8,17 @@ import { setImageWidth, splitFrontmatter, toggleTaskLine } from "../lib/markdown
 import { rebaseIndexDoc } from "../lib/indexDoc";
 import {
   categoryErrorMessage,
+  isWithin,
+  keyOf,
   knownCategories,
+  label,
+  movePlan,
   normalizeCategory,
+  parentOf,
+  retarget,
+  revealKeys,
   snapToExisting,
+  UNCAT_LABEL,
 } from "../lib/category";
 import { imageMarkdown, insertOwnLine, relativeFromNote, type ClipImage } from "../lib/images";
 import {
@@ -322,6 +330,40 @@ export interface SplitState {
   error: string;
 }
 
+/** 경로 바꾸기 폼과 해제 폼. 해제의 `parent` 는 상위로 올리기, `none` 은 모두 미분류로다. */
+export type CatEdit =
+  | { mode: "path"; value: string; confirmMerge: boolean }
+  | { mode: "remove"; to: "parent" | "none"; confirmMerge: boolean };
+
+/**
+ * 카테고리 관리 대화상자 — 일괄 지정 · 경로 바꾸기 · 해제. 업무는 진행 · 보관을 함께 다룬다.
+ * `confirmMerge` 는 화면 미리보기와 달리 백엔드가 합치기라고 거절한 뒤다 — 버튼이 [합치기] 로 바뀐다.
+ */
+export interface CatMgrState {
+  /** 왼쪽 트리에서 고른 카테고리의 키(`keyOf`). `""` = 미분류. */
+  node: string;
+  scope: "live" | "all";
+  query: string;
+  /** 체크한 업무 폴더. 검색에 가려진 것도 남는다. */
+  sel: string[];
+  /** Shift+클릭의 기준 — 마지막으로 누른 업무 폴더. */
+  last: string | null;
+  /** 일괄 지정 입력칸 그대로의 값. */
+  target: string;
+  /** 일괄 지정에서 미분류를 골랐다 — 빈 입력과 가른다. */
+  targetNone: boolean;
+  busy: boolean;
+  edit: CatEdit | null;
+  /** 바꾸지 못한 업무. [다시 시도] 는 이 업무들만 다시 보낸다. */
+  failed: api.CategoryIssue[];
+  /** 다시 보낼 작업. 해제는 상위로 올리기도 해제로 다시 보낸다 — 알림 문구가 갈린다. */
+  retry:
+    | { kind: "move"; from: string; to: string | null }
+    | { kind: "clear"; from: string; mode: "parent" | "none" }
+    | { kind: "assign"; folders: string[]; category: string | null }
+    | null;
+}
+
 /** 업무 리스트를 끌어 옮기는 중. 탐색기의 `fileDrag` 와 같은 자리에 사는 이유도 같다. */
 export interface TaskDrag {
   /** 끌고 있는 업무의 폴더 경로. */
@@ -492,6 +534,7 @@ interface State {
   ren: RenameState | null;
   tplNew: TemplateDraft | null;
   openTpl: Record<string, boolean>;
+  catMgr: CatMgrState | null;
 }
 
 interface Actions {
@@ -520,6 +563,40 @@ interface Actions {
    * 못했으면 토스트를 띄우고 `false`.
    */
   setCategory: (folders: string[], category: string | null) => Promise<boolean>;
+
+  /** 카테고리 관리 대화상자를 연다. `node` 는 고를 카테고리의 키(미분류 `""`). */
+  openCatMgr: (node?: string, scope?: CatMgrState["scope"]) => void;
+  /** 왼쪽 트리에서 카테고리를 골랐다 — 선택과 열린 폼은 비운다. */
+  setCatNode: (node: string) => void;
+  /** 진행 중만 / 보관 포함 — 선택은 비운다. */
+  setCatScope: (scope: CatMgrState["scope"]) => void;
+  /** 검색어 — 선택은 남긴다(가려진 것도 지정된다). */
+  setCatQuery: (query: string) => void;
+  /**
+   * 업무 하나의 체크를 바꾼다. `shift` 면 `visible`(보이는 줄의 폴더, 위에서부터)에서 기준 줄부터
+   * 이 줄까지를 기준 줄의 상태로 맞춘다. 기준 줄이 보이지 않으면 그냥 누른 것이다.
+   */
+  toggleCatSel: (folder: string, shift: boolean, visible: string[]) => void;
+  /** 모두 선택 — 보이는 줄만. 이미 다 골랐으면 그 줄들을 푼다. */
+  toggleCatAll: (visible: string[]) => void;
+  /** 일괄 지정 입력칸. `none` = 미분류를 골랐다. */
+  setCatTarget: (text: string, none: boolean) => void;
+  /** 경로 바꾸기 · 해제 폼을 연다(`null` = 닫는다). */
+  setCatEdit: (edit: CatEdit | null) => void;
+  /** 고른 업무에 지정 입력칸의 카테고리를 붙인다. 성공한 업무만 선택에서 빠진다. */
+  applyCatMgr: () => Promise<void>;
+  /**
+   * 카테고리 `from`(키)의 경로를 `to` 로 바꾼다(`null` = 최상위로 올리기). 백엔드가 합치기라고
+   * 거절하면 폼의 `confirmMerge` 를 켠다. `only` 는 다시 시도할 업무 폴더다.
+   */
+  moveCategoryNode: (from: string, to: string | null, allowMerge: boolean, only?: string[]) => Promise<void>;
+  /** 카테고리 `from` 을 해제한다 — `parent` 는 상위로 올리기, `none` 은 모두 미분류로. */
+  clearCategoryNode: (from: string, mode: "parent" | "none", only?: string[]) => Promise<void>;
+  /**
+   * 바꾸지 못한 업무만 같은 작업으로 다시 보낸다. 경로 바꾸기 · 상위로 올리기는 이미 확정한 이동이라
+   * 합치기를 허락한다.
+   */
+  retryCatMgr: () => Promise<void>;
   peekArchived: (folder: string) => Promise<void>;
   closeArchived: () => void;
   closeTask: () => void;
@@ -727,6 +804,205 @@ async function writingMeta<T>(run: () => Promise<T>): Promise<T> {
   }
 }
 
+/**
+ * 업무들의 `category` 를 고쳐 쓴다(`null` = 해제) — 칩의 지정과 카테고리 관리의 일괄 지정이 함께
+ * 쓴다. 값이 잘못됐으면 아무것도 부르지 않고 문구를 던진다. 업무마다의 실패는 `failed` 로 온다.
+ */
+async function writeCategory(folders: string[], category: string | null): Promise<api.CategoryChange> {
+  const { settings, tasks, activeFolder, saveAll } = useStore.getState();
+  // 바꾸는 업무 자신의 철자는 세지 않는다 — 세면 `proj` → `Proj` 처럼 대소문자만 고칠 수 없다.
+  const cat = categoryInput(category ?? "", tasks.filter((t) => !folders.includes(t.folder)));
+  if (cat.error) throw cat.error;
+  // 고치던 글을 먼저 내려쓴다. 그 뒤에 디스크에 맞추므로(`resyncIndexDocs`) 이번에
+  // 바뀌는 것은 frontmatter 의 한 줄뿐이다.
+  if (folders.includes(activeFolder)) await saveAll();
+  return writingMeta(async () => {
+    const res = await api.setTaskCategory(settings.vault, folders, cat.value);
+    useStore.setState({ tasks: res.tasks });
+    await useStore.getState().resyncIndexDocs(res.changed);
+    return res;
+  });
+}
+
+/** 열려 있을 때만 카테고리 관리 상태를 고친다 — 기다리는 사이에 대화상자가 닫혔을 수 있다. */
+function patchCatMgr(patch: Partial<CatMgrState> | ((m: CatMgrState) => Partial<CatMgrState>)): void {
+  useStore.setState((s) =>
+    s.catMgr ? { catMgr: { ...s.catMgr, ...(typeof patch === "function" ? patch(s.catMgr) : patch) } } : {},
+  );
+}
+
+/** 일괄 지정과 그 다시 시도. 결과는 목록 자체라 토스트를 띄우지 않는다. */
+async function assignCategory(folders: string[], category: string | null): Promise<void> {
+  patchCatMgr({ busy: true });
+  try {
+    const res = await writeCategory(folders, category);
+    const failed = res.failed.map((f) => f.folder);
+    // 지정된 업무만 선택에서 뺀다 — 못 바꾼 업무는 골라 둔 채로 다시 시도할 수 있게.
+    patchCatMgr((m) => ({
+      sel: m.sel.filter((f) => failed.includes(f) || !folders.includes(f)),
+      failed: res.failed,
+      retry: failed.length ? { kind: "assign", folders: failed, category } : null,
+    }));
+  } catch (e) {
+    useStore.getState().fail(e, "카테고리를 지정하지 못했습니다");
+  } finally {
+    patchCatMgr({ busy: false });
+  }
+}
+
+/**
+ * 카테고리 `from` 의 업무가 옮겨 간 뒤의 화면 상태 — 보관함 거르기와 관리 대화상자의 노드(`patch`),
+ * 업무 리스트의 접힘(`closed`, 그대로면 `null`)을 새 키로 따라 옮긴다. `next` 는 서브트리 키의 새 키
+ * (미분류 `""`), `before` 는 작업 전에 있던 노드의 키, `tasks` 는 작업 뒤의 업무 목록이다. `none` 은
+ * 모두 미분류로 — 노드도 거르기도 업무가 간 미분류로 옮긴다.
+ *
+ * 접힘은 이미 있던 노드로 합쳐지면 버린다 — 그 노드의 접힘은 그 노드 자신의 것이다. 키가 그대로인
+ * 것(대소문자만 고침)은 같은 노드라 남긴다. 못 옮긴 업무가 있어 옛 노드가 남았으면 그 접힘도 남긴다.
+ */
+function followMove(
+  s: State,
+  from: string,
+  next: (key: string) => string,
+  before: Set<string>,
+  tasks: TaskMeta[],
+  none: boolean,
+): { patch: Partial<State>; closed: string[] | null } {
+  const moved = (k: string | null): k is string => k !== null && isWithin(k, from);
+  const left = new Set(tasks.flatMap((t) => revealKeys(t.category)));
+  const cur = s.settings.catClosed;
+  const closed = [
+    ...new Set(
+      cur.flatMap((k) => {
+        if (!moved(k)) return [k];
+        const n = next(k);
+        const kept = left.has(k) ? [k] : [];
+        return n === k || (n && !before.has(n)) ? [...kept, n] : kept;
+      }),
+    ),
+  ];
+  const same = closed.length === cur.length && closed.every((k, i) => k === cur[i]);
+  const mgr = s.catMgr;
+  const fallback = none ? "" : (parentOf(from) ?? "");
+  const node = mgr && moved(mgr.node) ? next(mgr.node) || fallback : null;
+  return {
+    patch: {
+      ...(moved(s.archCat) && { archCat: next(s.archCat) || (none ? "" : null) }),
+      // 노드가 바뀌면 선택을 비운다 — 고른 줄이 다른 목록의 것이 된다.
+      ...(mgr && node !== null && node !== mgr.node && { catMgr: { ...mgr, node, sel: [], last: null } }),
+    },
+    closed: same ? null : closed,
+  };
+}
+
+/** 백엔드가 훑을 때 읽지 못해 목록에서 빠진 업무의 사유 — 실패로 오지 않으니 화면이 적는다. */
+const SKIPPED = "읽지 못해 건너뛰었습니다 — 파일을 닫고 다시 시도하세요";
+
+/**
+ * 경로 바꾸기(`move`) · 상위로 올리기(`parent`) · 모두 미분류로(`none`). 바뀔 업무는 백엔드가 새로
+ * 훑어 고른다 — 화면의 목록은 낡았을 수 있다. 실패한 업무는 토스트 대신 대화상자의 목록에 남는다.
+ */
+async function changeCategoryNode(
+  from: string,
+  op: { kind: "move" | "parent"; to: string | null; allowMerge: boolean } | { kind: "none" },
+  only?: string[],
+): Promise<void> {
+  const st = useStore.getState();
+  if (st.catMgr?.busy) return;
+  const { vault, archDays } = st.settings;
+  const title = op.kind === "move" ? "카테고리를 바꾸지 못했습니다" : "카테고리를 해제하지 못했습니다";
+  let to: string | null = null;
+  let allowMerge = false;
+  if (op.kind !== "none") {
+    const plan = movePlan(st.tasks, from, op.to, (t) => isArchived(t, archDays));
+    if (plan.invalid) return st.fail(plan.invalid, title);
+    to = plan.value;
+    // 해제 폼에는 [합치기] 버튼이 없다 — 미리보기의 합치기 경고를 보고 누른 것이 곧 허락이다.
+    allowMerge = op.allowMerge || (op.kind === "parent" && plan.merge !== null);
+  }
+  // 보낼 업무. 다시 시도는 실패 목록 그대로다 — 읽지 못한 노트는 이미 `tasks` 에서 빠졌다.
+  const planned: { folder: string; title: string }[] = only
+    ? (st.catMgr?.failed ?? []).filter((f) => only.includes(f.folder))
+    : st.tasks.filter((t) => isWithin(t.category, from));
+  patchCatMgr({ busy: true });
+  try {
+    // 고치던 글을 먼저 내려쓴다(`writeCategory` 와 같다). 바뀔 업무는 백엔드가 고르니 서브트리로 가늠한다.
+    const active = st.tasks.find((t) => t.folder === st.activeFolder);
+    if (active && isWithin(active.category, from)) await st.saveAll();
+    const known = knownCategories(useStore.getState().tasks);
+    const before = new Set(known.map((n) => n.key));
+    const next = (key: string) => {
+      if (op.kind === "none") return "";
+      const r = retarget(key, from, to);
+      return r && !r.error ? keyOf(r.value) : "";
+    };
+    const res = await writingMeta(async () => {
+      const res =
+        op.kind === "none"
+          ? await api.clearCategory(vault, from, only)
+          : await api.moveCategory(vault, from, to, allowMerge, only);
+      // 업무와 **같은 틱에** 옮긴다 — 사이에 그려지면 트리 · 보관함이 사라진 키를 보고 접힘과
+      // 거르기를 놓아 버린다. 하나도 못 바꿨으면 노드는 제자리라 따라가지 않는다.
+      if (!res.changed.length) useStore.setState({ tasks: res.tasks });
+      else {
+        const { patch, closed } = followMove(useStore.getState(), from, next, before, res.tasks, op.kind === "none");
+        useStore.setState({ tasks: res.tasks, ...patch });
+        if (closed) st.patchSettings({ catClosed: closed });
+      }
+      await useStore.getState().resyncIndexDocs(res.changed);
+      return res;
+    });
+    // 백엔드는 읽지 못한 노트를 목록에서 뺄 뿐 실패로 내지 않는다 — 옛 카테고리로 남으니 실패로 적어
+    // [다시 시도] 가 함께 보내게 한다.
+    const seen = new Set([...res.changed, ...res.failed.map((f) => f.folder), ...res.tasks.map((t) => t.folder)]);
+    const failed = [
+      ...res.failed,
+      ...planned.filter((t) => !seen.has(t.folder)).map(({ folder, title }) => ({ folder, title, reason: SKIPPED })),
+    ];
+    patchCatMgr({
+      edit: null,
+      failed,
+      retry: !failed.length
+        ? null
+        : op.kind === "move"
+          ? { kind: "move", from, to }
+          : { kind: "clear", from, mode: op.kind },
+    });
+
+    const n = res.changed.length;
+    if (!n) {
+      if (!failed.length) st.toast("바꿀 업무가 없습니다", "", TOAST.muted);
+      return;
+    }
+    const kept = res.tasks.filter((t) => res.changed.includes(t.folder) && isArchived(t, archDays)).length;
+    const count = `업무 ${n}건${kept ? `(보관 ${kept})` : ""}`;
+    const was = `‘${label(known.find((k) => k.key === from)?.path ?? from)}’`;
+    const now = op.kind === "none" ? UNCAT_LABEL : to === null ? "최상위" : `‘${label(to)}’`;
+    st.toast(
+      op.kind !== "move"
+        ? "카테고리를 해제했습니다"
+        : allowMerge && !only
+          ? "카테고리를 합쳤습니다"
+          : "카테고리를 바꿨습니다",
+      `${was} → ${now} · ${count}`,
+      TOAST.ok,
+    );
+  } catch (e) {
+    // 화면 미리보기와 달리 백엔드가 합치기를 찾았다 — 폼의 버튼을 [합치기] 로 바꿔 다시 묻는다.
+    if (api.errKind(e) === "already_exists" && useStore.getState().catMgr?.edit) {
+      patchCatMgr((m) => ({ edit: m.edit && { ...m.edit, confirmMerge: true } }));
+    } else {
+      st.fail(e, title);
+      // 몇 건을 쓴 뒤에 멈췄을 수 있다 — 디스크에서 다시 읽고 폼을 닫아, 낡은 미리보기로 같은 작업을
+      // 다시 보내지 않게 한다. 열린 index.md 도 맞춘다 — 낡은 버퍼가 고쳐 쓴 줄을 되돌리지 않게.
+      patchCatMgr({ edit: null });
+      await useStore.getState().reloadVault("list");
+      await useStore.getState().resyncIndexDocs(planned.map((t) => t.folder));
+    }
+  } finally {
+    patchCatMgr({ busy: false });
+  }
+}
+
 /** `runRecommend` 의 실행 번호. 마지막으로 시작한 실행의 결과만 화면에 남긴다. */
 let recommendSeq = 0;
 
@@ -795,6 +1071,7 @@ export const useStore = create<State & Actions>((set, get) => ({
   ren: null,
   tplNew: null,
   openTpl: {},
+  catMgr: null,
 
   set: (patch) => set(patch as Partial<State>),
 
@@ -1150,26 +1427,8 @@ export const useStore = create<State & Actions>((set, get) => ({
    * 작업이 아니라서 오늘의 한일에도 올리지 않는다. 바뀐 칩이 곧 결과라 성공은 알리지 않는다.
    */
   setCategory: async (folders, category) => {
-    const { settings, activeFolder } = get();
-    // 바꾸는 업무 자신의 철자는 세지 않는다 — 세면 `proj` → `Proj` 처럼 대소문자만 고칠 수 없다.
-    const cat = categoryInput(
-      category ?? "",
-      get().tasks.filter((t) => !folders.includes(t.folder)),
-    );
-    if (cat.error) {
-      get().fail(cat.error, "카테고리를 지정하지 못했습니다");
-      return false;
-    }
     try {
-      // 고치던 글을 먼저 내려쓴다. 그 뒤에 디스크에 맞추므로(`resyncIndexDocs`) 이번에
-      // 바뀌는 것은 frontmatter 의 한 줄뿐이다.
-      if (folders.includes(activeFolder)) await get().saveAll();
-      const res = await writingMeta(async () => {
-        const res = await api.setTaskCategory(settings.vault, folders, cat.value);
-        set({ tasks: res.tasks });
-        await get().resyncIndexDocs(res.changed);
-        return res;
-      });
+      const res = await writeCategory(folders, category);
       if (res.failed.length) {
         // 파일이 잠겨 있으면(OneDrive · 백신) 그 업무만 빠진다 — 화면에서는 티가 나지 않는다.
         const [first] = res.failed;
@@ -1187,6 +1446,76 @@ export const useStore = create<State & Actions>((set, get) => ({
       get().fail(e, "카테고리를 지정하지 못했습니다");
       return false;
     }
+  },
+
+  openCatMgr: (node = "", scope = "live") =>
+    set({
+      catMgr: {
+        node,
+        scope,
+        query: "",
+        sel: [],
+        last: null,
+        target: "",
+        targetNone: false,
+        busy: false,
+        edit: null,
+        failed: [],
+        retry: null,
+      },
+    }),
+  setCatNode: (node) =>
+    patchCatMgr((m) => (m.node === node ? {} : { node, sel: [], last: null, edit: null })),
+  setCatScope: (scope) => patchCatMgr((m) => (m.scope === scope ? {} : { scope, sel: [], last: null })),
+  setCatQuery: (query) => patchCatMgr({ query }),
+  toggleCatSel: (folder, shift, visible) =>
+    patchCatMgr((m) => {
+      const a = shift && m.last !== null ? visible.indexOf(m.last) : -1;
+      const b = visible.indexOf(folder);
+      if (a < 0 || b < 0) {
+        const sel = m.sel.includes(folder) ? m.sel.filter((f) => f !== folder) : [...m.sel, folder];
+        return { sel, last: folder };
+      }
+      // 기준 줄이 누른 뒤의 상태로 범위를 맞춘다 — 켜 둔 줄에서 시작하면 켜고, 끈 줄이면 끈다.
+      const range = visible.slice(Math.min(a, b), Math.max(a, b) + 1);
+      const rest = m.sel.filter((f) => !range.includes(f));
+      return { sel: m.sel.includes(m.last!) ? [...rest, ...range] : rest, last: folder };
+    }),
+  toggleCatAll: (visible) =>
+    patchCatMgr((m) => {
+      const rest = m.sel.filter((f) => !visible.includes(f));
+      return { sel: visible.every((f) => m.sel.includes(f)) ? rest : [...rest, ...visible] };
+    }),
+  setCatTarget: (target, targetNone) => patchCatMgr({ target, targetNone }),
+  setCatEdit: (edit) => patchCatMgr({ edit }),
+
+  applyCatMgr: async () => {
+    const m = get().catMgr;
+    if (!m || m.busy || !m.sel.length || (!m.targetNone && !m.target.trim())) return;
+    await assignCategory(m.sel, m.targetNone ? null : m.target);
+  },
+
+  moveCategoryNode: (from, to, allowMerge, only) =>
+    changeCategoryNode(from, { kind: "move", to, allowMerge }, only),
+
+  clearCategoryNode: async (from, mode, only) => {
+    if (mode === "none") return changeCategoryNode(from, { kind: "none" }, only);
+    // 상위의 표시 철자로 올린다 — 키(소문자)를 그대로 넘기면 옮긴 업무만 소문자 철자가 된다.
+    const up = parentOf(from);
+    const to = up && (knownCategories(get().tasks).find((n) => n.key === up)?.path ?? up);
+    // 다시 시도는 이미 확정한 이동이고, `confirmMerge` 는 백엔드가 찾은 합치기를 보고 다시 누른 것이다.
+    const allowMerge = !!only || !!get().catMgr?.edit?.confirmMerge;
+    return changeCategoryNode(from, { kind: "parent", to, allowMerge }, only);
+  },
+
+  retryCatMgr: async () => {
+    const m = get().catMgr;
+    if (!m?.retry || m.busy) return;
+    const only = m.failed.map((f) => f.folder);
+    if (m.retry.kind === "assign") return assignCategory(m.retry.folders, m.retry.category);
+    if (m.retry.kind === "clear") return get().clearCategoryNode(m.retry.from, m.retry.mode, only);
+    // 이미 확정한 이동이다 — 먼저 옮긴 업무가 목적지에 있어 합치기로 보인다.
+    return get().moveCategoryNode(m.retry.from, m.retry.to, true, only);
   },
 
   /**

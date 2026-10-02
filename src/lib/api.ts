@@ -244,6 +244,24 @@ export interface CategoryChange {
 export const setTaskCategory = (root: string, folders: string[], category: string | null) =>
   invoke<CategoryChange>("set_task_category", { root, folders, category });
 /**
+ * 카테고리 `from`(키 — 하위 포함)의 경로를 `to` 로 바꾼다(`null` = 최상위로 올리기). 쓰기 전에
+ * 전부 검사해 한 건이라도 규칙을 어기면 아무것도 쓰지 않는다. 이미 있는 카테고리와 합쳐지면
+ * `allowMerge` 없이는 `already_exists` 로 거절한다.
+ *
+ * `only` 는 다시 시도할 업무 폴더다 — 그 사이 카테고리가 바뀐 업무는 건너뛰므로, 이미 옮긴
+ * 업무를 두 번 옮기지 않는다.
+ */
+export const moveCategory = (
+  root: string,
+  from: string,
+  to: string | null,
+  allowMerge: boolean,
+  only?: string[],
+) => invoke<CategoryChange>("move_category", { root, from, to, allowMerge, only: only ?? null });
+/** 카테고리 `from`(키 — 하위 포함)의 업무를 모두 미분류로 돌린다. `only` 는 `moveCategory` 와 같다. */
+export const clearCategory = (root: string, from: string, only?: string[]) =>
+  invoke<CategoryChange>("clear_category", { root, from, only: only ?? null });
+/**
  * 업무 폴더를 통째로 지운다. 파일을 하나도 붙이지 않은 업무를 완료했을 때만 부르며,
  * 제목과 내용은 그 전에 오늘의 한일에 적어 둔다(`useStore.logAndDiscard`).
  */

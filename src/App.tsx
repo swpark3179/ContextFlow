@@ -21,6 +21,7 @@ import TemplateModal from "./modals/TemplateModal";
 import RenameTaskModal from "./modals/RenameTaskModal";
 import AbsorbModal from "./modals/AbsorbModal";
 import SplitModal from "./modals/SplitModal";
+import CategoryModal from "./modals/CategoryModal";
 import { Box } from "./lib/ui";
 import { emptyNewTask, useStore } from "./store/useStore";
 import { useAi } from "./store/aiStore";
@@ -74,6 +75,8 @@ export default function App() {
         void st.saveAll();
       } else if (e.ctrlKey && e.key.toLowerCase() === "n") {
         e.preventDefault();
+        // 카테고리 관리(zIndex 74) 아래에 새 업무 창(60)이 열리면 보이지도 않고 닫을 수도 없다.
+        if (st.catMgr) return;
         st.set({
           newOpen: true,
           nt: emptyNewTask(),
@@ -95,7 +98,13 @@ export default function App() {
         else if (st.ren) st.set({ ren: null });
         else if (st.drop) st.set({ drop: null });
         else if (st.tplNew) st.set({ tplNew: null });
-        else if (st.dayLogOpen) st.set({ dayLogOpen: null });
+        // 폼이 열려 있으면 폼만 닫는다. 고르는 목록의 Esc 는 CategoryPicker 가 먼저 소비하므로
+        // 목록 → 폼 → 대화상자 순서가 된다. 바꾸는 중에는 편입과 같은 까닭으로 닫지 않는다.
+        else if (st.catMgr) {
+          if (st.catMgr.busy) return;
+          if (st.catMgr.edit) st.setCatEdit(null);
+          else st.set({ catMgr: null });
+        } else if (st.dayLogOpen) st.set({ dayLogOpen: null });
         // 옮기기가 도는 중에는 닫지 않는다 — 대화상자를 치워도 이동은 멈추지 않고,
         // 실패 사유를 적을 자리만 사라진다.
         else if (st.absorb && !st.absorb.busy) st.set({ absorb: null });
@@ -262,6 +271,7 @@ export default function App() {
       <NewTaskModal />
       <AbsorbModal />
       <SplitModal />
+      <CategoryModal />
       <MergeModal />
       <DayLogModal />
       <Toasts />

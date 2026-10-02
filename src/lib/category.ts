@@ -303,3 +303,152 @@ export function suggestCategory(
   }
   return [...tally.values()].find((c) => c.count >= 2)?.value ?? null;
 }
+
+/** 한 단계 위의 경로 — 키든 철자든 받은 그대로 자른다. 최상위 · 미분류는 `null`. */
+export function parentOf(path: string): string | null {
+  const segs = segments(path);
+  return segs.length > 1 ? segs.slice(0, -1).join("/") : null;
+}
+
+/**
+ * `cat` 이 `fromKey` 카테고리(그 하위 포함)에 들면 그 아래 단계들(업무 자신의 철자), 아니면
+ * `null`. 문자열 길이가 아니라 **단계로** 맞춘다 — `İ` 처럼 소문자에서 길이가 바뀌는 글자가
+ * 있어, 키의 길이로 원문을 자르면 엉뚱한 자리에서 잘린다.
+ */
+function tailOf(cat: string | null, fromKey: string): string[] | null {
+  const segs = segments(cat);
+  const depth = fromKey.split("/").length;
+  if (segs.length < depth) return null;
+  return segs.slice(0, depth).map(categoryKey).join("/") === fromKey ? segs.slice(depth) : null;
+}
+
+/** 꼬리를 `to` 아래로 잇는다(`null` = 최상위). */
+function moveTail(tail: string[], to: string | null): { value: string | null; error: CategoryError | null } {
+  // 손으로 쓴 4단계 이상은 셋째 단계에 접혀 읽힌다(`c · d`). 그 단계가 30자를 넘으면 쓰기 규칙이
+  // 잘라 이름이 몰래 바뀐다 — 단계가 넘친 것과 같게 막는다(Rust 와 같다).
+  if (tail.some((seg) => Array.from(seg).length > SEG_MAX)) return { value: null, error: "depth" };
+  const got = normalizeCategory([...(to === null ? [] : [to]), ...tail].join("/"));
+  // `a/미분류` · `a/null` 을 최상위로 올리면 꼬리가 통째로 빈 값이 된다 — 몰래 미분류로 만들지 않는다.
+  if (!got.error && got.value === null && tail.length) return { value: null, error: "reserved" };
+  return got;
+}
+
+/**
+ * 카테고리 `fromKey`(키)를 `to` 로 옮긴 뒤의 값. Rust `category::retarget` 와 같은 규칙이고
+ * 같은 fixture(`category.move.json`)로 시험한다. 밖의 업무는 `null`.
+ *
+ * 안이면 `to` 의 단계에 업무 자신의 꼬리를 이어 쓰기 규칙으로 정규화한다. `to === null` 은
+ * 최상위로 올리기라서, 노드 자신의 업무는 미분류(`value: null`)가 되고 하위는 최상위가 된다.
+ */
+export function retarget(
+  cat: string | null,
+  fromKey: string,
+  to: string | null,
+): { value: string | null; error: CategoryError | null } | null {
+  const tail = tailOf(cat, fromKey);
+  return tail && moveTail(tail, to);
+}
+
+export interface MovePlan<T> {
+  /** 옮겨질 업무 — 서브트리 전부(진행 + 보관). 이미 목적지 값인 업무도 든다. */
+  targets: T[];
+  /** `targets` 중 보관 업무 수. */
+  archived: number;
+  /** 함께 옮겨지는 하위 카테고리 수(노드 자신은 빼고). */
+  subcats: number;
+  /** 백엔드에 넘길 목적지 — 정규화하고 서브트리 밖의 철자로 맞춘 값. `null` = 최상위. */
+  value: string | null;
+  /** 목적지 자체가 안 되는 사유. 있으면 아래 셋은 비어 있다. */
+  invalid: string | null;
+  /** 이미 있는 카테고리와 합쳐진다 — 겹치는 가장 얕은 키와 그 표시 이름. */
+  merge: { key: string; label: string } | null;
+  /** 옮기면 규칙을 어기는 업무. 하나라도 있으면 백엔드는 아무것도 쓰지 않는다. */
+  errors: { title: string; code: CategoryError }[];
+  /** 가장 깊은 업무 하나의 전후. */
+  example: { from: string; to: string | null } | null;
+}
+
+/**
+ * 경로 바꾸기 · 상위로 올리기의 미리보기. 판정은 백엔드(`move_category`)와 같다 — 백엔드가
+ * 최종 판정을 하고, 이것은 누르기 전에 같은 결과를 보여 줄 뿐이다.
+ *
+ * 합치기: 옮긴 뒤의 키(와 그 상위)가 서브트리 밖 업무의 키(와 그 상위)와 겹치면 이미 있는
+ * 카테고리에 섞이는 것이다. 목적지의 상위는 겹쳐도 그 아래로 들어가는 것뿐이라 빼고, 상위로
+ * 올릴 때는 목적지 자신도 뺀다 — 원래 그 안에 있던 업무다. 대소문자만 고치는 것은 서브트리
+ * 밖에 같은 키가 없으니 합치기가 아니다.
+ */
+export function movePlan<T extends { title: string; category: string | null }>(
+  tasks: T[],
+  fromKey: string,
+  to: string | null,
+  isArchived: (t: T) => boolean,
+): MovePlan<T> {
+  const moving: [T, string[]][] = [];
+  const others: T[] = [];
+  const subs = new Set<string>();
+  for (const t of tasks) {
+    const tail = tailOf(t.category, fromKey);
+    if (!tail) {
+      others.push(t);
+      continue;
+    }
+    moving.push([t, tail]);
+    tail.forEach((_, i) => subs.add([fromKey, ...tail.slice(0, i + 1).map(categoryKey)].join("/")));
+  }
+  const targets = moving.map(([t]) => t);
+  const plan: MovePlan<T> = {
+    targets,
+    archived: targets.filter(isArchived).length,
+    subcats: subs.size,
+    value: null,
+    invalid: null,
+    merge: null,
+    errors: [],
+    example: null,
+  };
+
+  if (to !== null) {
+    const norm = normalizeCategory(to);
+    if (norm.error) return { ...plan, invalid: categoryErrorMessage(norm.error) };
+    // 미분류로 돌리는 것은 [해제] 다 — 빈 칸이 몰래 최상위로 올리기가 되지 않게.
+    if (norm.value === null) {
+      return { ...plan, invalid: "옮길 경로를 입력하세요 — 미분류로 돌리려면 [해제] 를 쓰세요" };
+    }
+    // 서브트리의 철자로는 맞추지 않는다 — 맞추면 `proj` → `Proj` 처럼 대소문자만 고칠 수 없다.
+    plan.value = snapToExisting(norm.value, knownCategories(others));
+    if (categoryKey(plan.value).startsWith(`${fromKey}/`)) {
+      return { ...plan, invalid: "자기 하위 카테고리로는 옮길 수 없습니다" };
+    }
+  }
+
+  const fresh: string[] = [];
+  let deepest = -1;
+  for (const [t, tail] of moving) {
+    const got = moveTail(tail, plan.value);
+    if (got.error) {
+      plan.errors.push({ title: t.title, code: got.error });
+      continue;
+    }
+    if (got.value) fresh.push(...revealKeys(got.value));
+    const depth = segments(t.category).length;
+    if (depth > deepest) {
+      deepest = depth;
+      plan.example = { from: t.category!, to: got.value };
+    }
+  }
+
+  const exists = new Set(others.flatMap((t) => (t.category ? revealKeys(t.category) : [])));
+  const own = plan.value ? revealKeys(plan.value) : [];
+  const up = plan.value === null || fromKey.startsWith(`${categoryKey(plan.value)}/`);
+  const into = new Set(up ? own : own.slice(0, -1));
+  const clash = fresh
+    .filter((k) => !into.has(k) && exists.has(k))
+    .sort((a, b) => segments(a).length - segments(b).length)[0];
+  if (clash !== undefined) {
+    const depth = segments(clash).length;
+    // 이름은 그 키를 가진 첫 업무의 철자로 — 겹친 것은 서브트리 밖의 카테고리다.
+    const first = others.find((t) => t.category && revealKeys(t.category).includes(clash))!;
+    plan.merge = { key: clash, label: label(segments(first.category).slice(0, depth).join("/")) };
+  }
+  return plan;
+}

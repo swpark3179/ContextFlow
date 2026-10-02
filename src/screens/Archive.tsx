@@ -277,6 +277,17 @@ export default function Archive() {
     fontWeight: on ? 600 : 400,
   });
 
+  /** 연도 줄 끝의 카테고리 관리 링크 — 지금 거르는 카테고리에서, 보관 업무까지 함께 보며 연다. */
+  const manageLink = (text: string) => (
+    <Box
+      onClick={() => s.openCatMgr(effCat ?? "", "all")}
+      style={{ marginLeft: 8, fontSize: 11.5, color: "#3a6fd8", cursor: "pointer", whiteSpace: "nowrap" }}
+      hover={{ textDecoration: "underline" }}
+    >
+      {text}
+    </Box>
+  );
+
   if (opened) return <ArchiveDetail task={opened} />;
 
   return (
@@ -420,6 +431,13 @@ export default function Archive() {
                   {label}
                 </div>
               ))}
+              {manageLink("관리…")}
+            </div>
+          )}
+          {/* 카테고리가 하나도 없으면 거르기 · 묶기 대신 정리를 시작하는 길만 둔다. */}
+          {nodes.length === 0 && archived.length > 0 && (
+            <div style={{ marginLeft: "auto", display: "flex", alignItems: "center" }}>
+              {manageLink("카테고리 정리…")}
             </div>
           )}
         </div>

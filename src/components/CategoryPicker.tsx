@@ -12,6 +12,7 @@ import {
   UNCAT_LABEL,
 } from "../lib/category";
 import type { CategoryNode } from "../lib/category";
+import type { TaskMeta } from "../lib/api";
 import { inputFocus, inputStyle } from "../modals/Modal";
 import { useStore } from "../store/useStore";
 
@@ -80,8 +81,10 @@ const rowValue = (r: Row): string | null =>
  * `popover` 는 헤더의 팝오버 — 목록이 늘 펼쳐져 있고 고르면 곧바로 적용된다. 아니면
  * 대화상자의 입력칸으로, 값은 부모가 들고 목록은 포커스가 있을 때만 펼친다.
  *
- * `exclude` 는 카테고리를 바꾸는 업무의 폴더다. 아는 철자로 맞출 때 그 업무의 값은 세지 않는다
+ * `exclude` 는 카테고리를 바꾸는 업무를 고른다. 아는 철자로 맞출 때 그 업무들의 값은 세지 않는다
  * — 세면 `proj` 를 `Proj` 로 고치려 해도 자기 철자로 되돌아온다(`setCategory` 와 같은 규칙).
+ * `allowNone` 을 끄면 미분류를 고를 수 없다 — 경로 바꾸기는 빈 값을 받지 않는다. `hideNode` 는
+ * 목록에서 뺄 카테고리다 — 경로 바꾸기는 자기 자신 · 자기 하위로 옮길 수 없다.
  */
 export default function CategoryPicker({
   value,
@@ -91,6 +94,8 @@ export default function CategoryPicker({
   popover = false,
   autoFocus,
   exclude,
+  allowNone = true,
+  hideNode,
 }: {
   value: string;
   onChange: (text: string) => void;
@@ -99,13 +104,15 @@ export default function CategoryPicker({
   onCancel?: () => void;
   popover?: boolean;
   autoFocus?: boolean;
-  exclude?: string;
+  exclude?: (t: TaskMeta) => boolean;
+  allowNone?: boolean;
+  hideNode?: (n: CategoryNode) => boolean;
 }) {
   const tasks = useStore((s) => s.tasks);
   const nodes = useMemo(() => knownCategories(tasks), [tasks]);
   /** 맞출 철자 — 바꾸는 업무 자신의 값은 뺀다. */
   const others = useMemo(
-    () => (exclude ? knownCategories(tasks.filter((t) => t.folder !== exclude)) : nodes),
+    () => (exclude ? knownCategories(tasks.filter((t) => !exclude(t))) : nodes),
     [tasks, exclude, nodes],
   );
   /** 처음 값 그대로면 거르지 않는다 — 지금 값이 들어 있어도 전체 목록에서 고르게. */
@@ -137,6 +144,7 @@ export default function CategoryPicker({
       const needle = (normalizeCategory(q).value ?? q).toLowerCase();
       list = nodes.filter((n) => n.key.includes(needle));
     }
+    if (hideNode) list = list.filter((n) => !hideNode(n));
     const out: Row[] = list.map((node) => ({
       kind: "node",
       node,
@@ -146,9 +154,9 @@ export default function CategoryPicker({
     // 다른 업무가 쓰지 않는 카테고리면 새로 만드는 것이다 — 지금 값을 그대로 친 것은 빼고.
     const fresh = typed && !others.some((n) => n.key === categoryKey(typed));
     if (q && fresh && !nodes.some((n) => n.path === typed)) out.unshift({ kind: "new", value: typed });
-    out.push({ kind: "none" });
+    if (allowNone) out.push({ kind: "none" });
     return out;
-  }, [value, nodes, others, typed]);
+  }, [value, nodes, others, typed, allowNone, hideNode]);
 
   useEffect(() => {
     if (hi >= 0) listRef.current?.querySelector(`[data-row="${hi}"]`)?.scrollIntoView({ block: "nearest" });
@@ -175,7 +183,7 @@ export default function CategoryPicker({
       e.stopPropagation();
       if (e.repeat) return;
       if (hi >= 0 && open) commit(picked);
-      else if (!error) commit(typed);
+      else if (!error && (typed !== null || allowNone)) commit(typed);
     } else if (e.key === "Tab") {
       // 강조한 줄로 채우고 한 단계 내려간다. 그 밖의 Tab(Shift+Tab · 강조 없음 · 내려갈 곳
       // 없음)은 대화상자에서는 막지 않는다 — 포커스가 다음 칸으로 옮겨 간다.
@@ -237,7 +245,7 @@ export default function CategoryPicker({
       )}
       {open && (
         <>
-          {(!error || hi >= 0) && (
+          {(!error || hi >= 0) && (picked !== null || allowNone) && (
             <div style={{ fontSize: 11, color: "#8a857c", marginTop: 4 }}>
               저장될 값: <span style={{ color: "#4e4a43" }}>{label(picked)}</span>
             </div>
