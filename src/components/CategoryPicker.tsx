@@ -15,19 +15,27 @@ import type { CategoryNode } from "../lib/category";
 import { inputFocus, inputStyle } from "../modals/Modal";
 import { useStore } from "../store/useStore";
 
-/** 업무의 카테고리 표시. 없으면 고르러 가는 흐린 `＋ 카테고리`, 누를 수 있으면 `▼` 가 붙는다. */
+/**
+ * 업무의 카테고리 표시. 없으면 고르러 가는 흐린 `＋ 카테고리`, 누를 수 있으면 `▼` 가 붙는다.
+ * 기본은 바꾸기 칩이다 — 보관함처럼 눌러도 고르는 목록이 열리지 않는 곳은 `title` 을 주고
+ * `caret` 을 끈다.
+ */
 export function CategoryChip({
   category,
   onClick,
+  title,
+  caret,
 }: {
   category: string | null;
-  onClick?: () => void;
+  onClick?: (e: React.MouseEvent) => void;
+  title?: string;
+  caret?: boolean;
 }) {
   const ghost = !category;
   return (
     <Span
       onClick={onClick}
-      title={onClick ? "카테고리 바꾸기" : undefined}
+      title={title ?? (onClick ? "카테고리 바꾸기" : undefined)}
       style={{
         flex: "0 1 auto",
         minWidth: 0,
@@ -46,7 +54,9 @@ export function CategoryChip({
       hover={onClick ? { borderColor: "#d9d4ca", color: "#3a3630" } : undefined}
     >
       {ghost ? "＋ 카테고리" : label(category)}
-      {onClick && !ghost && <span style={{ fontSize: 8, marginLeft: 4, opacity: 0.7 }}>▼</span>}
+      {(caret ?? !!onClick) && !ghost && (
+        <span style={{ fontSize: 8, marginLeft: 4, opacity: 0.7 }}>▼</span>
+      )}
     </Span>
   );
 }
