@@ -536,7 +536,7 @@ export default function NewTaskModal() {
                               // 회차 로그가 붙은 것은 그 업무를 손댄 것이다.
                               s.noteToday(r.id, r.title);
                               s.set({ newOpen: false });
-                              await s.reloadVault(false);
+                              await s.reloadVault("list");
                               await s.selectTask(r.id);
                               await s.reloadTemplates();
                               s.toast(

@@ -85,6 +85,24 @@ export function categoryKey(path: string): string {
 }
 
 /**
+ * 업무의 카테고리 키. 미분류는 `""` 다 — 접힘 상태 · 묶음 · 보관함 거르기가 모두 이 키로
+ * 비교하므로, 미분류도 하나의 묶음처럼 다룰 수 있다.
+ */
+export function keyOf(cat: string | null): string {
+  return cat ? categoryKey(cat) : "";
+}
+
+/**
+ * `cat` 이 `key` 카테고리(그 하위 포함)에 드는가. `key === ""` 는 미분류만이다. `a/bc` 는
+ * `a/b` 의 하위가 아니다 — 앞부분이 같아도 단계가 다르다.
+ */
+export function isWithin(cat: string | null, key: string): boolean {
+  const k = keyOf(cat);
+  if (key === "") return k === "";
+  return k === key || k.startsWith(`${key}/`);
+}
+
+/**
  * 코드포인트 순 비교. `localeCompare` 는 공백 · 구두점을 건너뛰고 문자열 `<` 는 UTF-16
  * 단위로 비교해, 둘 다 Rust 의 정렬과 어긋난다.
  */
@@ -152,6 +170,89 @@ export function knownCategories(tasks: { category: string | null }[]): CategoryN
     }
   };
   walk(roots, null);
+  return out;
+}
+
+/** 이 카테고리를 보이려면 열려 있어야 할 키 — 조상 전부(자기 포함). 미분류는 `[""]`. */
+export function revealKeys(cat: string | null): string[] {
+  const segs = segments(cat);
+  if (!segs.length) return [""];
+  return segs.map((_, i) => keyOf(segs.slice(0, i + 1).join("/")));
+}
+
+/**
+ * `cat` 이 보이도록 연 새 접힘 목록. 이미 다 열려 있으면 `null` 이고 그때는 설정을 쓰지
+ * 않는다 — 업무를 고를 때마다 settings.json 을 다시 쓸 이유가 없다.
+ */
+export function openFor(closed: string[], cat: string | null): string[] | null {
+  const need = revealKeys(cat);
+  if (!closed.some((k) => need.includes(k))) return null;
+  return closed.filter((k) => !need.includes(k));
+}
+
+/**
+ * 업무 리스트 트리의 한 줄 — 카테고리 머리 행이거나 업무 행이다. 미분류 머리 행은 `key` ·
+ * `path` 가 `""` 다.
+ */
+export type SideRow<T> =
+  | (CategoryNode & { kind: "cat"; open: boolean })
+  | {
+      kind: "task";
+      task: T;
+      depth: number;
+      /** 이 업무가 직접 든 묶음의 키(미분류 `""`). 끌어 옮기기는 이 안에서만 한다. */
+      group: string;
+      /** 묶음 안의 순번과 묶음의 업무 수 — 놓을 자리 선을 묶음 기준으로 그린다. */
+      gi: number;
+      glen: number;
+    };
+
+/**
+ * 보이는 업무를 카테고리 트리로 편다. 노드마다 머리 행, 그 바로 뒤에 **직속** 업무(들어온
+ * 순서), 그다음 하위 노드다. 미분류 묶음은 맨 끝이다.
+ *
+ * 순서와 표시 철자는 `nodes`(`knownCategories(live)`)에서 온다 — 상태 필터 · 검색으로
+ * 보이는 업무가 바뀌어도 머리 행의 철자가 흔들리지 않게. 개수와 행은 `visible` 에서 온다
+ * (`visible` 은 `live` 에서 거른 것이라 그 카테고리가 모두 `nodes` 에 있다).
+ * 보이는 업무가 없는 노드는 그리지 않는다. 미분류는 업무가 보이면 머리 행을 남긴다 —
+ * 접어 둔 미분류를 다시 열 곳이 있어야 한다.
+ *
+ * 한 묶음의 업무 행은 연속이고 `visible`(전역 순서)의 부분열이다. 그래서 묶음 안에서
+ * 놓은 자리를 그대로 `reorderedList` 의 `visible` 로 넘길 수 있다.
+ */
+export function flattenSideRows<T extends { category: string | null }>(
+  visible: T[],
+  { nodes, closed, forceOpen }: { nodes: CategoryNode[]; closed: string[]; forceOpen: boolean },
+): SideRow<T>[] {
+  const shut = new Set(forceOpen ? [] : closed);
+  const direct = new Map<string, T[]>();
+  const count = new Map<string, number>();
+  for (const t of visible) {
+    const k = keyOf(t.category);
+    const list = direct.get(k);
+    if (list) list.push(t);
+    else direct.set(k, [t]);
+    for (const a of revealKeys(t.category)) count.set(a, (count.get(a) ?? 0) + 1);
+  }
+
+  const out: SideRow<T>[] = [];
+  const push = (node: CategoryNode) => {
+    const open = !shut.has(node.key);
+    out.push({ ...node, kind: "cat", open });
+    if (!open) return;
+    const items = direct.get(node.key) ?? [];
+    items.forEach((task, gi) =>
+      out.push({ kind: "task", task, depth: node.depth, group: node.key, gi, glen: items.length }),
+    );
+  };
+  for (const n of nodes) {
+    const c = count.get(n.key) ?? 0;
+    // 닫힌 조상 아래는 머리 행도 감춘다. 자기 자신이 닫힌 것은 `push` 가 본다.
+    if (!c || revealKeys(n.path).slice(0, -1).some((k) => shut.has(k))) continue;
+    push({ ...n, count: c });
+  }
+  const uncat = count.get("") ?? 0;
+  if (uncat) push({ key: "", path: "", name: UNCAT_LABEL, depth: 1, count: uncat });
   return out;
 }
 

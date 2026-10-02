@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
-import { Box, Input } from "../lib/ui";
+import { Box, Input, Select } from "../lib/ui";
 import { GREEN, VIOLET } from "../lib/design";
-import { daysSince, qLabel } from "../lib/format";
+import { daysSince } from "../lib/format";
 import * as api from "../lib/api";
 import type { TaskMeta } from "../lib/api";
 import { isArchived, reportObsidianOpen, useStore } from "../store/useStore";
 import { useVirtual } from "../lib/virtual";
 import Workspace from "./Workspace";
 import { CategoryChip } from "../components/CategoryPicker";
-import { label as categoryLabel } from "../lib/category";
+import { isWithin, keyOf, knownCategories, label as categoryLabel } from "../lib/category";
+import { groupArchived } from "../lib/archiveGroups";
 
 /**
  * 보관함 안에서 연 업무의 작업공간.
@@ -100,7 +101,7 @@ function ArchiveDetail({ task }: { task: TaskMeta }) {
 
 export default function Archive() {
   const s = useStore();
-  const { tasks, settings, archQuery, archScope, archYear, archMonth } = s;
+  const { tasks, settings, archQuery, archScope, archYear, archMonth, archCat, archGroup } = s;
   const [hits, setHits] = useState<Record<string, string>>({});
 
   const archived = useMemo(
@@ -108,6 +109,25 @@ export default function Archive() {
     [tasks, settings.archDays],
   );
   const live = tasks.length - archived.length;
+  /** 순서 · 표시 철자 · 개수는 보관 전체에서 — 연도나 검색으로 거른다고 선택지가 바뀌지 않게. */
+  const nodes = useMemo(() => knownCategories(archived), [archived]);
+  const uncat = useMemo(() => archived.filter((t) => !t.category).length, [archived]);
+  /**
+   * 실제로 거르는 카테고리. 고른 카테고리의 보관 업무가 모두 사라지면(재개 · 카테고리 변경)
+   * 전체로 돌아간다 — 선택지에 없는 값을 쥔 채 빈 목록을 보이면 왜 비었는지 알 수 없다.
+   */
+  const effCat =
+    archCat !== null && (archCat === "" ? uncat > 0 : nodes.some((n) => n.key === archCat))
+      ? archCat
+      : null;
+  // 고른 값도 지운다. 쥐고 있으면 그 카테고리의 업무가 다시 보관될 때, 아무것도 하지 않았는데
+  // 거르기가 되살아난다(선택지에서 [전체] 를 다시 골라도 값이 같아 바뀌지 않는다).
+  useEffect(() => {
+    if (archCat !== null && effCat === null) s.set({ archCat: null });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [archCat, effCat]);
+  /** 보관 업무에 카테고리가 없으면 묶는 기준 칸도 숨으므로 분기로 돌아간다 — 돌아갈 길 없이 미분류 하나로 묶이지 않게. */
+  const effGroup = nodes.length > 0 ? archGroup : "quarter";
 
   // Full-text scope needs the backend to read the notes, so run it on demand.
   useEffect(() => {
@@ -162,6 +182,7 @@ export default function Archive() {
         const done = t.completedAt ?? "";
         if (archYear !== "all" && done.slice(0, 4) !== archYear) return false;
         if (archMonth !== "all" && done.slice(5, 7) !== archMonth) return false;
+        if (effCat !== null && !isWithin(t.category, effCat)) return false;
         if (!q) return true;
         if (archScope === "full") return !!hits[t.folder];
         // 카테고리는 저장 형태(`a/b`)와 화면 형태(`a › b`) 둘 다로 찾는다(업무 리스트와 같다).
@@ -169,23 +190,11 @@ export default function Archive() {
         return `${t.title} ${t.tags.join(" ")} ${cat} ${t.relFolder}`.toLowerCase().includes(q);
       })
       .sort((a, b) => (b.completedAt ?? "").localeCompare(a.completedAt ?? ""));
-
-    const out: { label: string; count: number; items: typeof archived }[] = [];
-    hit.forEach((t) => {
-      const label = qLabel(t.completedAt ?? t.archivedAt ?? "");
-      let g = out[out.length - 1];
-      if (!g || g.label !== label) {
-        g = { label, count: 0, items: [] };
-        out.push(g);
-      }
-      g.items.push(t);
-      g.count = g.items.length;
-    });
-    return out;
-  }, [archived, archQuery, archScope, archYear, archMonth, hits]);
+    return groupArchived(hit, effGroup, nodes);
+  }, [archived, archQuery, archScope, archYear, archMonth, hits, effCat, effGroup, nodes]);
 
   /**
-   * 가상 스크롤은 한 줄짜리 목록만 다룰 수 있으므로, 분기 헤더와 카드를 한 배열로 편다.
+   * 가상 스크롤은 한 줄짜리 목록만 다룰 수 있으므로, 묶음 헤더와 카드를 한 배열로 편다.
    * 화면에 보이는 구간만 그리려면 렌더 순서가 곧 인덱스여야 한다.
    */
   const rows = useMemo(() => {
@@ -194,7 +203,7 @@ export default function Archive() {
       | { kind: "card"; key: string; task: (typeof archived)[number] }
     )[] = [];
     groups.forEach((g) => {
-      out.push({ kind: "header", key: `h:${g.label}`, label: g.label, count: g.count });
+      out.push({ kind: "header", key: g.key, label: g.label, count: g.count });
       g.items.forEach((t) => out.push({ kind: "card", key: t.folder, task: t }));
     });
     return out;
@@ -204,8 +213,11 @@ export default function Archive() {
     count: rows.length,
     // 헤더는 한 줄, 카드는 태그 한 줄 기준. 재기 전까지만 쓰는 값이다.
     estimate: (i) => (rows[i]?.kind === "header" ? 28 : 62),
-    // 필터가 바뀌면 같은 인덱스가 다른 업무를 가리키므로 재어 둔 높이를 버린다.
-    resetKey: `${archYear}|${archMonth}|${archScope}|${archQuery.trim()}|${rows.length}`,
+    // 필터가 바뀌면 같은 인덱스가 다른 업무를 가리키므로 재어 둔 높이를 버린다. 줄 수가 같아도
+    // 머리 행 자리가 바뀔 수 있으니(묶는 기준 · 재개) 묶음 키도 넣는다.
+    resetKey:
+      `${archYear}|${archMonth}|${archScope}|${archQuery.trim()}|${effCat ?? "*"}|${effGroup}|` +
+      `${rows.length}|${groups.map((g) => g.key).join("|")}`,
   });
 
   /**
@@ -247,6 +259,21 @@ export default function Archive() {
     border: `1px solid ${on ? "#cddcf8" : "#ddd8cf"}`,
     background: on ? "#eef3fd" : "#fff",
     color: on ? "#2f5cbb" : "#6a665e",
+    fontWeight: on ? 600 : 400,
+  });
+
+  /** 연도 줄의 작은 칩 — 연도와 `묶기` 가 같은 모양이다. */
+  const smallChip = (on: boolean): React.CSSProperties => ({
+    height: 22,
+    padding: "0 10px",
+    display: "flex",
+    alignItems: "center",
+    borderRadius: 4,
+    fontSize: 11.5,
+    cursor: "pointer",
+    border: `1px solid ${on ? "#d9d4ca" : "transparent"}`,
+    background: on ? "#fff" : "transparent",
+    color: on ? "#23211e" : "#8a857c",
     fontWeight: on ? 600 : 400,
   });
 
@@ -338,33 +365,63 @@ export default function Archive() {
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: 4, marginTop: 8 }}>
-          {years.map((y) => {
-            const on = archYear === y;
-            return (
-              <div
-                key={y}
-                // 연도를 바꾸면 월은 무조건 처음으로 — 새 연도에 없는 달이 남아 있으면
-                // 목록이 비어 버리고, 사용자는 왜 비었는지 알 길이 없다.
-                onClick={() => s.set({ archYear: y, archMonth: "all" })}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 8 }}>
+          {years.map((y) => (
+            <div
+              key={y}
+              // 연도를 바꾸면 월은 무조건 처음으로 — 새 연도에 없는 달이 남아 있으면
+              // 목록이 비어 버리고, 사용자는 왜 비었는지 알 길이 없다.
+              onClick={() => s.set({ archYear: y, archMonth: "all" })}
+              style={smallChip(archYear === y)}
+            >
+              {y === "all" ? "전체" : `${y}년`}
+            </div>
+          ))}
+          {/* 카테고리를 쓰지 않는 Vault 에는 거를 것도 묶을 것도 없다 — 지금 화면 그대로. */}
+          {nodes.length > 0 && (
+            <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 4 }}>
+              {/* 바로 옆이 연도의 [전체] 라, 이름 없이는 또 하나의 기간 선택으로 읽힌다. */}
+              <span style={{ fontSize: 11, color: "#a09a8f", marginRight: 2 }}>카테고리</span>
+              <Select
+                // `*` 는 카테고리에 쓸 수 없는 글자라 어떤 키와도 겹치지 않는다.
+                value={effCat ?? "*"}
+                onChange={(e) => s.set({ archCat: e.target.value === "*" ? null : e.target.value })}
+                title="카테고리로 거르기"
                 style={{
                   height: 22,
-                  padding: "0 10px",
-                  display: "flex",
-                  alignItems: "center",
+                  maxWidth: 220,
+                  padding: "0 4px",
+                  border: "1px solid #ddd8cf",
                   borderRadius: 4,
+                  background: "#fff",
+                  color: "#4e4a43",
                   fontSize: 11.5,
+                  outline: "none",
                   cursor: "pointer",
-                  border: `1px solid ${on ? "#d9d4ca" : "transparent"}`,
-                  background: on ? "#fff" : "transparent",
-                  color: on ? "#23211e" : "#8a857c",
-                  fontWeight: on ? 600 : 400,
                 }}
               >
-                {y === "all" ? "전체" : `${y}년`}
-              </div>
-            );
-          })}
+                <option value="*">전체 ({archived.length})</option>
+                {nodes.map((n) => (
+                  // option 은 앞의 ASCII 공백을 지우므로 들여쓰기는 NBSP 로.
+                  <option key={n.key} value={n.key}>
+                    {`${"\u00a0\u00a0".repeat(n.depth - 1)}${n.name} (${n.count})`}
+                  </option>
+                ))}
+                {uncat > 0 && <option value="">미분류 ({uncat})</option>}
+              </Select>
+              <span style={{ fontSize: 11, color: "#a09a8f", margin: "0 2px 0 8px" }}>묶기</span>
+              {(
+                [
+                  ["quarter", "분기"],
+                  ["category", "카테고리"],
+                ] as const
+              ).map(([k, label]) => (
+                <div key={k} onClick={() => s.set({ archGroup: k })} style={smallChip(archGroup === k)}>
+                  {label}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {months.length > 0 && (
@@ -514,7 +571,18 @@ export default function Archive() {
                           #{tg}
                         </span>
                       ))}
-                      {t.category && <CategoryChip category={t.category} />}
+                      {t.category && (
+                        <CategoryChip
+                          category={t.category}
+                          // 카드를 누르면 상세로 들어가므로 칩 클릭은 거기까지 가지 않게 막는다.
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            s.set({ archCat: keyOf(t.category) });
+                          }}
+                          title="이 카테고리로 거르기"
+                          caret={false}
+                        />
+                      )}
                       {t.archived === true && (
                         <span
                           style={{
@@ -635,10 +703,37 @@ export default function Archive() {
             })}
           </div>
 
-          {archived.length > 0 && groups.length === 0 && archQuery.trim() && (
+          {archived.length > 0 && groups.length === 0 && (
             <div style={{ padding: "8px 2px", fontSize: 12, color: "#b5afa2", lineHeight: 1.7 }}>
-              찾는 내용이 없다면 검색 범위를 [본문 전문]으로 바꿔보세요. 보관된 노트의 본문과 첨부
-              텍스트까지 훑습니다.
+              <div style={{ color: "#8a857c" }}>이 조건에 맞는 보관 업무가 없습니다.</div>
+              {/* 카테고리는 카드 칩 한 번으로도 걸려 눈에 덜 띄는 조건이다 — 푸는 길을 먼저 둔다. */}
+              {effCat !== null && (
+                <Box
+                  onClick={() => s.set({ archCat: null })}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    height: 24,
+                    marginTop: 6,
+                    padding: "0 9px",
+                    borderRadius: 4,
+                    border: "1px solid #e0dcd4",
+                    background: "#fff",
+                    color: "#6a665e",
+                    fontSize: 11.5,
+                    cursor: "pointer",
+                  }}
+                  hover={{ borderColor: "#3a6fd8", color: "#2f5cbb" }}
+                >
+                  카테고리 전체 보기
+                </Box>
+              )}
+              {archQuery.trim() && archScope === "title" && (
+                <div style={{ marginTop: 6 }}>
+                  찾는 내용이 없다면 검색 범위를 [본문 전문]으로 바꿔보세요. 보관된 노트의 본문과
+                  첨부 텍스트까지 훑습니다.
+                </div>
+              )}
             </div>
           )}
           {archived.length === 0 && (

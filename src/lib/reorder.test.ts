@@ -56,3 +56,25 @@ describe("reorderedList — 상태 필터가 걸렸을 때", () => {
     expect(reorderedList(ALL, VIS, "b", 0)).toBeNull();
   });
 });
+
+describe("reorderedList — 카테고리 묶음 안에서", () => {
+  // 사이드바는 끄는 업무와 같은 묶음의 행만 보이던 목록으로 넘긴다. 다른 묶음(b*)이 사이사이에 있다.
+  const ALL2 = ["a1", "b1", "a2", "b2", "a3"];
+  const GROUP = ["a1", "a2", "a3"];
+
+  it("묶음 안에서 본 결과가 나오고, 다른 묶음의 업무끼리는 순서가 그대로다", () => {
+    const next = reorderedList(ALL2, GROUP, "a3", 0);
+    expect(next).toEqual(["a3", "a1", "b1", "a2", "b2"]);
+    expect(next!.filter((f) => f.startsWith("b"))).toEqual(["b1", "b2"]);
+  });
+
+  it("다음 이웃과 붙어 있으면 제자리는 null", () => {
+    expect(reorderedList(["a1", "a2", "b1", "a3"], GROUP, "a1", 0)).toBeNull();
+    expect(reorderedList(["a1", "a2", "b1", "a3"], GROUP, "a1", 1)).toBeNull();
+  });
+
+  it("다음 이웃과의 사이에 다른 묶음이 끼어 있으면 제자리라도 그 앞으로 당긴다", () => {
+    // 그래서 사이드바가 묶음 안 제자리 놓기를 먼저 거른다 — 아무것도 쓰지 않게.
+    expect(reorderedList(ALL2, GROUP, "a2", 1)).toEqual(["a1", "b1", "b2", "a2", "a3"]);
+  });
+});
