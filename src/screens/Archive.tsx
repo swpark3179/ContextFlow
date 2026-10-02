@@ -7,6 +7,7 @@ import type { TaskMeta } from "../lib/api";
 import { isArchived, reportObsidianOpen, useStore } from "../store/useStore";
 import { useVirtual } from "../lib/virtual";
 import Workspace from "./Workspace";
+import { CategoryChip } from "../components/CategoryPicker";
 
 /**
  * 보관함 안에서 연 업무의 작업공간.
@@ -162,7 +163,9 @@ export default function Archive() {
         if (archMonth !== "all" && done.slice(5, 7) !== archMonth) return false;
         if (!q) return true;
         if (archScope === "full") return !!hits[t.folder];
-        return `${t.title} ${t.tags.join(" ")} ${t.relFolder}`.toLowerCase().includes(q);
+        return `${t.title} ${t.tags.join(" ")} ${t.category ?? ""} ${t.relFolder}`
+          .toLowerCase()
+          .includes(q);
       })
       .sort((a, b) => (b.completedAt ?? "").localeCompare(a.completedAt ?? ""));
 
@@ -510,6 +513,7 @@ export default function Archive() {
                           #{tg}
                         </span>
                       ))}
+                      {t.category && <CategoryChip category={t.category} />}
                       {t.archived === true && (
                         <span
                           style={{

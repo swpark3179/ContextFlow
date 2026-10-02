@@ -6,6 +6,12 @@ import { normalizeStatus, TOAST } from "../lib/design";
 import { basename, daysSince, hhmm, joinPath, nowStamp, today } from "../lib/format";
 import { setImageWidth, splitFrontmatter, toggleTaskLine } from "../lib/markdown";
 import { rebaseIndexDoc } from "../lib/indexDoc";
+import {
+  categoryErrorMessage,
+  knownCategories,
+  normalizeCategory,
+  snapToExisting,
+} from "../lib/category";
 import { imageMarkdown, insertOwnLine, relativeFromNote, type ClipImage } from "../lib/images";
 import {
   composeDiscardBody,
@@ -233,6 +239,13 @@ export interface NewTaskState {
   summary: string;
   tags: string;
   template: string;
+  /** 입력칸 그대로의 카테고리. 정규화는 만들 때 한다(`createTask`). */
+  category: string;
+}
+
+/** 새 업무 대화상자를 열 때의 빈 칸. 여는 곳(사이드바 · 메뉴 · Ctrl+N)이 모두 이것을 쓴다. */
+export function emptyNewTask(category = ""): NewTaskState {
+  return { title: "", summary: "", tags: "", template: "(없음)", category };
 }
 
 export interface MergeState {
@@ -278,6 +291,8 @@ export interface SplitState {
   title: string;
   summary: string;
   tags: string;
+  /** 입력칸 그대로의 카테고리. 원본 업무의 값을 미리 채운다. */
+  category: string;
   busy: boolean;
   error: string;
 }
@@ -461,6 +476,11 @@ interface Actions {
   /** 보관한 뒤의 업무(경로가 바뀌었을 수 있다). 실패하면 `null`. */
   archiveNow: (folder: string, opts?: { close?: boolean }) => Promise<TaskMeta | null>;
   restoreTask: (folder: string) => Promise<void>;
+  /**
+   * 업무들에 카테고리를 지정한다(`null` = 해제). 값이 잘못됐거나 한 건이라도 지정하지
+   * 못했으면 토스트를 띄우고 `false`.
+   */
+  setCategory: (folders: string[], category: string | null) => Promise<boolean>;
   peekArchived: (folder: string) => Promise<void>;
   closeArchived: () => void;
   closeTask: () => void;
@@ -618,6 +638,16 @@ function resynced(doc: Doc, disk: string): Doc {
   return { text: doc.text === doc.saved ? disk : rebaseIndexDoc(disk, doc.text), saved: disk };
 }
 
+/**
+ * 입력한 카테고리를 쓸 값으로 — 정규화하고, 이미 있는 상위는 알려진 철자로 맞춘다
+ * (대소문자만 다른 카테고리가 생기지 않게). 잘못된 값이면 `error` 에 문구가 온다.
+ */
+function categoryInput(text: string, tasks: TaskMeta[]): { value: string | null; error: string | null } {
+  const { value, error } = normalizeCategory(text);
+  if (error) return { value: null, error: categoryErrorMessage(error) };
+  return { value: value && snapToExisting(value, knownCategories(tasks)), error: null };
+}
+
 let toastSeq = 0;
 let saveTimer: number | undefined;
 let recTimer: number | undefined;
@@ -672,7 +702,7 @@ export const useStore = create<State & Actions>((set, get) => ({
   taskDrag: null,
 
   newOpen: false,
-  nt: { title: "", summary: "", tags: "", template: "(없음)" },
+  nt: emptyNewTask(),
   ntRecs: [],
   ntLoading: false,
   ntEngine: "local",
@@ -1034,6 +1064,43 @@ export const useStore = create<State & Actions>((set, get) => ({
       await get().syncMoc();
     } catch (e) {
       get().fail(e, "재개하지 못했습니다");
+    }
+  },
+
+  /**
+   * 카테고리 지정. 백엔드가 `updated` 를 건드리지 않고 `category` 줄만 고친다 — 정리는
+   * 작업이 아니라서 오늘의 한일에도 올리지 않는다. 바뀐 칩이 곧 결과라 성공은 알리지 않는다.
+   */
+  setCategory: async (folders, category) => {
+    const { settings, activeFolder } = get();
+    const cat = categoryInput(category ?? "", get().tasks);
+    if (cat.error) {
+      get().fail(cat.error, "카테고리를 지정하지 못했습니다");
+      return false;
+    }
+    try {
+      // 고치던 글을 먼저 내려쓴다. 그 뒤에 디스크에 맞추므로(`resyncIndexDocs`) 이번에
+      // 바뀌는 것은 frontmatter 의 한 줄뿐이다.
+      if (folders.includes(activeFolder)) await get().saveAll();
+      const res = await api.setTaskCategory(settings.vault, folders, cat.value);
+      set({ tasks: res.tasks });
+      await get().resyncIndexDocs(res.changed);
+      if (res.failed.length) {
+        // 파일이 잠겨 있으면(OneDrive · 백신) 그 업무만 빠진다 — 화면에서는 티가 나지 않는다.
+        const [first] = res.failed;
+        get().toast(
+          res.failed.length > 1
+            ? `${res.failed.length}건에 카테고리를 지정하지 못했습니다`
+            : "카테고리를 지정하지 못했습니다",
+          `${first.title} · ${first.reason}`,
+          TOAST.warn,
+        );
+        return false;
+      }
+      return true;
+    } catch (e) {
+      get().fail(e, "카테고리를 지정하지 못했습니다");
+      return false;
     }
   },
 
@@ -1704,6 +1771,9 @@ export const useStore = create<State & Actions>((set, get) => ({
     const { nt, settings, ntRefs, tasks, ntBusy } = get();
     const title = nt.title.trim();
     if (!title || ntBusy) return;
+    // 폴더를 만들기 전에 거른다 — 백엔드도 같은 검사를 하지만 그때는 이미 늦은 것처럼 보인다.
+    const cat = categoryInput(nt.category, tasks);
+    if (cat.error) return get().fail(cat.error, "업무를 만들지 못했습니다");
     set({ ntBusy: true });
     const tags = nt.tags
       .split(",")
@@ -1716,6 +1786,7 @@ export const useStore = create<State & Actions>((set, get) => ({
         nt.summary,
         tags,
         nt.template === "(없음)" ? null : nt.template,
+        cat.value,
       );
 
       set({ newOpen: false, ntRecs: [], recTag: {}, ntRefs: [] });
@@ -1900,6 +1971,7 @@ export const useStore = create<State & Actions>((set, get) => ({
         summary: "",
         // 갈라져 나온 업무도 같은 결의 일이다 — 태그는 채워 두고 지울 수 있게 한다.
         tags: (task?.tags ?? []).join(", "),
+        category: task?.category ?? "",
         busy: false,
         error: "",
       },
@@ -1915,6 +1987,12 @@ export const useStore = create<State & Actions>((set, get) => ({
       .map(([p]) => p);
     const title = split.title.trim();
     if (!title || !items.length) return;
+    // 옮기기 전에 거른다 — 잘못된 값으로 파일을 옮긴 뒤에 실패하면 안 된다.
+    const cat = categoryInput(split.category, get().tasks);
+    if (cat.error) {
+      set({ split: { ...split, error: cat.error } });
+      return get().fail(cat.error, "분할하지 못했습니다");
+    }
     set({ split: { ...split, busy: true, error: "" } });
     try {
       await get().saveAll();
@@ -1930,6 +2008,7 @@ export const useStore = create<State & Actions>((set, get) => ({
         split.summary,
         tags,
         items,
+        cat.value,
       );
       // 옮겨 간 것을 가리키던 탭 · 버퍼 · 트리 상태를 원본에서 걷어낸다. 폴더는 접두사로
       // 판정한다 — 폴더 하나가 가면 그 안의 탭도 전부 따라간다.

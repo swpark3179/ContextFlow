@@ -3,6 +3,8 @@ import { BLUE, VIOLET } from "../lib/design";
 import { sanitizeFolderName } from "../lib/vaultPaths";
 import { scheduleRecommend, useStore } from "../store/useStore";
 import { activeRun, useAi } from "../store/aiStore";
+import { label as categoryLabel, normalizeCategory, suggestCategory } from "../lib/category";
+import CategoryPicker from "../components/CategoryPicker";
 import { inputFocus } from "./Modal";
 
 const TAG_STYLE: Record<string, { label: string; fg: string; bg: string }> = {
@@ -27,6 +29,10 @@ export default function NewTaskModal() {
   }/`;
 
   const agentName = (id: string) => ai.infos.find((i) => i.id === id)?.name ?? id;
+
+  // 추천된 유사 업무들이 같은 카테고리에 모여 있으면 한 번에 고르게 한다.
+  const suggested = nt.category.trim() ? null : suggestCategory(ntRecs.map((r) => r.id), s.tasks);
+  const category = normalizeCategory(nt.category).value;
 
   // 폴더 템플릿을 고르면 그 안의 파일이 실제로 복사되므로 미리 알려 준다.
   const tplFolder = s.templates.some((t) => t.id === nt.template && t.kind === "folder");
@@ -222,6 +228,39 @@ export default function NewTaskModal() {
                 )}
               </div>
             </div>
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5, minWidth: 0 }}>
+                <span style={{ ...label, marginBottom: 0, flex: "0 0 auto" }}>카테고리</span>
+                <div style={{ flex: 1 }} />
+                {suggested && (
+                  <Box
+                    onClick={() => s.set({ nt: { ...nt, category: suggested } })}
+                    title="추천된 유사 업무들이 쓰는 카테고리입니다"
+                    style={{
+                      minWidth: 0,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                      fontSize: 11,
+                      color: "#5a44b4",
+                      background: "#f4f0fd",
+                      border: "1px solid #e0d6f8",
+                      borderRadius: 4,
+                      padding: "1px 7px",
+                      cursor: "pointer",
+                    }}
+                    hover={{ background: "#ece5fb" }}
+                  >
+                    유사 업무의 카테고리 · {categoryLabel(suggested)}
+                  </Box>
+                )}
+              </div>
+              <CategoryPicker
+                value={nt.category}
+                onChange={(v) => s.set({ nt: { ...nt, category: v } })}
+                onCommit={(v) => s.set({ nt: { ...nt, category: v ?? "" } })}
+              />
+            </div>
             <div
               style={{
                 border: "1px dashed #ddd8cf",
@@ -261,6 +300,11 @@ export default function NewTaskModal() {
                   </span>
                 ))}
               </div>
+              {category && (
+                <div style={{ fontSize: 11, color: "#a09a8f", marginTop: 5, lineHeight: 1.5 }}>
+                  카테고리는 index.md 에만 적힙니다 — 폴더는 그대로 Tasks/ 바로 아래에 생깁니다.
+                </div>
+              )}
             </div>
           </div>
 

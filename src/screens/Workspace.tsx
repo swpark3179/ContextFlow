@@ -1,9 +1,10 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { Box } from "../lib/ui";
 import { statusOf, GREEN } from "../lib/design";
 import EditorPane from "../components/EditorPane";
 import Notepad from "../components/Notepad";
 import Explorer from "../components/Explorer";
+import CategoryPicker, { CategoryChip } from "../components/CategoryPicker";
 import { isArchived, useStore } from "../store/useStore";
 
 const STATUS_OPTIONS: [string, string, string][] = [
@@ -18,6 +19,8 @@ export default function Workspace() {
   const dockRef = useRef<HTMLDivElement | null>(null);
   const leftRef = useRef<HTMLDivElement | null>(null);
   const drag = useRef<"col" | "rowL" | null>(null);
+  /** 카테고리 팝오버의 입력. `null` = 닫힘. */
+  const [catText, setCatText] = useState<string | null>(null);
 
   const task = s.tasks.find((t) => t.folder === s.activeFolder);
 
@@ -166,7 +169,8 @@ export default function Workspace() {
               </span>
             ))}
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 3 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 3, minWidth: 0 }}>
+            <CategoryChip category={task.category} onClick={() => setCatText(task.category ?? "")} />
             <span
               style={{
                 fontFamily: "'Roboto Mono',monospace",
@@ -182,6 +186,38 @@ export default function Workspace() {
             </span>
           </div>
         </div>
+        {catText !== null && (
+          <>
+            <div onClick={() => setCatText(null)} style={{ position: "fixed", inset: 0, zIndex: 25 }} />
+            <div
+              style={{
+                position: "absolute",
+                top: 50,
+                left: 12,
+                zIndex: 30,
+                width: 300,
+                background: "#fff",
+                border: "1px solid #d9d4ca",
+                borderRadius: 6,
+                boxShadow: "0 10px 26px rgba(35,33,30,.16)",
+                padding: 8,
+                animation: "pIn .12s ease-out",
+              }}
+            >
+              <CategoryPicker
+                popover
+                autoFocus
+                value={catText}
+                onChange={setCatText}
+                onCommit={(v) => {
+                  setCatText(null);
+                  if (v !== task.category) void s.setCategory([task.folder], v);
+                }}
+                onCancel={() => setCatText(null)}
+              />
+            </div>
+          </>
+        )}
         <div style={{ flex: 1 }} />
         <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: "#8a857c" }}>
           <div style={{ width: 5, height: 5, borderRadius: "50%", background: GREEN }} />

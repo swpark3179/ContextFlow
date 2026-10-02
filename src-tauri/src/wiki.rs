@@ -1567,6 +1567,7 @@ mod tests {
                 summary: "배포 스크립트를 고쳤다",
                 tags: &["dev".into()],
                 template: None,
+                category: None,
             },
         )
         .unwrap();
@@ -1853,6 +1854,22 @@ mod tests {
         // 내용이 바뀌면 stale.
         fs::write(Path::new(&t.folder).join("추가.md"), "새 파일").unwrap();
         assert_eq!(status(v.path(), 0).unwrap().tasks[0].state, "stale");
+    }
+
+    #[test]
+    fn category_change_keeps_source_fresh() {
+        let v = TempVault::new("category-fresh");
+        let t = archived_task(v.path(), "분류할 업무");
+        ingest(v.path(), &t, vec![page("source", "분류할 업무", "본문")]);
+        assert_eq!(status(v.path(), 0).unwrap().tasks[0].state, "fresh");
+
+        // 카테고리는 frontmatter 키 하나다 — 업무 내용이 바뀐 것이 아니므로 다시 반영할 일도 없다.
+        let res = crate::category::set_category(v.path(), &[t.folder.clone()], Some("운영/배포"))
+            .unwrap();
+        assert_eq!(res.changed, vec![t.folder.clone()]);
+        let st = status(v.path(), 0).unwrap();
+        assert_eq!(st.tasks[0].state, "fresh");
+        assert!(st.moved.is_empty());
     }
 
     #[test]

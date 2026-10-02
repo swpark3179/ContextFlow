@@ -3,7 +3,8 @@ import { Box, Input } from "../lib/ui";
 import { BLUE, normalizeStatus, statusOf } from "../lib/design";
 import { useDropGuard, useLongPress } from "../lib/longPress";
 import { shortStamp, today } from "../lib/format";
-import { isArchived, useStore, type Screen } from "../store/useStore";
+import { label } from "../lib/category";
+import { emptyNewTask, isArchived, useStore, type Screen } from "../store/useStore";
 import { useWiki } from "../store/wikiStore";
 
 /**
@@ -346,7 +347,9 @@ export default function Sidebar() {
       if (counts[k] !== undefined) counts[k]++;
     });
     const match = (t: (typeof tasks)[number]) =>
-      `${t.title} ${t.tags.join(" ")} ${t.relFolder} ${t.tagline}`.toLowerCase().includes(q);
+      `${t.title} ${t.tags.join(" ")} ${t.category ?? ""} ${t.relFolder} ${t.tagline}`
+        .toLowerCase()
+        .includes(q);
     const visible = live.filter((t) => {
       const st = normalizeStatus(t.status);
       if (filter !== "all" && st !== filter) return false;
@@ -731,6 +734,21 @@ export default function Sidebar() {
                   >
                     {shortStamp(t.updated)}
                   </span>
+                  {t.category && (
+                    <span
+                      style={{
+                        fontSize: 10.5,
+                        color: "#8a857c",
+                        flex: "0 1 auto",
+                        minWidth: 0,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {label(t.category)}
+                    </span>
+                  )}
                   <span
                     style={{
                       fontSize: 10.5,
@@ -894,7 +912,7 @@ export default function Sidebar() {
           onClick={() =>
             s.set({
               newOpen: true,
-              nt: { title: "", summary: "", tags: "", template: "(없음)" },
+              nt: emptyNewTask(),
               ntRecs: [],
               recTag: {},
               ntRefs: [],

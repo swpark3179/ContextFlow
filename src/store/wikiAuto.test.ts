@@ -16,6 +16,7 @@ function task(over: Record<string, unknown> = {}) {
     title: "배포 정리",
     status: "in-progress",
     tags: [],
+    category: null,
     created: "",
     updated: "",
     parentTask: null,

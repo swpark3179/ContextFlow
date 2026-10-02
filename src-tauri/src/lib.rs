@@ -1,6 +1,7 @@
 mod agents;
 mod ai_settings;
 mod browser;
+mod category;
 mod daylog;
 mod detect;
 mod error;
@@ -141,6 +142,7 @@ fn create_task(
     summary: String,
     tags: Vec<String>,
     template: Option<String>,
+    category: Option<String>,
 ) -> Result<vault::TaskMeta> {
     vault::create_task(
         &p(&root),
@@ -149,6 +151,8 @@ fn create_task(
             summary: &summary,
             tags: &tags,
             template: template.as_deref().filter(|t| !t.is_empty()),
+            // 빈 문자열은 정규화가 미분류로 읽는다.
+            category: category.as_deref(),
         },
     )
 }
@@ -222,6 +226,7 @@ fn split_task(
     summary: String,
     tags: Vec<String>,
     items: Vec<String>,
+    category: Option<String>,
 ) -> Result<vault::SplitResult> {
     vault::split_task(
         &p(&root),
@@ -231,8 +236,24 @@ fn split_task(
             summary: &summary,
             tags: &tags,
             items: &items,
+            category: category.as_deref(),
         },
     )
+}
+
+/// 여러 업무의 카테고리를 한 번에 지정한다(`None` 이면 해제). 업무마다 index.md 를 읽고
+/// 쓰므로 IPC 스레드를 막지 않게 블로킹 풀에서 돈다.
+#[tauri::command]
+async fn set_task_category(
+    root: String,
+    folders: Vec<String>,
+    category: Option<String>,
+) -> Result<category::CategoryChange> {
+    tauri::async_runtime::spawn_blocking(move || {
+        category::set_category(&p(&root), &folders, category.as_deref())
+    })
+    .await
+    .map_err(|e| AppError::io(format!("카테고리 지정이 중단되었습니다: {e}")))?
 }
 
 #[tauri::command]
@@ -670,6 +691,7 @@ pub fn run() {
             merge_tasks,
             absorb_task,
             split_task,
+            set_task_category,
             discard_task,
             read_text_file,
             write_text_file,

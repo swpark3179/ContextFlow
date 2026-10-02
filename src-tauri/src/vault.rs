@@ -27,6 +27,9 @@ pub struct TaskMeta {
     pub title: String,
     pub status: String,
     pub tags: Vec<String>,
+    /// 카테고리 경로(`프로젝트/ContextFlow`). `None` = 미분류. Obsidian 에서 손으로 고친
+    /// 모양이어도 읽기 규칙으로 정리된 값이다(`category::read`).
+    pub category: Option<String>,
     pub created: String,
     pub updated: String,
     pub parent_task: Option<String>,
@@ -206,6 +209,7 @@ pub fn read_task(root: &Path, index_path: &Path) -> Result<TaskMeta> {
         title: doc.get_str("title").unwrap_or(fallback_title),
         status: doc.get_str("status").unwrap_or_else(|| "in-progress".into()),
         tags: doc.get_list("tags"),
+        category: crate::category::read(&doc),
         created: doc.get_str("created").unwrap_or_default(),
         updated: doc.get_str("updated").unwrap_or_default(),
         parent_task: doc.get_str("parent_task"),
@@ -415,6 +419,8 @@ pub struct NewTask<'a> {
     pub summary: &'a str,
     pub tags: &'a [String],
     pub template: Option<&'a str>,
+    /// 사용자가 적은 그대로의 값. `create_task` 가 정규화하고, 규칙에 어긋나면 거절한다.
+    pub category: Option<&'a str>,
 }
 
 /// 템플릿이 없을 때의 골격 — 개요 한 섹션뿐이다. 새 업무의 첫 화면을 남의 골격으로
@@ -485,6 +491,12 @@ fn compose_body(skeleton: Option<String>, summary: &str, stamp: &str) -> String 
 }
 
 pub fn create_task(root: &Path, spec: NewTask<'_>) -> Result<TaskMeta> {
+    // 폴더를 만들기 **전에** 거절한다 — 받지 못할 값 때문에 빈 업무가 목록에 남으면 안 된다.
+    let category = spec
+        .category
+        .map(|raw| crate::category::normalize(raw, crate::category::Mode::Write))
+        .transpose()?
+        .flatten();
     ensure_layout(root)?;
     let title = sanitize_name(spec.title);
     let base = format!("[{}] {}", month_prefix(), title);
@@ -519,6 +531,8 @@ pub fn create_task(root: &Path, spec: NewTask<'_>) -> Result<TaskMeta> {
     doc.set("title", crate::frontmatter::quote_if_needed(&title));
     doc.set("status", "in-progress");
     doc.set_list("tags", spec.tags);
+    // 미분류면 키를 만들지 않는다.
+    crate::category::write(&mut doc, category.as_deref());
     doc.set("created", &stamp);
     doc.set("updated", &stamp);
     doc.set("parent_task", "null");
@@ -611,7 +625,7 @@ fn edit_index<F>(root: &Path, folder: &Path, f: F) -> Result<TaskMeta>
 where
     F: FnMut(&mut Doc),
 {
-    edit_index_inner(root, folder, true, f)
+    edit_index_inner(root, folder, true, f).map(|(meta, _)| meta)
 }
 
 /// `bump_updated` 가 false 면 `updated` 를 손대지 않는다.
@@ -619,7 +633,15 @@ where
 /// 목록에서 순서를 바꾸는 것은 업무를 **작업한** 것이 아니다. 그런데도 `updated` 를
 /// 갱신하면 사이드바가 그 값을 "마지막 작업 시각" 으로 그대로 보여 주므로(`shortStamp`)
 /// 끌어 옮기기만 해도 방금 만진 것처럼 보인다.
-fn edit_index_inner<F>(root: &Path, folder: &Path, bump_updated: bool, mut f: F) -> Result<TaskMeta>
+///
+/// 고친 결과가 원래 바이트와 같으면 쓰지 않는다 — 수정 시각만 바뀌어도 OneDrive 가 다시
+/// 동기화한다. 함께 돌려주는 `bool` 이 실제로 썼는지다(카테고리 지정이 바뀐 업무만 알린다).
+pub(crate) fn edit_index_inner<F>(
+    root: &Path,
+    folder: &Path,
+    bump_updated: bool,
+    mut f: F,
+) -> Result<(TaskMeta, bool)>
 where
     F: FnMut(&mut Doc),
 {
@@ -630,8 +652,12 @@ where
     if bump_updated {
         doc.set("updated", now_stamp());
     }
-    fs::write(&index, doc.render())?;
-    read_task(root, &index)
+    let out = doc.render();
+    let wrote = out != src;
+    if wrote {
+        fs::write(&index, out)?;
+    }
+    Ok((read_task(root, &index)?, wrote))
 }
 
 pub fn set_status(root: &Path, folder: &Path, status: &str) -> Result<TaskMeta> {
@@ -804,7 +830,7 @@ pub struct SplitResult {
 /// `discard_task` 와 같은 방식의 검사다. 절대 경로를 받으므로 `fsops::safe_join` 을
 /// 쓸 수 없고(그쪽은 상대 경로용이다), 이 검사 하나가 Vault 바깥 · 템플릿 · Vault
 /// 루트 자신을 한꺼번에 막는다.
-fn ensure_task_folder(root: &Path, folder: &Path, what: &str) -> Result<()> {
+pub(crate) fn ensure_task_folder(root: &Path, folder: &Path, what: &str) -> Result<()> {
     let tasks_dir = root.join(TASKS_DIR);
     let archive_dir = root.join(ARCHIVE_DIR);
     let parent = folder.parent();
@@ -917,6 +943,8 @@ pub struct SplitTask<'a> {
     pub tags: &'a [String],
     /// 옮길 **최상위** 항목의 이름들. 폴더는 `/` 로 끝나도 되고 아니어도 된다.
     pub items: &'a [String],
+    /// 새 업무의 카테고리(정규화 전). 프런트가 원본 값을 미리 채워 보낸다.
+    pub category: Option<&'a str>,
 }
 
 /// 고른 항목 이름을 검사해 다듬는다. 최상위 이름 하나씩이어야 하고, 실제로 있어야 하며,
@@ -1045,6 +1073,9 @@ pub fn split_task(root: &Path, source: &Path, spec: SplitTask<'_>) -> Result<Spl
             summary: spec.summary,
             tags: spec.tags,
             template: None,
+            // 잘못된 값이면 `create_task` 가 폴더를 만들기 전에 거절한다 — 아직 아무것도
+            // 옮기지 않았다.
+            category: spec.category,
         },
     )?;
     let dest = PathBuf::from(&created.folder);
@@ -1369,6 +1400,7 @@ pub fn seed_sample(root: &Path) -> Result<()> {
                 summary: "왼쪽에서 업무를 고르면 그 업무 전용 작업공간이 열립니다. 오른쪽 탐색기에서 파일을 만들고 더블클릭해 편집해 보세요.",
                 tags: &["시작".to_string()],
                 template: Some("업무 표준절차"),
+                category: None,
             },
         )?;
     }
@@ -1378,6 +1410,7 @@ pub fn seed_sample(root: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::category::set_category;
 
     #[test]
     fn sanitizes_windows_forbidden_characters() {
@@ -1601,7 +1634,13 @@ mod tests {
     fn make(root: &Path, title: &str) -> TaskMeta {
         create_task(
             root,
-            NewTask { title, summary: "테스트 개요", tags: &["test".into()], template: None },
+            NewTask {
+                title,
+                summary: "테스트 개요",
+                tags: &["test".into()],
+                template: None,
+                category: None,
+            },
         )
         .unwrap()
     }
@@ -1637,7 +1676,13 @@ mod tests {
         let v = TempVault::new("emptysummary");
         let t = create_task(
             v.path(),
-            NewTask { title: "개요 없음", summary: "  ", tags: &[], template: None },
+            NewTask {
+                title: "개요 없음",
+                summary: "  ",
+                tags: &[],
+                template: None,
+                category: None,
+            },
         )
         .unwrap();
 
@@ -1822,6 +1867,7 @@ mod tests {
                 summary: "첫 배포",
                 tags: &[],
                 template: Some("릴리스 절차"),
+                category: None,
             },
         )
         .unwrap();
@@ -1859,6 +1905,7 @@ mod tests {
                 summary: "이번 회차",
                 tags: &[],
                 template: Some("표준 패키지"),
+                category: None,
             },
         )
         .unwrap();
@@ -1929,6 +1976,7 @@ mod tests {
                 summary: "요약",
                 tags: &[],
                 template: Some("표준절차"),
+                category: None,
             },
         )
         .unwrap();
@@ -2198,6 +2246,7 @@ mod tests {
                 tags: &["design".to_string()],
                 // 폴더는 `/` 로 끝나도 되고 아니어도 된다.
                 items: &["설계/".to_string(), "가져갈 노트.md".to_string()],
+                category: None,
             },
         )
         .unwrap();
@@ -2248,7 +2297,13 @@ mod tests {
             let err = split_task(
                 v.path(),
                 &source,
-                SplitTask { title: "새 업무", summary: "", tags: &[], items: &items },
+                SplitTask {
+                    title: "새 업무",
+                    summary: "",
+                    tags: &[],
+                    items: &items,
+                    category: None,
+                },
             )
             .unwrap_err();
             assert_eq!(err.kind, kind, "{items:?}");
@@ -2261,6 +2316,7 @@ mod tests {
                 summary: "",
                 tags: &[],
                 items: &["가져갈 노트.md".to_string()],
+                category: None,
             },
         )
         .unwrap_err();
@@ -2283,7 +2339,13 @@ mod tests {
         let err = split_task(
             v.path(),
             &stray,
-            SplitTask { title: "새 업무", summary: "", tags: &[], items: &["자료.txt".to_string()] },
+            SplitTask {
+                title: "새 업무",
+                summary: "",
+                tags: &[],
+                items: &["자료.txt".to_string()],
+                category: None,
+            },
         )
         .unwrap_err();
 
@@ -2315,5 +2377,242 @@ mod tests {
         assert_eq!(fs::read_to_string(source.join("가져갈 노트.md")).unwrap(), "저쪽으로");
         assert!(!dest.join("가져갈 노트.md").exists());
         assert!(only_index(&dest) || fs::read_dir(&dest).unwrap().count() == 0);
+    }
+
+    // -- 카테고리 -------------------------------------------------------------
+
+    fn make_in(root: &Path, title: &str, category: &str) -> TaskMeta {
+        create_task(
+            root,
+            NewTask {
+                title,
+                summary: "테스트 개요",
+                tags: &["test".into()],
+                template: None,
+                category: Some(category),
+            },
+        )
+        .unwrap()
+    }
+
+    /// frontmatter 의 키를 적힌 순서대로.
+    fn keys_of(folder: &str) -> Vec<String> {
+        let text = fs::read_to_string(Path::new(folder).join("index.md")).unwrap();
+        text.lines()
+            .skip(1)
+            .take_while(|l| *l != "---")
+            .filter(|l| !l.starts_with([' ', '-']))
+            .filter_map(|l| l.split_once(':').map(|(k, _)| k.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn create_task_writes_category_after_tags() {
+        let v = TempVault::new("cat-create");
+        let t = make_in(v.path(), "분류된 업무", " 프로젝트 › ContextFlow ");
+        assert_eq!(t.category.as_deref(), Some("프로젝트/ContextFlow"));
+        assert_eq!(
+            keys_of(&t.folder).join(" "),
+            "id title status tags category created updated parent_task template_ref runs"
+        );
+        let text = fs::read_to_string(Path::new(&t.folder).join("index.md")).unwrap();
+        assert!(text.contains("\ncategory: \"프로젝트/ContextFlow\"\n"), "{text}");
+
+        // 미분류면 키 자체가 없다 — `null` 이나 "미분류" 를 적지 않는다.
+        let plain = [make(v.path(), "그냥 업무"), make_in(v.path(), "미분류 업무", "미분류")];
+        for t in plain {
+            assert_eq!(t.category, None);
+            assert!(!keys_of(&t.folder).contains(&"category".to_string()));
+        }
+    }
+
+    #[test]
+    fn create_task_invalid_category_creates_no_folder() {
+        let v = TempVault::new("cat-invalid");
+        // Vault 골격(`Tasks/` · `_index/`)조차 만들기 전에 거절하는지 빈 폴더에서 본다.
+        let root = v.path().join("새 Vault");
+        fs::create_dir_all(&root).unwrap();
+        let cases = [
+            ("a/b/c/d", "카테고리는 3단계까지입니다"),
+            ("미분류/x", "‘미분류’는 카테고리 이름으로 쓸 수 없습니다"),
+        ];
+        for (raw, message) in cases {
+            let err = create_task(
+                &root,
+                NewTask {
+                    title: "거절될 업무",
+                    summary: "",
+                    tags: &[],
+                    template: None,
+                    category: Some(raw),
+                },
+            )
+            .unwrap_err();
+            assert_eq!(err.kind, "invalid");
+            assert_eq!(err.message, message);
+        }
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 0, "아무것도 만들지 않아야 한다");
+    }
+
+    #[test]
+    fn set_category_keeps_updated_and_order() {
+        let v = TempVault::new("cat-set");
+        let a = make(v.path(), "가");
+        let b = make(v.path(), "나");
+        reorder_tasks(v.path(), &[b.folder.clone(), a.folder.clone()]).unwrap();
+        set_updated(&a.folder, "2026-08-14 10:00");
+        let index = Path::new(&a.folder).join("index.md");
+        let before = read_task(v.path(), &index).unwrap();
+        let body = Doc::parse(&fs::read_to_string(&index).unwrap()).body;
+
+        let res = set_category(v.path(), &[a.folder.clone()], Some("운영/점검")).unwrap();
+        assert_eq!(res.changed, vec![a.folder.clone()]);
+        assert!(res.failed.is_empty());
+
+        // 정리는 작업이 아니다 — 마지막 작업 시각 · 자리 · 회차 · 본문이 그대로다.
+        let after = res.tasks.iter().find(|t| t.folder == a.folder).unwrap();
+        assert_eq!(after.category.as_deref(), Some("운영/점검"));
+        assert_eq!(after.updated, "2026-08-14 10:00");
+        assert_eq!(after.order, before.order);
+        assert_eq!(after.runs, before.runs);
+        assert_eq!(Doc::parse(&fs::read_to_string(&index).unwrap()).body, body);
+        let titles: Vec<&str> = res.tasks.iter().map(|t| t.title.as_str()).collect();
+        assert_eq!(titles, ["나", "가"]);
+    }
+
+    #[test]
+    fn set_category_same_value_writes_nothing() {
+        let v = TempVault::new("cat-same");
+        let t = make_in(v.path(), "그대로", "운영");
+        let plain = make(v.path(), "미분류 그대로");
+        // 수정 시각을 과거로 돌려 두면 다시 썼는지를 시계 해상도와 상관없이 가릴 수 있다.
+        let old = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
+        let mut snapshot = Vec::new();
+        for folder in [&t.folder, &plain.folder] {
+            let index = Path::new(folder).join("index.md");
+            fs::File::options().write(true).open(&index).unwrap().set_modified(old).unwrap();
+            snapshot.push((index.clone(), fs::read(&index).unwrap()));
+        }
+
+        // 같은 값을 다른 철자로 보내도 정규화하면 같다.
+        let res = set_category(v.path(), &[t.folder.clone()], Some(" 운영 ")).unwrap();
+        assert!(res.changed.is_empty(), "{:?}", res.changed);
+        let res = set_category(v.path(), &[plain.folder.clone()], None).unwrap();
+        assert!(res.changed.is_empty(), "{:?}", res.changed);
+        assert!(res.failed.is_empty());
+
+        for (index, bytes) in snapshot {
+            assert_eq!(fs::read(&index).unwrap(), bytes);
+            assert_eq!(fs::metadata(&index).unwrap().modified().unwrap(), old, "{index:?}");
+        }
+    }
+
+    #[test]
+    fn set_category_none_removes_key() {
+        let v = TempVault::new("cat-clear");
+        let t = make(v.path(), "해제");
+        let index = Path::new(&t.folder).join("index.md");
+        let original = fs::read_to_string(&index).unwrap();
+
+        set_category(v.path(), &[t.folder.clone()], Some("운영")).unwrap();
+        let res = set_category(v.path(), &[t.folder.clone()], None).unwrap();
+        assert_eq!(res.changed, vec![t.folder.clone()]);
+        assert_eq!(res.tasks[0].category, None);
+        // 붙였다 떼면 원래 바이트로 돌아온다 — 다른 줄은 손대지 않았다.
+        assert_eq!(fs::read_to_string(&index).unwrap(), original);
+    }
+
+    #[test]
+    fn set_category_rejects_non_task_folder() {
+        let v = TempVault::new("cat-guard");
+        let t = make(v.path(), "진짜 업무");
+        let stray = v.path().join(TASKS_DIR).join("손으로 넣은 폴더");
+        fs::create_dir_all(&stray).unwrap();
+        let elsewhere = v.path().join("자료");
+        fs::create_dir_all(&elsewhere).unwrap();
+        let note = "---\ntitle: 남의 노트\n---\n";
+        fs::write(elsewhere.join("index.md"), note).unwrap();
+
+        let stray_s = stray.to_string_lossy().to_string();
+        let elsewhere_s = elsewhere.to_string_lossy().to_string();
+        let folders = [stray_s.clone(), t.folder.clone(), elsewhere_s.clone()];
+        let res = set_category(v.path(), &folders, Some("운영")).unwrap();
+
+        // 막힌 것은 모아 알리고, 나머지는 그대로 진행한다.
+        assert_eq!(res.changed, vec![t.folder.clone()]);
+        let failed: Vec<(&str, &str)> =
+            res.failed.iter().map(|f| (f.folder.as_str(), f.title.as_str())).collect();
+        assert_eq!(
+            failed,
+            [(stray_s.as_str(), "손으로 넣은 폴더"), (elsewhere_s.as_str(), "남의 노트")]
+        );
+        assert!(res.failed.iter().all(|f| f.reason.contains("업무")), "{:?}", res.failed);
+        assert_eq!(fs::read_to_string(elsewhere.join("index.md")).unwrap(), note);
+        assert!(!stray.join("index.md").exists());
+
+        // 값이 규칙에 어긋나면 어느 업무에도 쓰지 않는다.
+        let err = set_category(v.path(), &[t.folder.clone()], Some("a/b/c/d")).unwrap_err();
+        assert_eq!(err.kind, "invalid");
+        let now = read_task(v.path(), &Path::new(&t.folder).join("index.md")).unwrap();
+        assert_eq!(now.category.as_deref(), Some("운영"));
+    }
+
+    #[test]
+    fn archive_move_restore_rename_keep_category() {
+        let v = TempVault::new("cat-follow");
+        let t = make_in(v.path(), "따라가는 값", "프로젝트/CF");
+        let want = Some("프로젝트/CF");
+        let folder = PathBuf::from(&t.folder);
+
+        set_status(v.path(), &folder, "completed").unwrap();
+        let tagged = set_archived(v.path(), &folder, true, "tag", false).unwrap();
+        assert_eq!(tagged.category.as_deref(), want);
+        let resumed = set_archived(v.path(), &folder, false, "tag", true).unwrap();
+        assert_eq!(resumed.category.as_deref(), want);
+
+        // 값이 index.md 안에 있으므로 폴더가 어디로 가든 함께 간다.
+        set_status(v.path(), &folder, "completed").unwrap();
+        let moved = set_archived(v.path(), &folder, true, "move", false).unwrap();
+        assert!(moved.rel_folder.starts_with("Archive/"));
+        assert_eq!(moved.category.as_deref(), want);
+        let back = set_archived(v.path(), Path::new(&moved.folder), false, "move", true).unwrap();
+        assert!(back.rel_folder.starts_with("Tasks/"));
+        assert_eq!(back.category.as_deref(), want);
+
+        let renamed = rename_task(v.path(), Path::new(&back.folder), "새 이름").unwrap();
+        assert_eq!(renamed.category.as_deref(), want);
+        assert_eq!(scan(v.path()).unwrap()[0].category.as_deref(), want);
+    }
+
+    #[test]
+    fn split_inherits_category() {
+        let v = TempVault::new("cat-split");
+        let source = task_with_files(v.path(), "웹 개편");
+        let source_s = source.to_string_lossy().to_string();
+        set_category(v.path(), &[source_s], Some("프로젝트/웹")).unwrap();
+        let before = scan(v.path()).unwrap().len();
+        let items = ["설계/".to_string()];
+        let split = |category| {
+            let spec = SplitTask {
+                title: "웹 개편 — 설계",
+                summary: "",
+                tags: &[],
+                items: &items,
+                category,
+            };
+            split_task(v.path(), &source, spec)
+        };
+
+        // 잘못된 값이면 새 업무도, 옮긴 파일도 없다.
+        let err = split(Some("미분류/설계")).unwrap_err();
+        assert_eq!(err.kind, "invalid");
+        assert_eq!(scan(v.path()).unwrap().len(), before);
+        assert!(source.join("설계/도면/1층.svg").is_file());
+
+        // 프런트가 원본 값을 미리 채워 보낸다 — 새 업무는 그 값을, 원본은 자기 값을 갖는다.
+        let res = split(Some("프로젝트/웹")).unwrap();
+        assert_eq!(res.task.category.as_deref(), Some("프로젝트/웹"));
+        let kept = read_task(v.path(), &source.join("index.md")).unwrap();
+        assert_eq!(kept.category.as_deref(), Some("프로젝트/웹"));
     }
 }

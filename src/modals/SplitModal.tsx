@@ -4,6 +4,7 @@ import { extOf, extStyle, VIOLET } from "../lib/design";
 import { BSTORM_EXT } from "../lib/bstorm";
 import { sanitizeFolderName } from "../lib/vaultPaths";
 import { useStore } from "../store/useStore";
+import CategoryPicker from "../components/CategoryPicker";
 import { GhostButton, inputFocus, inputStyle, labelStyle, Modal, ModalFooter } from "./Modal";
 
 /** 트리와 같은 확장자 배지. `.bs.md` 는 `md` 가 아니라 BS 로 가른다(`Explorer` 와 같다). */
@@ -323,6 +324,14 @@ export default function SplitModal() {
               placeholder="dev, infra"
               style={inputStyle}
               focusStyle={inputFocus}
+            />
+          </div>
+          <div>
+            <div style={labelStyle}>카테고리</div>
+            <CategoryPicker
+              value={split.category}
+              onChange={(v) => s.set({ split: { ...split, category: v, error: "" } })}
+              onCommit={(v) => s.set({ split: { ...split, category: v ?? "", error: "" } })}
             />
           </div>
           <div style={{ fontSize: 11.5, color: "#8a857c", lineHeight: 1.65 }}>

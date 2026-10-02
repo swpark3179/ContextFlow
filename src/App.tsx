@@ -22,7 +22,7 @@ import RenameTaskModal from "./modals/RenameTaskModal";
 import AbsorbModal from "./modals/AbsorbModal";
 import SplitModal from "./modals/SplitModal";
 import { Box } from "./lib/ui";
-import { useStore } from "./store/useStore";
+import { emptyNewTask, useStore } from "./store/useStore";
 import { useAi } from "./store/aiStore";
 import { useWiki } from "./store/wikiStore";
 
@@ -76,7 +76,7 @@ export default function App() {
         e.preventDefault();
         st.set({
           newOpen: true,
-          nt: { title: "", summary: "", tags: "", template: "(없음)" },
+          nt: emptyNewTask(),
           ntRecs: [],
           recTag: {},
           ntRefs: [],

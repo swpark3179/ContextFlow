@@ -177,6 +177,20 @@ impl Doc {
         }
     }
 
+    /// 새 키를 `anchor` 바로 뒤(딸린 줄까지 지나서)에 넣는다. 키가 이미 있으면 `set` 과
+    /// 같이 그 자리에서 고치고, `anchor` 가 없으면 맨 뒤에 붙인다. 관련된 키를 나란히 두면
+    /// Obsidian Properties 에서도 붙어 보인다.
+    pub fn insert_after(&mut self, key: &str, value: impl Into<String>, anchor: &str) {
+        if self.entries.iter().any(|e| e.key == key) {
+            return self.set(key, value);
+        }
+        let entry = Entry { key: key.to_string(), inline: value.into(), extra: Vec::new() };
+        match self.entries.iter().position(|e| e.key == anchor) {
+            Some(i) => self.entries.insert(i + 1, entry),
+            None => self.entries.push(entry),
+        }
+    }
+
     /// Writes `key: [a, b, c]` — the inline form the requirements spec uses.
     pub fn set_list(&mut self, key: &str, values: &[String]) {
         let rendered = format!(
@@ -328,6 +342,28 @@ mod tests {
         assert!(out.contains("archived: true"));
         assert!(out.contains("archived_at: 2026-08-04"));
         assert!(out.contains("id: task-2026-0803-01"));
+    }
+
+    #[test]
+    fn insert_after_lands_behind_the_anchor_and_its_continuation_lines() {
+        let mut d = Doc::parse("---\nid: a\ntags:\n  - x\n  - y\nstatus: s\n---\n본문\n");
+        d.insert_after("category", "\"c\"", "tags");
+        assert_eq!(
+            d.render(),
+            "---\nid: a\ntags:\n  - x\n  - y\ncategory: \"c\"\nstatus: s\n---\n본문\n"
+        );
+
+        // 기준 키가 없으면 맨 뒤에 붙는다.
+        let mut d = Doc::parse("---\nid: a\n---\n본문\n");
+        d.insert_after("category", "\"c\"", "tags");
+        assert_eq!(d.render(), "---\nid: a\ncategory: \"c\"\n---\n본문\n");
+    }
+
+    #[test]
+    fn insert_after_edits_an_existing_key_in_place() {
+        let mut d = Doc::parse("---\ncategory: old\nid: a\ntags: [x]\n---\n");
+        d.insert_after("category", "new", "tags");
+        assert_eq!(d.render(), "---\ncategory: new\nid: a\ntags: [x]\n---\n");
     }
 
     #[test]
