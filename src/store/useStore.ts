@@ -5,6 +5,7 @@ import type { FileEntry } from "../lib/tree";
 import { normalizeStatus, TOAST } from "../lib/design";
 import { basename, daysSince, hhmm, joinPath, nowStamp, today } from "../lib/format";
 import { setImageWidth, splitFrontmatter, toggleTaskLine } from "../lib/markdown";
+import { rebaseIndexDoc } from "../lib/indexDoc";
 import { imageMarkdown, insertOwnLine, relativeFromNote, type ClipImage } from "../lib/images";
 import {
   composeDiscardBody,
@@ -502,6 +503,11 @@ interface Actions {
   saveDoc: (path: string) => Promise<void>;
   saveAll: () => Promise<void>;
   persistSnapshot: (folder?: string) => Promise<void>;
+  /**
+   * 백엔드가 이 업무들의 `index.md` 를 고친 뒤(상태 · 제목 · Run Log · 순서 …) 들고 있던
+   * 버퍼를 디스크에 맞춘다. 스냅샷처럼 최선만 다하고 던지지 않는다.
+   */
+  resyncIndexDocs: (folders: string[]) => Promise<void>;
 
   commitMk: () => Promise<void>;
   commitFileRename: () => Promise<void>;
@@ -599,6 +605,17 @@ function pruneUi(ui: TaskUi, gone: (path: string) => boolean): Partial<TaskUi> {
     extOpened: left(ui.extOpened),
     bsView: left(ui.bsView),
   };
+}
+
+/**
+ * 디스크의 `index.md` 를 다시 읽은 뒤의 버퍼. 깨끗했으면 디스크 그대로, 고치던 중이면
+ * 본문만 남기고 frontmatter 는 디스크 것으로 바꾼다(`rebaseIndexDoc`).
+ *
+ * 그냥 두면 편집기가 다음 입력 때 **낡은 frontmatter 로** 파일을 다시 조립해, 방금
+ * 백엔드가 쓴 값을 자동 저장이 조용히 되돌린다(`EditorPane` 의 `onEdit`).
+ */
+function resynced(doc: Doc, disk: string): Doc {
+  return { text: doc.text === doc.saved ? disk : rebaseIndexDoc(disk, doc.text), saved: disk };
 }
 
 let toastSeq = 0;
@@ -793,6 +810,17 @@ export const useStore = create<State & Actions>((set, get) => ({
         } catch {
           /* a corrupt snapshot must not block opening the task */
         }
+        // 스냅샷의 index.md 는 저장 전에 접어 둔 글이다. 그 뒤에 바뀐 frontmatter(상태 ·
+        // 제목 · 순서 …) 위에 본문만 다시 얹는다 — 그대로 쓰면 저장하는 순간 옛 값이 된다.
+        const idx = ui.docs["index.md"];
+        if (idx && idx.text !== idx.saved) {
+          try {
+            const disk = await api.readTextFile(joinPath(folder, "index.md"));
+            ui = { ...ui, docs: { ...ui.docs, "index.md": resynced(idx, disk) } };
+          } catch {
+            /* 못 읽으면 스냅샷 그대로 연다 */
+          }
+        }
       }
     }
 
@@ -842,6 +870,8 @@ export const useStore = create<State & Actions>((set, get) => ({
           ren: null,
         };
       });
+      // frontmatter 의 `title` 도 바뀌었다 — 열린 index.md 가 옛 제목으로 되돌리지 않게.
+      await get().resyncIndexDocs([updated.folder]);
       await get().relocateToday(folder, updated.folder, updated.title);
       get().noteToday(updated.folder, updated.title);
       // 열린 탭 · 미저장 버퍼는 폴더 상대 경로라 그대로 살아 있다. 새 경로를 이미
@@ -899,6 +929,9 @@ export const useStore = create<State & Actions>((set, get) => ({
         snapAt: hhmm(),
       }));
       get().noteToday(activeFolder, updated.title);
+      // 보류 · 진행은 창을 그대로 둔다 — 열린 index.md 가 방금 쓴 상태를 되돌리지 않게 맞춘다.
+      // 완료는 보관까지 가고 거기서 맞춘다(`archiveNow`).
+      if (normalizeStatus(status) !== "completed") await get().resyncIndexDocs([activeFolder]);
       await get().persistSnapshot(activeFolder);
       if (normalizeStatus(status) === "completed") {
         const archived = await get().archiveNow(activeFolder, { close: true });
@@ -964,6 +997,9 @@ export const useStore = create<State & Actions>((set, get) => ({
         );
       }
       if (close) get().closeTask();
+      // 보관 표시도 index.md 에 쓰인다. 캐시에 남은 버퍼가 보관함에서 다시 열었을 때 그것을
+      // 되돌리지 않게 맞춘다.
+      await get().resyncIndexDocs([updated.folder]);
       // 목록만 새로 읽는다. 창을 닫았을 때 `reloadVault(false)` 를 쓰면 살아 있는 업무
       // 하나를 자동으로 골라 열어 버려, 방금 닫은 자리에 엉뚱한 업무가 나타난다.
       await get().reloadVault(close);
@@ -986,6 +1022,9 @@ export const useStore = create<State & Actions>((set, get) => ({
         true,
       );
       set((s) => ({ tasks: s.tasks.map((t) => (t.folder === folder ? updated : t)) }));
+      // 재개는 index.md 의 상태와 보관 표시를 고친다 — 보관함 상세에서 열어 둔 버퍼가 다음
+      // 업무 전환의 `saveAll` 로 그것을 되돌리기 전에 맞춘다.
+      await get().resyncIndexDocs([updated.folder]);
       set({ archQuery: "", query: "" });
       await get().relocateToday(folder, updated.folder, updated.title);
       get().noteToday(updated.folder, updated.title);
@@ -1265,6 +1304,40 @@ export const useStore = create<State & Actions>((set, get) => ({
     }
   },
 
+  resyncIndexDocs: async (folders) => {
+    for (const folder of new Set(folders)) {
+      try {
+        if (folder === get().activeFolder) {
+          if (!get().ui.docs["index.md"]) continue;
+          const disk = await api.readTextFile(joinPath(folder, "index.md"));
+          // 읽는 사이에 친 글자도 살린다 — 버퍼는 읽은 **뒤의** 것을 쓴다.
+          const doc = get().ui.docs["index.md"];
+          if (!doc || get().activeFolder !== folder) continue;
+          get().setUi({ docs: { ...get().ui.docs, "index.md": resynced(doc, disk) } });
+          continue;
+        }
+        // 다른 업무의 깨끗한 버퍼는 버린다 — 그 업무를 다시 열 때 `selectTask` 가 열린 탭의
+        // 빠진 버퍼를 디스크에서 새로 읽는다. 고치던 버퍼만 지금 읽어 다시 얹는다.
+        const cached = get().uiCache[folder]?.docs["index.md"];
+        if (!cached) continue;
+        const disk =
+          cached.text === cached.saved
+            ? null
+            : await api.readTextFile(joinPath(folder, "index.md"));
+        set((s) => {
+          const ui = s.uiCache[folder];
+          const doc = ui?.docs["index.md"];
+          if (!ui || !doc) return {};
+          const { "index.md": _stale, ...rest } = ui.docs;
+          const docs = disk === null ? rest : { ...rest, "index.md": resynced(doc, disk) };
+          return { uiCache: { ...s.uiCache, [folder]: { ...ui, docs } } };
+        });
+      } catch {
+        /* 못 맞추면 버퍼가 그대로 남을 뿐이다 — 메타데이터를 고친 일 자체는 끝났다 */
+      }
+    }
+  },
+
   // -------------------------------------------------------------------------
 
   commitMk: async () => {
@@ -1505,7 +1578,13 @@ export const useStore = create<State & Actions>((set, get) => ({
     const next = reorderedList(live, (scope ?? live).filter((f) => liveSet.has(f)), folder, at);
     if (!next) return;
     try {
-      set({ tasks: await api.reorderTasks(settings.vault, next) });
+      const res = await api.reorderTasks(settings.vault, next);
+      set({ tasks: res });
+      // `order` 는 index.md 에 쓰인다 — 값이 바뀐 업무의 열린 버퍼를 맞춘다.
+      const before = new Map(tasks.map((t) => [t.folder, t.order]));
+      await get().resyncIndexDocs(
+        res.filter((t) => before.get(t.folder) !== t.order).map((t) => t.folder),
+      );
     } catch (e) {
       get().fail(e, "순서를 바꾸지 못했습니다");
     }
@@ -1520,6 +1599,7 @@ export const useStore = create<State & Actions>((set, get) => ({
     }
     try {
       set({ tasks: await api.clearTaskOrder(settings.vault) });
+      await get().resyncIndexDocs(tasks.filter((t) => t.order !== null).map((t) => t.folder));
       // 목록이 통째로 다시 늘어서는데 그 이유가 화면에 드러나지 않는다.
       get().toast("정렬을 초기화했습니다", "다시 최근 수정순으로 정렬합니다", TOAST.ok);
     } catch (e) {
@@ -1694,6 +1774,8 @@ export const useStore = create<State & Actions>((set, get) => ({
         picked.map((c) => c.id),
         settings.archMode,
       );
+      // 대표에는 Run Log 가, 나머지에는 보관 표시가 index.md 에 쓰였다.
+      await get().resyncIndexDocs(picked.map((c) => c.id));
       // 접힌 노드들은 대표 노드 안으로 들어갔다. 오늘의 한일에서도 대표 하나로 합친다 —
       // 'move' 방식에서는 그 폴더들이 Archive 아래로 옮겨져 죽은 줄이 되고, 'tag'
       // 방식에서도 같은 일을 두 줄로 세는 셈이다.
@@ -1770,6 +1852,8 @@ export const useStore = create<State & Actions>((set, get) => ({
         const { [absorb.source]: _absorbed, ...rest } = s.uiCache;
         return { uiCache: rest, absorb: null };
       });
+      // 받는 업무의 index.md 에는 Run Log 가 붙었다.
+      await get().resyncIndexDocs([res.task.folder]);
       // 편입된 업무의 작업공간은 닫는다. 없는 업무의 화면을 열어 둔 채로 두면 그 위에서
       // 자동 저장(`saveAll`)이 옛 경로에 파일을 되살리고, 업무 리스트에 없는 업무의
       // 작업공간이 떠 있는 셈이 된다 — 보관·완료와 같은 이유다.
@@ -1852,6 +1936,8 @@ export const useStore = create<State & Actions>((set, get) => ({
       const gone = (p: string) =>
         res.moved.some((m) => (m.endsWith("/") ? p.startsWith(m) : p === m));
       if (get().activeFolder === split.source) get().setUi(pruneUi(get().ui, gone));
+      // 원본의 index.md 에는 Run Log 가 붙었다 — 열린 버퍼가 그것을 지우지 않게 맞춘다.
+      await get().resyncIndexDocs([split.source]);
       set({ split: null });
       get().noteToday(split.source);
       get().noteToday(res.task.folder, res.task.title);

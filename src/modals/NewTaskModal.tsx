@@ -484,6 +484,8 @@ export default function NewTaskModal() {
                               await s.set({ recTag: { ...s.recTag, [r.id]: "resume" } });
                               const { appendTaskRun } = await import("../lib/api");
                               await appendTaskRun(settings.vault, r.id, note);
+                              // Run Log 는 index.md 에 붙는다 — 열어 둔 버퍼가 지우지 않게.
+                              await s.resyncIndexDocs([r.id]);
                               // 회차 로그가 붙은 것은 그 업무를 손댄 것이다.
                               s.noteToday(r.id, r.title);
                               s.set({ newOpen: false });
