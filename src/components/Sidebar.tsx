@@ -3,7 +3,8 @@ import { Box, Input } from "../lib/ui";
 import { BLUE, normalizeStatus, statusOf } from "../lib/design";
 import { useDropGuard, useLongPress } from "../lib/longPress";
 import { shortStamp, today } from "../lib/format";
-import { isArchived, useStore, type Screen } from "../store/useStore";
+import { label } from "../lib/category";
+import { emptyNewTask, isArchived, useStore, type Screen } from "../store/useStore";
 import { useWiki } from "../store/wikiStore";
 
 /**
@@ -345,8 +346,11 @@ export default function Sidebar() {
       const k = normalizeStatus(t.status);
       if (counts[k] !== undefined) counts[k]++;
     });
-    const match = (t: (typeof tasks)[number]) =>
-      `${t.title} ${t.tags.join(" ")} ${t.relFolder} ${t.tagline}`.toLowerCase().includes(q);
+    const match = (t: (typeof tasks)[number]) => {
+      // 카테고리는 저장 형태(`a/b`)와 화면 형태(`a › b`) 둘 다로 찾는다 — 화면의 라벨을 보고 친다.
+      const cat = t.category ? `${t.category} ${label(t.category)}` : "";
+      return `${t.title} ${t.tags.join(" ")} ${cat} ${t.relFolder} ${t.tagline}`.toLowerCase().includes(q);
+    };
     const visible = live.filter((t) => {
       const st = normalizeStatus(t.status);
       if (filter !== "all" && st !== filter) return false;
@@ -731,6 +735,24 @@ export default function Sidebar() {
                   >
                     {shortStamp(t.updated)}
                   </span>
+                  {t.category && (
+                    <span
+                      style={{
+                        fontSize: 10.5,
+                        color: "#a09a8f",
+                        flex: "0 1 auto",
+                        minWidth: 0,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {label(t.category)}
+                    </span>
+                  )}
+                  {t.category && t.tagline && (
+                    <span style={{ fontSize: 10.5, color: "#a09a8f", flex: "0 0 auto" }}>·</span>
+                  )}
                   <span
                     style={{
                       fontSize: 10.5,
@@ -894,7 +916,7 @@ export default function Sidebar() {
           onClick={() =>
             s.set({
               newOpen: true,
-              nt: { title: "", summary: "", tags: "", template: "(없음)" },
+              nt: emptyNewTask(),
               ntRecs: [],
               recTag: {},
               ntRefs: [],

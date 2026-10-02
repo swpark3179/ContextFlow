@@ -19,6 +19,8 @@ export interface TaskMeta {
   title: string;
   status: string;
   tags: string[];
+  /** `프로젝트/ContextFlow` 처럼 `/` 로 이은 1~3단계. `null` = 미분류. 백엔드가 정규화해 준다. */
+  category: string | null;
   created: string;
   updated: string;
   parentTask: string | null;
@@ -157,7 +159,8 @@ export const createTask = (
   summary: string,
   tags: string[],
   template: string | null,
-) => invoke<TaskMeta>("create_task", { root, title, summary, tags, template });
+  category: string | null,
+) => invoke<TaskMeta>("create_task", { root, title, summary, tags, template, category });
 export const renameTask = (root: string, folder: string, title: string) =>
   invoke<TaskMeta>("rename_task", { root, folder, title });
 export const setTaskStatus = (root: string, folder: string, status: string) =>
@@ -216,7 +219,30 @@ export const splitTask = (
   summary: string,
   tags: string[],
   items: string[],
-) => invoke<SplitResult>("split_task", { root, source, title, summary, tags, items });
+  category: string | null,
+) => invoke<SplitResult>("split_task", { root, source, title, summary, tags, items, category });
+
+/** 카테고리를 지정하지 못한 업무 하나. 나머지는 그대로 진행된다. */
+export interface CategoryIssue {
+  folder: string;
+  title: string;
+  reason: string;
+}
+
+export interface CategoryChange {
+  /** 지정한 뒤 새로 읽은 업무 목록 전체. */
+  tasks: TaskMeta[];
+  /** `index.md` 를 실제로 고쳐 쓴 폴더 — 이미 같은 값이던 업무는 빠진다. */
+  changed: string[];
+  failed: CategoryIssue[];
+}
+
+/**
+ * 여러 업무에 카테고리 하나를 지정한다(`null` = 해제). 값은 한 번 검증하고, 업무마다의
+ * 실패는 `failed` 로 모은다. `updated` 는 바뀌지 않는다 — 정리는 작업이 아니다.
+ */
+export const setTaskCategory = (root: string, folders: string[], category: string | null) =>
+  invoke<CategoryChange>("set_task_category", { root, folders, category });
 /**
  * 업무 폴더를 통째로 지운다. 파일을 하나도 붙이지 않은 업무를 완료했을 때만 부르며,
  * 제목과 내용은 그 전에 오늘의 한일에 적어 둔다(`useStore.logAndDiscard`).

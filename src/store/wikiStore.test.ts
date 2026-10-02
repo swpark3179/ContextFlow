@@ -37,6 +37,7 @@ function task() {
     title: "배포 정리",
     status: "completed",
     tags: ["dev"],
+    category: null,
     created: "",
     updated: "",
     parentTask: null,

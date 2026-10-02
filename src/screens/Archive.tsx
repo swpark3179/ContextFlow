@@ -7,6 +7,8 @@ import type { TaskMeta } from "../lib/api";
 import { isArchived, reportObsidianOpen, useStore } from "../store/useStore";
 import { useVirtual } from "../lib/virtual";
 import Workspace from "./Workspace";
+import { CategoryChip } from "../components/CategoryPicker";
+import { label as categoryLabel } from "../lib/category";
 
 /**
  * 보관함 안에서 연 업무의 작업공간.
@@ -162,7 +164,9 @@ export default function Archive() {
         if (archMonth !== "all" && done.slice(5, 7) !== archMonth) return false;
         if (!q) return true;
         if (archScope === "full") return !!hits[t.folder];
-        return `${t.title} ${t.tags.join(" ")} ${t.relFolder}`.toLowerCase().includes(q);
+        // 카테고리는 저장 형태(`a/b`)와 화면 형태(`a › b`) 둘 다로 찾는다(업무 리스트와 같다).
+        const cat = t.category ? `${t.category} ${categoryLabel(t.category)}` : "";
+        return `${t.title} ${t.tags.join(" ")} ${cat} ${t.relFolder}`.toLowerCase().includes(q);
       })
       .sort((a, b) => (b.completedAt ?? "").localeCompare(a.completedAt ?? ""));
 
@@ -510,6 +514,7 @@ export default function Archive() {
                           #{tg}
                         </span>
                       ))}
+                      {t.category && <CategoryChip category={t.category} />}
                       {t.archived === true && (
                         <span
                           style={{

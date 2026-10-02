@@ -28,6 +28,7 @@ function task() {
     title: "통화로 끝낸 일",
     status: "in-progress",
     tags: [],
+    category: null,
     created: "2026-09-11 09:00",
     updated: "2026-09-11 09:00",
     parentTask: null,

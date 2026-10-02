@@ -177,6 +177,20 @@ impl Doc {
         }
     }
 
+    /// 새 키를 `anchor` 바로 뒤(딸린 줄까지 지나서)에 넣는다. 키가 이미 있으면 `set` 과
+    /// 같이 그 자리에서 고치고, `anchor` 가 없으면 맨 뒤에 붙인다. 관련된 키를 나란히 두면
+    /// Obsidian Properties 에서도 붙어 보인다.
+    pub fn insert_after(&mut self, key: &str, value: impl Into<String>, anchor: &str) {
+        if self.entries.iter().any(|e| e.key == key) {
+            return self.set(key, value);
+        }
+        let entry = Entry { key: key.to_string(), inline: value.into(), extra: Vec::new() };
+        match self.entries.iter().position(|e| e.key == anchor) {
+            Some(i) => self.entries.insert(i + 1, entry),
+            None => self.entries.push(entry),
+        }
+    }
+
     /// Writes `key: [a, b, c]` — the inline form the requirements spec uses.
     pub fn set_list(&mut self, key: &str, values: &[String]) {
         let rendered = format!(
@@ -188,6 +202,13 @@ impl Doc {
 
     pub fn remove(&mut self, key: &str) {
         self.entries.retain(|e| e.key != key);
+    }
+
+    /// 손으로 두 번 적은 키를 첫 줄(딸린 줄까지)만 남긴다. `get` · `set` 은 첫 줄만 보므로
+    /// 나머지는 앱이 고치지 못하는, Obsidian 에만 보이는 다른 값으로 남는다.
+    pub fn keep_first(&mut self, key: &str) {
+        let mut seen = false;
+        self.entries.retain(|e| e.key != key || !std::mem::replace(&mut seen, true));
     }
 
     pub fn set_body(&mut self, body: impl Into<String>) {
@@ -328,6 +349,44 @@ mod tests {
         assert!(out.contains("archived: true"));
         assert!(out.contains("archived_at: 2026-08-04"));
         assert!(out.contains("id: task-2026-0803-01"));
+    }
+
+    #[test]
+    fn insert_after_lands_behind_the_anchor_and_its_continuation_lines() {
+        let mut d = Doc::parse("---\nid: a\ntags:\n  - x\n  - y\nstatus: s\n---\n본문\n");
+        d.insert_after("category", "\"c\"", "tags");
+        assert_eq!(
+            d.render(),
+            "---\nid: a\ntags:\n  - x\n  - y\ncategory: \"c\"\nstatus: s\n---\n본문\n"
+        );
+
+        // 기준 키가 없으면 맨 뒤에 붙는다.
+        let mut d = Doc::parse("---\nid: a\n---\n본문\n");
+        d.insert_after("category", "\"c\"", "tags");
+        assert_eq!(d.render(), "---\nid: a\ncategory: \"c\"\n---\n본문\n");
+    }
+
+    #[test]
+    fn insert_after_edits_an_existing_key_in_place() {
+        let mut d = Doc::parse("---\ncategory: old\nid: a\ntags: [x]\n---\n");
+        d.insert_after("category", "new", "tags");
+        assert_eq!(d.render(), "---\ncategory: new\nid: a\ntags: [x]\n---\n");
+    }
+
+    #[test]
+    fn keep_first_drops_later_duplicates_with_their_continuation_lines() {
+        let mut d = Doc::parse(
+            "---\nid: a\ncategory: \"첫\"\ntags: [x]\ncategory:\n  - 둘\ncategory: 셋\n---\n본문\n",
+        );
+        d.keep_first("category");
+        assert_eq!(d.render(), "---\nid: a\ncategory: \"첫\"\ntags: [x]\n---\n본문\n");
+
+        // 하나뿐이거나 없으면 그대로다.
+        let src = "---\nid: a\ntags: [x]\n---\n본문\n";
+        let mut d = Doc::parse(src);
+        d.keep_first("tags");
+        d.keep_first("category");
+        assert_eq!(d.render(), src);
     }
 
     #[test]

@@ -40,6 +40,7 @@ function bundle(over: Partial<WikiSourceBundle> = {}): WikiSourceBundle {
       title: "배포 정리",
       status: "completed",
       tags: ["dev"],
+      category: null,
       created: "2026-09-01 09:00",
       updated: "",
       parentTask: null,

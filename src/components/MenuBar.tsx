@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Box } from "../lib/ui";
-import { useStore } from "../store/useStore";
+import { emptyNewTask, useStore } from "../store/useStore";
 import { GREEN } from "../lib/design";
 import * as api from "../lib/api";
 
@@ -26,7 +26,13 @@ export default function MenuBar() {
 
   const menus: Record<string, MenuItem[]> = {
     파일: [
-      { label: "새 업무…", hint: "Ctrl+N", run: () => s.set({ newOpen: true }) },
+      {
+        label: "새 업무…",
+        hint: "Ctrl+N",
+        // Ctrl+N · 사이드바 버튼과 같게 빈 칸으로 연다 — 여는 길마다 지난 입력이 남고 말고가
+        // 달라서는 안 된다.
+        run: () => s.set({ newOpen: true, nt: emptyNewTask(), ntRecs: [], recTag: {}, ntRefs: [] }),
+      },
       {
         label: "새 파일",
         hint: "Ctrl+Alt+N",
