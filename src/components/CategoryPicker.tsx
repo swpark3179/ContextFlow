@@ -5,17 +5,17 @@ import {
   categoryKey,
   knownCategories,
   label,
-  MAX_DEPTH,
   normalizeCategory,
   segments,
   snapToExisting,
+  tabTarget,
   UNCAT_LABEL,
 } from "../lib/category";
 import type { CategoryNode } from "../lib/category";
 import { inputFocus, inputStyle } from "../modals/Modal";
 import { useStore } from "../store/useStore";
 
-/** 업무의 카테고리 표시. 없으면 고르러 가는 흐린 `＋ 카테고리`, 누를 수 있으면 `▾` 가 붙는다. */
+/** 업무의 카테고리 표시. 없으면 고르러 가는 흐린 `＋ 카테고리`, 누를 수 있으면 `▼` 가 붙는다. */
 export function CategoryChip({
   category,
   onClick,
@@ -43,7 +43,7 @@ export function CategoryChip({
         lineHeight: "16px",
         cursor: onClick ? "pointer" : "inherit",
       }}
-      hover={onClick ? { borderColor: "#c5bfb3", color: "#3a3630" } : undefined}
+      hover={onClick ? { borderColor: "#d9d4ca", color: "#3a3630" } : undefined}
     >
       {ghost ? "＋ 카테고리" : label(category)}
       {onClick && !ghost && <span style={{ fontSize: 8, marginLeft: 4, opacity: 0.7 }}>▼</span>}
@@ -69,6 +69,9 @@ const rowValue = (r: Row): string | null =>
  *
  * `popover` 는 헤더의 팝오버 — 목록이 늘 펼쳐져 있고 고르면 곧바로 적용된다. 아니면
  * 대화상자의 입력칸으로, 값은 부모가 들고 목록은 포커스가 있을 때만 펼친다.
+ *
+ * `exclude` 는 카테고리를 바꾸는 업무의 폴더다. 아는 철자로 맞출 때 그 업무의 값은 세지 않는다
+ * — 세면 `proj` 를 `Proj` 로 고치려 해도 자기 철자로 되돌아온다(`setCategory` 와 같은 규칙).
  */
 export default function CategoryPicker({
   value,
@@ -77,6 +80,7 @@ export default function CategoryPicker({
   onCancel,
   popover = false,
   autoFocus,
+  exclude,
 }: {
   value: string;
   onChange: (text: string) => void;
@@ -85,9 +89,15 @@ export default function CategoryPicker({
   onCancel?: () => void;
   popover?: boolean;
   autoFocus?: boolean;
+  exclude?: string;
 }) {
   const tasks = useStore((s) => s.tasks);
   const nodes = useMemo(() => knownCategories(tasks), [tasks]);
+  /** 맞출 철자 — 바꾸는 업무 자신의 값은 뺀다. */
+  const others = useMemo(
+    () => (exclude ? knownCategories(tasks.filter((t) => t.folder !== exclude)) : nodes),
+    [tasks, exclude, nodes],
+  );
   /** 처음 값 그대로면 거르지 않는다 — 지금 값이 들어 있어도 전체 목록에서 고르게. */
   const initial = useRef(value);
   const [focused, setFocused] = useState(false);
@@ -97,7 +107,7 @@ export default function CategoryPicker({
   const listRef = useRef<HTMLDivElement | null>(null);
 
   const norm = normalizeCategory(value);
-  const typed = norm.value && snapToExisting(norm.value, nodes);
+  const typed = norm.value && snapToExisting(norm.value, others);
   const error = norm.error ? categoryErrorMessage(norm.error) : null;
   const open = popover || (focused && !folded);
 
@@ -123,12 +133,12 @@ export default function CategoryPicker({
       indent: tree ? node.depth - 1 : 0,
       text: tree || /[/\\›]$/.test(q) ? node.name : label(node.path),
     }));
-    if (q && typed && !nodes.some((n) => n.key === categoryKey(typed))) {
-      out.unshift({ kind: "new", value: typed });
-    }
+    // 다른 업무가 쓰지 않는 카테고리면 새로 만드는 것이다 — 지금 값을 그대로 친 것은 빼고.
+    const fresh = typed && !others.some((n) => n.key === categoryKey(typed));
+    if (q && fresh && !nodes.some((n) => n.path === typed)) out.unshift({ kind: "new", value: typed });
     out.push({ kind: "none" });
     return out;
-  }, [value, nodes, typed]);
+  }, [value, nodes, others, typed]);
 
   useEffect(() => {
     if (hi >= 0) listRef.current?.querySelector(`[data-row="${hi}"]`)?.scrollIntoView({ block: "nearest" });
@@ -156,13 +166,19 @@ export default function CategoryPicker({
       if (e.repeat) return;
       if (hi >= 0 && open) commit(picked);
       else if (!error) commit(typed);
-    } else if (e.key === "Tab" && open) {
-      // 강조한 줄(없으면 첫 줄)로 채우고 한 단계 내려간다.
-      const row = rows[hi]?.kind === "node" ? rows[hi] : rows.find((r) => r.kind === "node");
-      if (row?.kind !== "node") return;
-      e.preventDefault();
-      onChange(row.node.depth < MAX_DEPTH ? `${row.node.path}/` : row.node.path);
-      setHi(-1);
+    } else if (e.key === "Tab") {
+      // 강조한 줄로 채우고 한 단계 내려간다. 그 밖의 Tab(Shift+Tab · 강조 없음 · 내려갈 곳
+      // 없음)은 대화상자에서는 막지 않는다 — 포커스가 다음 칸으로 옮겨 간다.
+      const next =
+        !e.shiftKey && open && hi >= 0 && hi < rows.length ? tabTarget(rowValue(rows[hi]), value) : null;
+      if (next !== null) {
+        e.preventDefault();
+        onChange(next);
+        setHi(-1);
+      } else if (popover) {
+        // 상자에는 입력 칸 하나뿐이다. 포커스가 뒤 화면으로 빠지면 상자는 열린 채 Esc 도 닿지 않는다.
+        e.preventDefault();
+      }
     } else if (e.key === "Escape") {
       // 막아 두면 App 의 전역 Esc 체인이 대화상자까지 닫지 않는다(`defaultPrevented`).
       if (popover) {
@@ -218,6 +234,9 @@ export default function CategoryPicker({
           )}
           <div
             ref={listRef}
+            // 입력칸이 포커스를 잃지 않게 한다 — 잃으면 입력칸 모드의 목록이 먼저 접힌다. 줄 사이
+            // 여백 · 스크롤 막대를 눌러도 같다.
+            onMouseDown={(e) => e.preventDefault()}
             style={{
               marginTop: 5,
               maxHeight: popover ? 220 : 148,
@@ -232,8 +251,6 @@ export default function CategoryPicker({
               <Box
                 key={r.kind === "node" ? r.node.key : r.kind}
                 data-row={i}
-                // 입력칸이 포커스를 잃지 않게 한다 — 잃으면 입력칸 모드의 목록이 먼저 접힌다.
-                onMouseDown={(e) => e.preventDefault()}
                 onClick={() => commit(rowValue(r))}
                 style={{
                   ...rowStyle(i),

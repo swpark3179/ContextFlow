@@ -634,7 +634,7 @@ where
 /// 갱신하면 사이드바가 그 값을 "마지막 작업 시각" 으로 그대로 보여 주므로(`shortStamp`)
 /// 끌어 옮기기만 해도 방금 만진 것처럼 보인다.
 ///
-/// 고친 결과가 원래 바이트와 같으면 쓰지 않는다 — 수정 시각만 바뀌어도 OneDrive 가 다시
+/// 고친 결과가 고치기 전과 같으면 쓰지 않는다 — 수정 시각만 바뀌어도 OneDrive 가 다시
 /// 동기화한다. 함께 돌려주는 `bool` 이 실제로 썼는지다(카테고리 지정이 바뀐 업무만 알린다).
 pub(crate) fn edit_index_inner<F>(
     root: &Path,
@@ -646,14 +646,17 @@ where
     F: FnMut(&mut Doc),
 {
     let index = folder.join("index.md");
-    let src = fs::read_to_string(&index)?;
-    let mut doc = Doc::parse(&src);
+    let mut doc = Doc::parse(&fs::read_to_string(&index)?);
+    // 원문이 아니라 고치기 전의 렌더와 견준다. BOM · `key:value` · 닫는 `---` 뒤 줄바꿈
+    // 없음처럼 `Doc` 이 그대로 되살리지 못하는 노트는 원문과 늘 달라, 바뀐 것이 없어도
+    // 다시 쓰게 된다.
+    let before = doc.render();
     f(&mut doc);
     if bump_updated {
         doc.set("updated", now_stamp());
     }
     let out = doc.render();
-    let wrote = out != src;
+    let wrote = out != before;
     if wrote {
         fs::write(&index, out)?;
     }
@@ -2409,7 +2412,7 @@ mod tests {
     #[test]
     fn create_task_writes_category_after_tags() {
         let v = TempVault::new("cat-create");
-        let t = make_in(v.path(), "분류된 업무", " 프로젝트 › ContextFlow ");
+        let t = make_in(v.path(), "카테고리 있는 업무", " 프로젝트 › ContextFlow ");
         assert_eq!(t.category.as_deref(), Some("프로젝트/ContextFlow"));
         assert_eq!(
             keys_of(&t.folder).join(" "),
@@ -2505,6 +2508,33 @@ mod tests {
             assert_eq!(fs::read(&index).unwrap(), bytes);
             assert_eq!(fs::metadata(&index).unwrap().modified().unwrap(), old, "{index:?}");
         }
+    }
+
+    #[test]
+    fn set_category_same_value_leaves_a_note_doc_cannot_reproduce() {
+        // BOM · `key:value` 는 `Doc` 을 거치면 모양이 바뀐다. 그래도 값이 같으면 쓰지 않는다.
+        let v = TempVault::new("cat-bom");
+        let t = make_in(v.path(), "BOM 노트", "운영");
+        let index = Path::new(&t.folder).join("index.md");
+        let text = fs::read_to_string(&index).unwrap().replace("\nruns: 1\n", "\nruns:1\n");
+        assert!(text.contains("\nruns:1\n"), "{text}");
+        fs::write(&index, format!("\u{feff}{text}")).unwrap();
+        let old = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
+        fs::File::options().write(true).open(&index).unwrap().set_modified(old).unwrap();
+        let bytes = fs::read(&index).unwrap();
+
+        let res = set_category(v.path(), &[t.folder.clone()], Some("운영")).unwrap();
+        assert!(res.changed.is_empty(), "{:?}", res.changed);
+        assert!(res.failed.is_empty());
+        assert_eq!(fs::read(&index).unwrap(), bytes);
+        assert_eq!(fs::metadata(&index).unwrap().modified().unwrap(), old);
+
+        // 값이 바뀌면 쓴다.
+        let res = set_category(v.path(), &[t.folder.clone()], Some("운영/점검")).unwrap();
+        assert_eq!(res.changed, vec![t.folder.clone()]);
+        assert_ne!(fs::read(&index).unwrap(), bytes);
+        assert_ne!(fs::metadata(&index).unwrap().modified().unwrap(), old);
+        assert_eq!(read_task(v.path(), &index).unwrap().category.as_deref(), Some("운영/점검"));
     }
 
     #[test]

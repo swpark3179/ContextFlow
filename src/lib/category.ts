@@ -11,13 +11,12 @@ export const MAX_DEPTH = 3;
 export const SEG_MAX = 30;
 export const UNCAT_LABEL = "미분류";
 /** 화면 표시 구분자. 저장은 언제나 `/` 다. */
-export const SEP = " › ";
+const SEP = " › ";
 
-export type CategoryError = "depth" | "reserved";
+type CategoryError = "depth" | "reserved";
 
 /** Rust 와 글자 하나까지 같은 공백 집합. JS 의 `trim()` · `\s` 는 U+0085 를 빼먹는다. */
 const WS = /[\u0009-\u000D\u0020\u0085\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF]/;
-const WS_EDGE = new RegExp(`^${WS.source}+|${WS.source}+$`, "g");
 const CONTROL = /[\u0000-\u001F\u007F-\u009F]/;
 /** 위키링크 · 파일 이름 · YAML 을 깨는 글자들. */
 const FORBIDDEN = new Set(':*?"<>|#^[],');
@@ -45,19 +44,19 @@ export function normalizeCategory(
   mode: "write" | "read" = "write",
 ): { value: string | null; error: CategoryError | null } {
   const none = { value: null, error: null };
-  const s = text.replace(WS_EDGE, "");
-  if (!s || ["미분류", "null", "~"].includes(s.toLowerCase())) return none;
-  let segs = s
+  let segs = text
     .split(/[/\\›]/)
     .map(cleanSegment)
     .filter(Boolean);
-  if (!segs.length) return none;
   if (segs[0] === UNCAT_LABEL) {
     if (segs.length === 1) return none;
     if (mode === "write") return { value: null, error: "reserved" };
     while (segs[0] === UNCAT_LABEL) segs = segs.slice(1);
-    if (!segs.length) return none;
   }
+  // YAML 의 빈 값(`null` · `~`)은 다듬고 `미분류` 를 걷어 낸 **뒤에** 본다. `null/` · `Null.` ·
+  // `미분류/null` 을 그대로 두면 되읽을 때 빈 값으로 읽혀, 쓴 값과 읽은 값이 어긋난다(Rust 와 같다).
+  if (!segs.length) return none;
+  if (segs.length === 1 && ["null", "~"].includes(segs[0].toLowerCase())) return none;
   if (segs.length > MAX_DEPTH) {
     if (mode === "write") return { value: null, error: "depth" };
     segs = [segs[0], segs[1], segs.slice(2).join(" · ")];
@@ -173,21 +172,33 @@ export function snapToExisting(value: string, nodes: CategoryNode[]): string {
 }
 
 /**
- * 새 업무의 제안 카테고리 — 유사 업무 추천 상위 3건 중 가장 많이 쓰인 카테고리. 같으면
- * 더 위에 추천된 쪽, 카테고리가 하나도 없으면 `null`. `folders` 는 추천 순서 그대로다.
+ * 제안 목록에서 Tab 으로 채울 값 — 강조한 줄의 경로 `path` 에 `/` 를 붙여 그 아래로
+ * 내려간다. 더 내려갈 수 없거나(미분류 · 3단계) 채워도 지금 값 `value` 그대로면 `null` 이고,
+ * 그때는 Tab 을 가로채지 않는다 — 다음 칸으로 가는 키를 막으면 대화상자에서 빠져나갈 수 없다.
+ */
+export function tabTarget(path: string | null, value: string): string | null {
+  if (!path || segments(path).length >= MAX_DEPTH) return null;
+  const next = `${path}/`;
+  return next === value ? null : next;
+}
+
+/**
+ * 새 업무의 제안 카테고리. 유사 업무 추천 상위 3건 중 **2건 이상이 같은** 카테고리, 추천이
+ * 한 건뿐이면 그 업무의 카테고리다 — 추천들이 제각각이면 어느 것도 이 업무의 자리라고
+ * 하기 어렵다. 철자는 더 위에 추천된 쪽, 없으면 `null`. `folders` 는 추천 순서 그대로다.
  */
 export function suggestCategory(
   folders: string[],
   tasks: { folder: string; category: string | null }[],
 ): string | null {
-  const tally = new Map<string, { value: string; count: number; rank: number }>();
-  folders.slice(0, 3).forEach((f, rank) => {
-    const value = tasks.find((t) => t.folder === f)?.category;
-    if (!value) return;
+  const top = folders.slice(0, 3).map((f) => tasks.find((t) => t.folder === f)?.category ?? null);
+  if (top.length === 1) return top[0];
+  const tally = new Map<string, { value: string; count: number }>();
+  for (const value of top) {
+    if (!value) continue;
     const hit = tally.get(categoryKey(value));
     if (hit) hit.count++;
-    else tally.set(categoryKey(value), { value, count: 1, rank });
-  });
-  const [best] = [...tally.values()].sort((a, b) => b.count - a.count || a.rank - b.rank);
-  return best?.value ?? null;
+    else tally.set(categoryKey(value), { value, count: 1 });
+  }
+  return [...tally.values()].find((c) => c.count >= 2)?.value ?? null;
 }

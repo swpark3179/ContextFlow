@@ -652,6 +652,42 @@ let toastSeq = 0;
 let saveTimer: number | undefined;
 let recTimer: number | undefined;
 
+/**
+ * 백엔드가 index.md 의 메타데이터를 고치는 중인 작업(`writingMeta`). 그동안 index.md 의 자동
+ * 저장은 이것을 기다린다 — 커맨드가 도는 사이에 친 글자의 버퍼에는 방금 쓴 줄이 없어서, 먼저
+ * 쓰면 그 줄을 지운다. 기다린 뒤의 버퍼는 디스크에 맞춰져(`resyncIndexDocs`) 있다.
+ */
+let metaWrite: Promise<unknown> | null = null;
+/** 성공한 메타데이터 쓰기의 수. 저장 뒤에 다시 읽은 업무 목록이 그보다 낡았는지 가른다. */
+let metaGen = 0;
+
+/**
+ * `run`(커맨드 → `tasks` 반영 → `resyncIndexDocs`)이 도는 동안 index.md 자동 저장을 붙든다.
+ * `run` 안에서 index.md 를 저장하면(`saveAll`) 자기를 기다리게 되니, 내려쓰기는 먼저 한다.
+ *
+ * 겹치면 차례로 돈다. 게이트는 늘 마지막 작업을 가리키므로, 먼저 시작한 작업이 끝났다고 아직
+ * 도는 작업의 게이트가 풀리지 않는다. 실패한 쓰기는 `metaGen` 을 올리지 않는다 — 그때는 저장
+ * 뒤에 다시 읽은 목록이 맞는 목록이다.
+ */
+async function writingMeta<T>(run: () => Promise<T>): Promise<T> {
+  const prev = metaWrite;
+  const job = (async () => {
+    if (prev) await prev;
+    return run();
+  })();
+  const gate = job.then(
+    () => void metaGen++,
+    () => undefined,
+  );
+  metaWrite = gate;
+  try {
+    return await job;
+  } finally {
+    await gate;
+    if (metaWrite === gate) metaWrite = null;
+  }
+}
+
 /** `runRecommend` 의 실행 번호. 마지막으로 시작한 실행의 결과만 화면에 남긴다. */
 let recommendSeq = 0;
 
@@ -1073,7 +1109,11 @@ export const useStore = create<State & Actions>((set, get) => ({
    */
   setCategory: async (folders, category) => {
     const { settings, activeFolder } = get();
-    const cat = categoryInput(category ?? "", get().tasks);
+    // 바꾸는 업무 자신의 철자는 세지 않는다 — 세면 `proj` → `Proj` 처럼 대소문자만 고칠 수 없다.
+    const cat = categoryInput(
+      category ?? "",
+      get().tasks.filter((t) => !folders.includes(t.folder)),
+    );
     if (cat.error) {
       get().fail(cat.error, "카테고리를 지정하지 못했습니다");
       return false;
@@ -1082,9 +1122,12 @@ export const useStore = create<State & Actions>((set, get) => ({
       // 고치던 글을 먼저 내려쓴다. 그 뒤에 디스크에 맞추므로(`resyncIndexDocs`) 이번에
       // 바뀌는 것은 frontmatter 의 한 줄뿐이다.
       if (folders.includes(activeFolder)) await get().saveAll();
-      const res = await api.setTaskCategory(settings.vault, folders, cat.value);
-      set({ tasks: res.tasks });
-      await get().resyncIndexDocs(res.changed);
+      const res = await writingMeta(async () => {
+        const res = await api.setTaskCategory(settings.vault, folders, cat.value);
+        set({ tasks: res.tasks });
+        await get().resyncIndexDocs(res.changed);
+        return res;
+      });
       if (res.failed.length) {
         // 파일이 잠겨 있으면(OneDrive · 백신) 그 업무만 빠진다 — 화면에서는 티가 나지 않는다.
         const [first] = res.failed;
@@ -1327,6 +1370,8 @@ export const useStore = create<State & Actions>((set, get) => ({
   },
 
   saveDoc: async (path) => {
+    // 백엔드가 메타데이터를 고치는 중이면 끝나기를 기다린다. 버퍼는 그 **뒤의** 것을 쓴다.
+    if (path === "index.md") while (metaWrite) await metaWrite;
     const { activeFolder, ui } = get();
     const doc = ui.docs[path];
     if (!activeFolder || !doc || doc.text === doc.saved) return;
@@ -1340,8 +1385,11 @@ export const useStore = create<State & Actions>((set, get) => ({
       get().noteToday(activeFolder);
       // index.md carries the frontmatter, so its metadata may have changed.
       if (path === "index.md") {
+        const gen = metaGen;
         const tasks = await api.scanVault(get().settings.vault);
-        set({ tasks });
+        // 읽는 사이에 메타데이터 쓰기가 끝났거나 아직 돌면 이 목록이 그보다 낡았을 수 있다 —
+        // 그쪽이 반영한 `tasks` 를 둔다.
+        if (gen === metaGen && !metaWrite) set({ tasks });
       }
     } catch (e) {
       get().fail(e, "저장하지 못했습니다");
@@ -1376,11 +1424,21 @@ export const useStore = create<State & Actions>((set, get) => ({
       try {
         if (folder === get().activeFolder) {
           if (!get().ui.docs["index.md"]) continue;
-          const disk = await api.readTextFile(joinPath(folder, "index.md"));
-          // 읽는 사이에 친 글자도 살린다 — 버퍼는 읽은 **뒤의** 것을 쓴다.
-          const doc = get().ui.docs["index.md"];
-          if (!doc || get().activeFolder !== folder) continue;
-          get().setUi({ docs: { ...get().ui.docs, "index.md": resynced(doc, disk) } });
+          // 걸려 있던 자동 저장은 맞춘 뒤로 미룬다 — 읽는 사이에 터지면 낡은 버퍼를 쓴다.
+          window.clearTimeout(saveTimer);
+          try {
+            const disk = await api.readTextFile(joinPath(folder, "index.md"));
+            // 읽는 사이에 친 글자도 살린다 — 버퍼는 읽은 **뒤의** 것을 쓴다.
+            const doc = get().ui.docs["index.md"];
+            if (!doc || get().activeFolder !== folder) continue;
+            get().setUi({ docs: { ...get().ui.docs, "index.md": resynced(doc, disk) } });
+          } finally {
+            // 다시 건다. 어느 문서의 저장이었는지는 모르니, 고치던 것이 남았으면 전부 내려쓴다.
+            if (Object.values(get().ui.docs).some((d) => d.text !== d.saved)) {
+              window.clearTimeout(saveTimer);
+              saveTimer = window.setTimeout(() => void get().saveAll(), 900);
+            }
+          }
           continue;
         }
         // 다른 업무의 깨끗한 버퍼는 버린다 — 그 업무를 다시 열 때 `selectTask` 가 열린 탭의
@@ -1645,13 +1703,15 @@ export const useStore = create<State & Actions>((set, get) => ({
     const next = reorderedList(live, (scope ?? live).filter((f) => liveSet.has(f)), folder, at);
     if (!next) return;
     try {
-      const res = await api.reorderTasks(settings.vault, next);
-      set({ tasks: res });
-      // `order` 는 index.md 에 쓰인다 — 값이 바뀐 업무의 열린 버퍼를 맞춘다.
-      const before = new Map(tasks.map((t) => [t.folder, t.order]));
-      await get().resyncIndexDocs(
-        res.filter((t) => before.get(t.folder) !== t.order).map((t) => t.folder),
-      );
+      await writingMeta(async () => {
+        const res = await api.reorderTasks(settings.vault, next);
+        set({ tasks: res });
+        // `order` 는 index.md 에 쓰인다 — 값이 바뀐 업무의 열린 버퍼를 맞춘다.
+        const before = new Map(tasks.map((t) => [t.folder, t.order]));
+        await get().resyncIndexDocs(
+          res.filter((t) => before.get(t.folder) !== t.order).map((t) => t.folder),
+        );
+      });
     } catch (e) {
       get().fail(e, "순서를 바꾸지 못했습니다");
     }
@@ -1665,8 +1725,10 @@ export const useStore = create<State & Actions>((set, get) => ({
       return;
     }
     try {
-      set({ tasks: await api.clearTaskOrder(settings.vault) });
-      await get().resyncIndexDocs(tasks.filter((t) => t.order !== null).map((t) => t.folder));
+      await writingMeta(async () => {
+        set({ tasks: await api.clearTaskOrder(settings.vault) });
+        await get().resyncIndexDocs(tasks.filter((t) => t.order !== null).map((t) => t.folder));
+      });
       // 목록이 통째로 다시 늘어서는데 그 이유가 화면에 드러나지 않는다.
       get().toast("정렬을 초기화했습니다", "다시 최근 수정순으로 정렬합니다", TOAST.ok);
     } catch (e) {

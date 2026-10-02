@@ -526,6 +526,9 @@ export default function NewTaskModal() {
                           void (async () => {
                             try {
                               await s.set({ recTag: { ...s.recTag, [r.id]: "resume" } });
+                              // 열린 업무면 고치던 글을 먼저 내려쓴다 — Run Log 는 본문에 붙는데, 고치던
+                              // 버퍼는 디스크에 맞출 때 본문을 지켜서 그 줄이 다음 저장에 지워진다.
+                              if (r.id === s.activeFolder) await s.saveAll();
                               const { appendTaskRun } = await import("../lib/api");
                               await appendTaskRun(settings.vault, r.id, note);
                               // Run Log 는 index.md 에 붙는다 — 열어 둔 버퍼가 지우지 않게.

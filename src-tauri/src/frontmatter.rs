@@ -204,6 +204,13 @@ impl Doc {
         self.entries.retain(|e| e.key != key);
     }
 
+    /// 손으로 두 번 적은 키를 첫 줄(딸린 줄까지)만 남긴다. `get` · `set` 은 첫 줄만 보므로
+    /// 나머지는 앱이 고치지 못하는, Obsidian 에만 보이는 다른 값으로 남는다.
+    pub fn keep_first(&mut self, key: &str) {
+        let mut seen = false;
+        self.entries.retain(|e| e.key != key || !std::mem::replace(&mut seen, true));
+    }
+
     pub fn set_body(&mut self, body: impl Into<String>) {
         self.body = body.into();
     }
@@ -364,6 +371,22 @@ mod tests {
         let mut d = Doc::parse("---\ncategory: old\nid: a\ntags: [x]\n---\n");
         d.insert_after("category", "new", "tags");
         assert_eq!(d.render(), "---\ncategory: new\nid: a\ntags: [x]\n---\n");
+    }
+
+    #[test]
+    fn keep_first_drops_later_duplicates_with_their_continuation_lines() {
+        let mut d = Doc::parse(
+            "---\nid: a\ncategory: \"첫\"\ntags: [x]\ncategory:\n  - 둘\ncategory: 셋\n---\n본문\n",
+        );
+        d.keep_first("category");
+        assert_eq!(d.render(), "---\nid: a\ncategory: \"첫\"\ntags: [x]\n---\n본문\n");
+
+        // 하나뿐이거나 없으면 그대로다.
+        let src = "---\nid: a\ntags: [x]\n---\n본문\n";
+        let mut d = Doc::parse(src);
+        d.keep_first("tags");
+        d.keep_first("category");
+        assert_eq!(d.render(), src);
     }
 
     #[test]

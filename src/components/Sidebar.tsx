@@ -346,10 +346,11 @@ export default function Sidebar() {
       const k = normalizeStatus(t.status);
       if (counts[k] !== undefined) counts[k]++;
     });
-    const match = (t: (typeof tasks)[number]) =>
-      `${t.title} ${t.tags.join(" ")} ${t.category ?? ""} ${t.relFolder} ${t.tagline}`
-        .toLowerCase()
-        .includes(q);
+    const match = (t: (typeof tasks)[number]) => {
+      // 카테고리는 저장 형태(`a/b`)와 화면 형태(`a › b`) 둘 다로 찾는다 — 화면의 라벨을 보고 친다.
+      const cat = t.category ? `${t.category} ${label(t.category)}` : "";
+      return `${t.title} ${t.tags.join(" ")} ${cat} ${t.relFolder} ${t.tagline}`.toLowerCase().includes(q);
+    };
     const visible = live.filter((t) => {
       const st = normalizeStatus(t.status);
       if (filter !== "all" && st !== filter) return false;
@@ -738,7 +739,7 @@ export default function Sidebar() {
                     <span
                       style={{
                         fontSize: 10.5,
-                        color: "#8a857c",
+                        color: "#a09a8f",
                         flex: "0 1 auto",
                         minWidth: 0,
                         overflow: "hidden",
@@ -748,6 +749,9 @@ export default function Sidebar() {
                     >
                       {label(t.category)}
                     </span>
+                  )}
+                  {t.category && t.tagline && (
+                    <span style={{ fontSize: 10.5, color: "#a09a8f", flex: "0 0 auto" }}>·</span>
                   )}
                   <span
                     style={{

@@ -77,15 +77,9 @@ fn clean_segment(raw: &str) -> String {
 
 /// 정규화의 본체. 거절 사유는 fixture 가 쓰는 코드(`depth` · `reserved`)로 돌려준다.
 fn normalize_code(raw: &str, mode: Mode) -> std::result::Result<Option<String>, &'static str> {
-    let s = raw.trim_matches(is_space);
-    let lower = s.to_lowercase();
-    if s.is_empty() || lower == UNCATEGORIZED || lower == "null" || lower == "~" {
-        return Ok(None);
-    }
-
     // `›` 는 화면에 보이는 구분자다 — 라벨을 그대로 붙여 넣어도 같은 경로가 된다.
     let mut segs: Vec<String> =
-        s.split(['/', '\\', '›']).map(clean_segment).filter(|seg| !seg.is_empty()).collect();
+        raw.split(['/', '\\', '›']).map(clean_segment).filter(|seg| !seg.is_empty()).collect();
 
     if segs.first().map(String::as_str) == Some(UNCATEGORIZED) {
         if segs.len() == 1 {
@@ -97,8 +91,12 @@ fn normalize_code(raw: &str, mode: Mode) -> std::result::Result<Option<String>, 
         let lead = segs.iter().take_while(|seg| *seg == UNCATEGORIZED).count();
         segs.drain(..lead);
     }
-    if segs.is_empty() {
-        return Ok(None);
+    // YAML 의 빈 값(`null` · `~`)은 다듬고 `미분류` 를 걷어 낸 **뒤에** 본다. `null/` ·
+    // `Null.` · `미분류/null` 을 그대로 두면 되읽을 때 빈 값으로 읽혀, 쓴 값과 읽은 값이 어긋난다.
+    match segs.as_slice() {
+        [] => return Ok(None),
+        [only] if matches!(only.to_lowercase().as_str(), "null" | "~") => return Ok(None),
+        _ => {}
     }
 
     if segs.len() > MAX_DEPTH {
@@ -130,17 +128,30 @@ pub fn read(doc: &Doc) -> Option<String> {
     let inline = doc.get(KEY)?.trim();
     let raw = if inline.is_empty() || inline.starts_with('[') {
         doc.get_list(KEY).into_iter().next()?
+    } else if let Some(quoted) = quoted_head(inline) {
+        quoted.to_string()
     } else {
         doc.get_str(KEY)?
     };
     normalize(&raw, Mode::Read).ok().flatten()
 }
 
+/// 따옴표로 시작하는 값의 따옴표 안쪽. 닫는 따옴표 뒤는 버린다 — `"운영" # 임시` 는 끝이
+/// 따옴표가 아니라서 `unquote` 가 따옴표 · 주석째 돌려준다. 닫는 따옴표가 없으면 `None`.
+fn quoted_head(inline: &str) -> Option<&str> {
+    let quote = inline.chars().next().filter(|c| matches!(c, '"' | '\''))?;
+    let rest = &inline[1..];
+    rest.find(quote).map(|end| &rest[..end])
+}
+
 /// 정규화된 값을 쓴다. 키가 있으면 그 자리에서 고치고, 없으면 `tags` 바로 뒤에 넣는다.
-/// `None` 은 키를 지운다 — 손으로 두 번 적은 줄까지 함께.
+/// 손으로 두 번 적은 줄은 지정이면 첫 줄만 남기고, 해제(`None`)면 모두 지운다.
 pub fn write(doc: &mut Doc, value: Option<&str>) {
     match value {
-        Some(v) => doc.insert_after(KEY, format!("\"{v}\""), "tags"),
+        Some(v) => {
+            doc.insert_after(KEY, format!("\"{v}\""), "tags");
+            doc.keep_first(KEY);
+        }
         None => doc.remove(KEY),
     }
 }
@@ -168,7 +179,8 @@ pub struct CategoryChange {
 ///
 /// 값은 한 번만 정규화하고, 규칙에 어긋나면 아무것도 쓰지 않고 거절한다. 정리는 작업이
 /// 아니라서 `updated` 는 그대로 두고 Run Log 에도 적지 않는다(`reorder_tasks` 와 같다).
-/// 이미 그 값인 노트는 다시 쓰지 않는다 — `edit_index_inner` 가 같은 바이트면 건너뛴다.
+/// 이미 그 값인 노트는 다시 쓰지 않는다 — `edit_index_inner` 가 고친 결과가 고치기 전과
+/// 같으면 건너뛴다.
 pub fn set_category(
     root: &Path,
     folders: &[String],
@@ -265,11 +277,18 @@ mod tests {
 
     #[test]
     fn reads_the_shapes_people_write_by_hand() {
-        let cases: [(&str, Option<&str>); 14] = [
+        let cases: [(&str, Option<&str>); 17] = [
             ("category: \"프로젝트/CF\"\n", Some("프로젝트/CF")),
             ("category: 프로젝트/CF\n", Some("프로젝트/CF")),
             ("category: '프로젝트/CF'\n", Some("프로젝트/CF")),
             ("category: 프로젝트/CF # 나중에 정리\n", Some("프로젝트/CF")),
+            ("category: \"운영\" # 임시\n", Some("운영")),
+            ("category: '운영' # 임시\n", Some("운영")),
+            // README 스키마 예시 줄 그대로.
+            (
+                "category: \"프로젝트/Tauri\"   # 카테고리 — 1~3단계, 없으면 미분류(키 자체가 없다)\n",
+                Some("프로젝트/Tauri"),
+            ),
             ("category: [프로젝트/CF, 운영]\n", Some("프로젝트/CF")),
             ("category: [\"프로젝트/CF\"]\n", Some("프로젝트/CF")),
             ("category:\n  - 프로젝트/CF\n  - 운영\n", Some("프로젝트/CF")),
@@ -323,6 +342,16 @@ mod tests {
         let mut doc = Doc::parse("---\ncategory:\n  - 옛\n  - 값\nupdated: x\n---\n");
         write(&mut doc, Some("새"));
         assert_eq!(doc.render(), "---\ncategory: \"새\"\nupdated: x\n---\n");
+    }
+
+    #[test]
+    fn setting_keeps_only_the_first_of_hand_made_duplicates() {
+        let mut doc = Doc::parse(
+            "---\nid: t\ncategory: \"a\"\ntags: [x]\ncategory:\n  - b\ncategory: c\n---\n본문\n",
+        );
+        write(&mut doc, Some("새"));
+        assert_eq!(doc.render(), "---\nid: t\ncategory: \"새\"\ntags: [x]\n---\n본문\n");
+        assert_eq!(read(&doc).as_deref(), Some("새"));
     }
 
     #[test]

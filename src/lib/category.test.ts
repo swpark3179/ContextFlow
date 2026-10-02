@@ -9,6 +9,7 @@ import {
   SEG_MAX,
   snapToExisting,
   suggestCategory,
+  tabTarget,
 } from "./category";
 
 interface Case {
@@ -112,6 +113,22 @@ describe("snapToExisting", () => {
   });
 });
 
+describe("tabTarget", () => {
+  it("강조한 경로에 / 를 붙여 한 단계 내려간다", () => {
+    expect(tabTarget("프로젝트", "")).toBe("프로젝트/");
+    expect(tabTarget("프로젝트/ContextFlow", "프로젝트/")).toBe("프로젝트/ContextFlow/");
+  });
+
+  it("미분류 · 3단계는 내려갈 곳이 없어 가로채지 않는다", () => {
+    expect(tabTarget(null, "운영")).toBeNull();
+    expect(tabTarget("a/b/c", "a/b/")).toBeNull();
+  });
+
+  it("채워도 지금 값 그대로면 가로채지 않는다", () => {
+    expect(tabTarget("프로젝트", "프로젝트/")).toBeNull();
+  });
+});
+
 describe("suggestCategory", () => {
   const tasks = [
     { folder: "/a", category: "운영" },
@@ -121,12 +138,22 @@ describe("suggestCategory", () => {
     { folder: "/e", category: null },
   ];
 
-  it("상위 3건 중 가장 많은 카테고리", () => {
+  it("상위 3건 중 2건 이상이 같은 카테고리 — 철자는 더 위에 추천된 쪽", () => {
     expect(suggestCategory(["/a", "/b", "/c", "/d"], tasks)).toBe("프로젝트/CF");
+    expect(suggestCategory(["/c", "/e", "/b"], tasks)).toBe("프로젝트/cf");
   });
 
-  it("같으면 더 위에 추천된 쪽", () => {
-    expect(suggestCategory(["/e", "/c", "/a"], tasks)).toBe("프로젝트/cf");
+  it("상위 3건 밖은 세지 않는다", () => {
+    expect(suggestCategory(["/a", "/b", "/e", "/d"], tasks)).toBeNull();
+  });
+
+  it("제각각이면 제안하지 않는다", () => {
+    expect(suggestCategory(["/e", "/c", "/a"], tasks)).toBeNull();
+    expect(suggestCategory(["/a", "/b"], tasks)).toBeNull();
+  });
+
+  it("추천이 한 건뿐이면 그 업무의 카테고리", () => {
+    expect(suggestCategory(["/b"], tasks)).toBe("프로젝트/CF");
   });
 
   it("카테고리가 없으면 null", () => {

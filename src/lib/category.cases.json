@@ -35,5 +35,14 @@
   { "note": "4단계를 읽으면 셋째에 접는다", "input": "a/b/c/d", "mode": "read", "value": "a/b/c · d" },
   { "note": "5단계도 셋째에 접는다", "input": "a/b/c/d/e", "mode": "read", "value": "a/b/c · d · e" },
   { "note": "읽기도 같은 정리", "input": "  프로젝트 ›  CF ", "mode": "read", "value": "프로젝트/CF" },
-  { "note": "읽기에서 빈 값", "input": "", "mode": "read", "value": null }
+  { "note": "읽기에서 빈 값", "input": "", "mode": "read", "value": null },
+  { "note": "정리하고 나면 null 인 값도 없음", "input": "null/", "mode": "write", "value": null },
+  { "note": "정리하고 나면 Null 인 값도 없음", "input": "Null.", "mode": "write", "value": null },
+  { "note": "정리하고 나면 ~ 인 값도 없음", "input": "~/", "mode": "write", "value": null },
+  { "note": "› 뒤의 NULL 도 없음", "input": "NULL ›", "mode": "write", "value": null },
+  { "note": "읽기에서도 같다", "input": "null/", "mode": "read", "value": null },
+  { "note": "미분류를 걷어 낸 뒤의 null 도 없음", "input": "미분류/null", "mode": "read", "value": null },
+  { "note": "미분류를 걷어 낸 뒤의 ~ 도 없음", "input": "미분류/~", "mode": "read", "value": null },
+  { "note": "미분류 아래 null 도 쓸 수 없다", "input": "미분류/null", "mode": "write", "error": "reserved" },
+  { "note": "null 아래 단계가 있으면 이름이다", "input": "null/x", "mode": "write", "value": "null/x" }
 ]

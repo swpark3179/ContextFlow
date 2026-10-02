@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Box } from "../lib/ui";
 import { statusOf, GREEN } from "../lib/design";
 import EditorPane from "../components/EditorPane";
@@ -21,6 +21,8 @@ export default function Workspace() {
   const drag = useRef<"col" | "rowL" | null>(null);
   /** 카테고리 팝오버의 입력. `null` = 닫힘. */
   const [catText, setCatText] = useState<string | null>(null);
+  // 다른 업무로 넘어가면 닫는다 — 열어 둔 채로 고르면 넘어간 업무에 지정된다.
+  useEffect(() => setCatText(null), [s.activeFolder]);
 
   const task = s.tasks.find((t) => t.folder === s.activeFolder);
 
@@ -207,6 +209,7 @@ export default function Workspace() {
               <CategoryPicker
                 popover
                 autoFocus
+                exclude={task.folder}
                 value={catText}
                 onChange={setCatText}
                 onCommit={(v) => {

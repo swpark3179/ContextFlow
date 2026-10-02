@@ -1859,8 +1859,8 @@ mod tests {
     #[test]
     fn category_change_keeps_source_fresh() {
         let v = TempVault::new("category-fresh");
-        let t = archived_task(v.path(), "분류할 업무");
-        ingest(v.path(), &t, vec![page("source", "분류할 업무", "본문")]);
+        let t = archived_task(v.path(), "카테고리를 붙일 업무");
+        ingest(v.path(), &t, vec![page("source", "카테고리를 붙일 업무", "본문")]);
         assert_eq!(status(v.path(), 0).unwrap().tasks[0].state, "fresh");
 
         // 카테고리는 frontmatter 키 하나다 — 업무 내용이 바뀐 것이 아니므로 다시 반영할 일도 없다.
