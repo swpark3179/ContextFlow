@@ -3,13 +3,19 @@ import cases from "./category.cases.json";
 import {
   categoryErrorMessage,
   categoryKey,
+  flattenSideRows,
+  isWithin,
+  keyOf,
   knownCategories,
   label,
   normalizeCategory,
+  openFor,
+  revealKeys,
   SEG_MAX,
   snapToExisting,
   suggestCategory,
   tabTarget,
+  type SideRow,
 } from "./category";
 
 interface Case {
@@ -61,6 +67,19 @@ describe("label · categoryKey", () => {
 const cats = (...values: (string | null)[]) => values.map((category) => ({ category }));
 
 describe("knownCategories", () => {
+  it("출력 전체 — 하위 경로는 상위의 표시 철자를 잇는다", () => {
+    // 트리 · 보관함 묶기가 이 출력을 그대로 쓴다. 필드 하나라도 바뀌면 여기서 먼저 안다.
+    const nodes = knownCategories(
+      cats("Project/cf", "project/CF", "project/CF/ui", "project", "운영", null),
+    );
+    expect(nodes).toEqual([
+      { key: "project", path: "project", name: "project", depth: 1, count: 4 },
+      { key: "project/cf", path: "project/CF", name: "CF", depth: 2, count: 3 },
+      { key: "project/cf/ui", path: "project/CF/ui", name: "ui", depth: 3, count: 1 },
+      { key: "운영", path: "운영", name: "운영", depth: 1, count: 1 },
+    ]);
+  });
+
   it("하위 업무만 있어도 상위가 생기고, 개수는 하위까지 센다", () => {
     const nodes = knownCategories(cats("프로젝트/ContextFlow/UI", "프로젝트/ContextFlow", null, "운영"));
     expect(nodes.map((n) => [n.path, n.depth, n.count])).toEqual([
@@ -159,5 +178,181 @@ describe("suggestCategory", () => {
   it("카테고리가 없으면 null", () => {
     expect(suggestCategory(["/e"], tasks)).toBeNull();
     expect(suggestCategory([], tasks)).toBeNull();
+  });
+});
+
+describe("keyOf · isWithin", () => {
+  it("미분류의 키는 빈 문자열, 나머지는 소문자 전체 경로", () => {
+    expect(keyOf(null)).toBe("");
+    expect(keyOf("Project/CF")).toBe("project/cf");
+  });
+
+  it("하위까지 포함하고, 대소문자는 가리지 않는다", () => {
+    expect(isWithin("Project/CF/UI", "project")).toBe(true);
+    expect(isWithin("project/cf", "project/cf")).toBe(true);
+    expect(isWithin("project", "project/cf")).toBe(false);
+  });
+
+  it("앞부분만 같은 형제는 하위가 아니다", () => {
+    expect(isWithin("a/bc", "a/b")).toBe(false);
+    expect(isWithin("ab", "a")).toBe(false);
+  });
+
+  it("빈 키는 미분류만이다", () => {
+    expect(isWithin(null, "")).toBe(true);
+    expect(isWithin("운영", "")).toBe(false);
+    expect(isWithin(null, "운영")).toBe(false);
+  });
+});
+
+describe("revealKeys · openFor", () => {
+  it("조상 전부(자기 포함)의 키, 미분류는 빈 키 하나", () => {
+    expect(revealKeys("프로젝트/ContextFlow/UI")).toEqual([
+      "프로젝트",
+      "프로젝트/contextflow",
+      "프로젝트/contextflow/ui",
+    ]);
+    expect(revealKeys(null)).toEqual([""]);
+  });
+
+  it("닫힌 조상만 빼고, 다른 묶음의 접힘은 그대로 둔다", () => {
+    const closed = ["운영", "프로젝트", "프로젝트/contextflow", ""];
+    expect(openFor(closed, "프로젝트/ContextFlow")).toEqual(["운영", ""]);
+    expect(openFor(closed, null)).toEqual(["운영", "프로젝트", "프로젝트/contextflow"]);
+    // 새 배열이다 — 설정을 그 자리에서 고치지 않는다.
+    expect(closed).toEqual(["운영", "프로젝트", "프로젝트/contextflow", ""]);
+  });
+
+  it("이미 다 열려 있으면 null — 설정을 다시 쓰지 않는다", () => {
+    expect(openFor(["운영", "프로젝트/contextflow/ui"], "프로젝트/ContextFlow")).toBeNull();
+    expect(openFor([], null)).toBeNull();
+  });
+});
+
+describe("flattenSideRows", () => {
+  const T = (id: string, category: string | null) => ({ id, category });
+  // 전역 순서(수동 순서 · 최근 수정순)대로 섞여 있다.
+  const live = [
+    T("u1", null),
+    T("p1", "프로젝트/ContextFlow"),
+    T("o1", "운영"),
+    T("p2", "프로젝트/ContextFlow/UI"),
+    T("p3", "프로젝트/ContextFlow"),
+    T("u2", null),
+  ];
+  const nodes = knownCategories(live);
+  const flat = (
+    visible: { id: string; category: string | null }[],
+    closed: string[] = [],
+    forceOpen = false,
+  ) => flattenSideRows(visible, { nodes, closed, forceOpen });
+  /** 한 줄씩 읽기 좋게 — 머리 행은 `▼ 경로 (개수)`, 업무 행은 `· id`. */
+  const show = (rows: SideRow<{ id: string }>[]) =>
+    rows.map((r) =>
+      r.kind === "cat"
+        ? `${r.open ? "▼" : "▶"} ${r.path || r.name} (${r.count})`
+        : `· ${r.task.id}`,
+    );
+
+  it("머리 행 뒤에 직속 업무, 그다음 하위 — 미분류는 맨 끝", () => {
+    expect(show(flat(live))).toEqual([
+      "▼ 운영 (1)",
+      "· o1",
+      // 직속 업무가 없는 부모는 머리 행만 있다.
+      "▼ 프로젝트 (3)",
+      "▼ 프로젝트/ContextFlow (3)",
+      "· p1",
+      "· p3",
+      "▼ 프로젝트/ContextFlow/UI (1)",
+      "· p2",
+      "▼ 미분류 (2)",
+      "· u1",
+      "· u2",
+    ]);
+  });
+
+  it("깊이 — 업무 행은 든 묶음의 깊이, 미분류는 1", () => {
+    const rows = flat(live);
+    expect(rows.map((r) => (r.kind === "cat" ? r.depth : `${r.task.id}:${r.depth}`))).toEqual([
+      1, "o1:1", 1, 2, "p1:2", "p3:2", 3, "p2:3", 1, "u1:1", "u2:1",
+    ]);
+    expect(rows.find((r) => r.kind === "cat" && r.key === "")).toEqual({
+      kind: "cat",
+      key: "",
+      path: "",
+      name: "미분류",
+      depth: 1,
+      count: 2,
+      open: true,
+    });
+  });
+
+  it("보이는 업무가 없는 노드는 그리지 않고, 개수는 보이는 것만 센다", () => {
+    const visible = live.filter((t) => t.id !== "o1" && t.id !== "p2");
+    expect(show(flat(visible))).toEqual([
+      "▼ 프로젝트 (2)",
+      "▼ 프로젝트/ContextFlow (2)",
+      "· p1",
+      "· p3",
+      "▼ 미분류 (2)",
+      "· u1",
+      "· u2",
+    ]);
+  });
+
+  it("미분류만 보여도 머리 행은 남는다 — 접어 둔 미분류를 다시 열 곳", () => {
+    const visible = live.filter((t) => t.id === "u1");
+    expect(show(flat(visible))).toEqual(["▼ 미분류 (1)", "· u1"]);
+    expect(show(flat(visible, [""]))).toEqual(["▶ 미분류 (1)"]);
+  });
+
+  it("닫힌 노드는 하위 머리 행 · 업무 행을 감추고 개수는 그대로다", () => {
+    expect(show(flat(live, ["프로젝트"]))).toEqual([
+      "▼ 운영 (1)",
+      "· o1",
+      "▶ 프로젝트 (3)",
+      "▼ 미분류 (2)",
+      "· u1",
+      "· u2",
+    ]);
+    expect(show(flat(live, ["프로젝트/contextflow"]))).toEqual([
+      "▼ 운영 (1)",
+      "· o1",
+      "▼ 프로젝트 (3)",
+      "▶ 프로젝트/ContextFlow (3)",
+      "▼ 미분류 (2)",
+      "· u1",
+      "· u2",
+    ]);
+  });
+
+  it("forceOpen 이면 접힘을 무시한다 — 검색 중", () => {
+    expect(flat(live, ["프로젝트", "운영", ""], true)).toEqual(flat(live));
+  });
+
+  it("철자와 순서는 nodes 에서 온다 — 보이는 업무의 철자가 아니라", () => {
+    const all = [T("a", "Project/CF"), T("b", "Project/CF"), T("c", "project/cf")];
+    const nodes = knownCategories(all);
+    const rows = flattenSideRows([all[2]], { nodes, closed: [], forceOpen: false });
+    expect(show(rows)).toEqual(["▼ Project (1)", "▼ Project/CF (1)", "· c"]);
+    expect(rows[1]).toMatchObject({ name: "CF", key: "project/cf" });
+  });
+
+  it("묶음마다 업무 행은 연속이고 입력의 부분열이며, gi 는 0..glen-1", () => {
+    const rows = flat(live);
+    const groups = new Map<string, number[]>();
+    rows.forEach((r, i) => {
+      if (r.kind === "task") groups.set(r.group, [...(groups.get(r.group) ?? []), i]);
+    });
+    expect([...groups.keys()]).toEqual(["운영", "프로젝트/contextflow", "프로젝트/contextflow/ui", ""]);
+    for (const [group, at] of groups) {
+      // 연속이다 — 사이에 다른 행이 끼지 않는다.
+      expect(at).toEqual(at.map((_, k) => at[0] + k));
+      const items = at.map((i) => rows[i] as Extract<SideRow<{ id: string }>, { kind: "task" }>);
+      expect(items.map((r) => r.task.id)).toEqual(
+        live.filter((t) => keyOf(t.category) === group).map((t) => t.id),
+      );
+      expect(items.map((r) => [r.gi, r.glen])).toEqual(items.map((_, k) => [k, items.length]));
+    }
   });
 });

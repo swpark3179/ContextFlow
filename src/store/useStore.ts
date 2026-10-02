@@ -130,6 +130,13 @@ export interface Settings {
   webPages: number;
   /** 브라우저 실행 파일 직접 지정. 비우면 Chrome → Edge 순으로 찾는다. */
   webBrowser: string;
+  /** 업무 리스트를 카테고리 트리로 묶어 보인다(진행 중 업무에 카테고리가 하나라도 있을 때). */
+  sideGroup: boolean;
+  /**
+   * 업무 리스트에서 접어 둔 카테고리의 키(`keyOf`, 미분류 = `""`). 재시작 뒤에도 접힌 채로
+   * 남도록 설정에 둔다 — Vault 별이 아니라 앱 전체에 하나다.
+   */
+  catClosed: string[];
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -150,7 +157,25 @@ export const DEFAULT_SETTINGS: Settings = {
   webShow: false,
   webPages: 3,
   webBrowser: "",
+  sideGroup: true,
+  catClosed: [],
 };
+
+/**
+ * 저장된 settings.json 을 기본값 위에 얹는다. 파일은 사람이 고칠 수도 있으니, 모양이 중요한
+ * 키는 여기서 걸러 낸다 — 배열이 아닌 `catClosed` 가 들어오면 트리를 그리다 터진다.
+ */
+export function mergeSettings(stored: unknown): Settings {
+  const raw = stored && typeof stored === "object" ? (stored as Partial<Settings>) : {};
+  const merged: Settings = { ...DEFAULT_SETTINGS, ...raw };
+  return {
+    ...merged,
+    sideGroup: typeof raw.sideGroup === "boolean" ? raw.sideGroup : DEFAULT_SETTINGS.sideGroup,
+    catClosed: Array.isArray(raw.catClosed)
+      ? [...new Set(raw.catClosed.filter((k): k is string => typeof k === "string"))]
+      : DEFAULT_SETTINGS.catClosed,
+  };
+}
 
 /** 설정 → 브라우저 조종 옵션(Rust `BrowserOptions`). */
 export function browserOptions(s: Settings): api.BrowserOptions {
@@ -301,10 +326,16 @@ export interface SplitState {
 export interface TaskDrag {
   /** 끌고 있는 업무의 폴더 경로. */
   folder: string;
+  /**
+   * 카테고리로 묶어 보일 때 끄는 업무가 든 묶음의 키(미분류 `""`). 그때는 그 묶음 안에서만
+   * 옮긴다. 묶지 않은 평평한 목록이면 없다.
+   */
+  group?: string;
   y: number;
   /**
    * 놓으면 들어갈 자리 — 화면에 보이는 목록 기준의 삽입 인덱스다. `0` 은 맨 위,
-   * 목록 길이는 맨 아래를 뜻한다.
+   * 목록 길이는 맨 아래를 뜻한다. `group` 이 있으면 **그 묶음 안**의 자리이고, 묶음 밖이면
+   * `-1` 이다(놓으면 취소).
    */
   at: number;
 }
@@ -392,6 +423,10 @@ interface State {
   archYear: string;
   /** `"all"` 또는 `"01"`..`"12"`. 연도를 고른 뒤에만 의미가 있다. */
   archMonth: string;
+  /** 보관함 카테고리 거르기. `null` = 전체, `""` = 미분류, 그 밖은 키(`keyOf`) — 하위 포함. */
+  archCat: string | null;
+  /** 보관함 묶는 기준. */
+  archGroup: "quarter" | "category";
   /**
    * 보관함에서 상세로 들어간 업무의 폴더 경로. 값이 있으면 보관함 화면이 목록 대신
    * 그 업무의 작업공간을 그린다 — **화면은 여전히 보관함**이다.
@@ -467,7 +502,11 @@ interface Actions {
 
   patchSettings: (patch: Partial<Settings>) => void;
   chooseVault: () => Promise<void>;
-  reloadVault: (keepActive?: boolean) => Promise<void>;
+  /**
+   * 목록을 다시 읽는다. `true` 면 열린 업무를 지키고, `false` 면 목록 첫 업무를 연다. `"list"` 는
+   * 목록만 바꾼다 — 곧바로 다른 업무를 열 호출부가, 그 사이에 엉뚱한 업무를 한 번 통째로 열지 않게.
+   */
+  reloadVault: (keepActive?: boolean | "list") => Promise<void>;
 
   selectTask: (folder: string, opts?: { keepScreen?: boolean }) => Promise<void>;
   renameTask: (folder: string, title: string) => Promise<void>;
@@ -708,6 +747,8 @@ export const useStore = create<State & Actions>((set, get) => ({
   archScope: "title",
   archYear: "all",
   archMonth: "all",
+  archCat: null,
+  archGroup: "quarter",
   archOpen: "",
 
   sidebarW: 250,
@@ -779,8 +820,7 @@ export const useStore = create<State & Actions>((set, get) => ({
 
   boot: async () => {
     try {
-      const stored = (await api.loadSettings()) as Partial<Settings> | null;
-      let settings: Settings = { ...DEFAULT_SETTINGS, ...(stored ?? {}) };
+      let settings = mergeSettings(await api.loadSettings());
       if (!settings.vault) {
         settings = { ...settings, vault: await api.defaultVaultRoot() };
       }
@@ -831,6 +871,7 @@ export const useStore = create<State & Actions>((set, get) => ({
     try {
       const tasks = await api.scanVault(settings.vault);
       set({ tasks });
+      if (keepActive === "list") return;
       // 아무 업무도 고르지 않은 것도 하나의 상태다 — 완료로 창을 닫은 직후가 그렇고,
       // 그때 목록을 새로 읽는다고 엉뚱한 업무가 열려서는 안 된다.
       const stillThere = tasks.some((t) => t.folder === activeFolder);
@@ -1094,7 +1135,8 @@ export const useStore = create<State & Actions>((set, get) => ({
       set({ archQuery: "", query: "" });
       await get().relocateToday(folder, updated.folder, updated.title);
       get().noteToday(updated.folder, updated.title);
-      await get().reloadVault(false);
+      // 곧 재개한 업무를 연다 — 목록 첫 업무를 먼저 열면 그 묶음까지 펼쳐진다.
+      await get().reloadVault("list");
       await get().selectTask(updated.folder);
       await get().reloadTemplates();
       await get().syncMoc();
@@ -1880,7 +1922,9 @@ export const useStore = create<State & Actions>((set, get) => ({
         get().fail(e, "참조 파일을 복사하지 못했습니다");
       }
 
-      await get().reloadVault(false);
+      // 목록만 새로 읽는다. 여기서 다른 업무를 고르면 새 업무를 열기 전에 목록 첫 업무를
+      // 통째로 한 번 열고, 업무 리스트는 그 업무의 묶음을 펼친다.
+      await get().reloadVault(true);
       // selectTask 가 파일 트리까지 다시 읽으므로 복사된 reference/ 도 여기서 드러난다.
       await get().selectTask(created.folder);
       await get().reloadTemplates();
