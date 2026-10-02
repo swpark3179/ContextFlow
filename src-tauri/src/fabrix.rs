@@ -1,21 +1,23 @@
 //! FabriX 커넥터 — 원격 HTTP API + SSE.
 //!
-//! 인증이 커스텀 헤더 두 개(`x-fabrix-client` · `x-openapi-token`)라는 점이 AI Pro 의
-//! Bearer 하나와 다르다. 모델 목록은 정적 폴백이 없고, 대신 마지막 성공 조회를 설정에
-//! 캐시해 오프라인에서도 즉시 보여 준다.
+//! 인증은 커스텀 헤더 두 개(`x-fabrix-client` · `x-openapi-token`)다. 모델 목록은 정적
+//! 폴백이 없고, 대신 마지막 성공 조회를 설정에 캐시해 오프라인에서도 즉시 보여 준다.
 //!
 //! **API 가 둘이다**(`FabrixConfig::api_style`).
 //!
 //! | | 네이티브 채팅 API (`chat`) | LLM 게이트웨이 (`openai`) |
 //! | --- | --- | --- |
-//! | 대화 | `POST {base}/openapi/chat/v1/messages` | `POST {base}/chat/completions` (`/v1` 없음) |
-//! | 모델 | `GET {base}/openapi/chat/v1/all-models` | `GET {base}/v1/models` (`/v1` 있음) |
+//! | 대화 | `POST {base}/openapi/chat/v1/messages` | `POST {base}/openapi/llm/chat/completions` (`/v1` 없음) |
+//! | 모델 | `GET {base}/openapi/chat/v1/all-models` | `GET {base}/openapi/llm/v1/models` (`/v1` 있음) |
 //! | 모델 고르기 | 본문 `modelIds` | 헤더 `x-llm-model-id` (본문 `model` 은 무시됨) |
 //! | 토큰 | 받은 그대로 | `Bearer ` 접두사 필수 |
 //! | 스트림 | FabriX 자체 프레임 | OpenAI `chat.completion.chunk` + `[DONE]` |
 //!
-//! 게이트웨이 쪽은 바탕화면 FabrixSample 의 규약을 따른다. 본문 조립과 SSE 파싱은 AI Pro
-//! 와 같은 것을 쓰고(`aipro::openai_body` · `aipro::parse_openai_sse`), 다른 것은 헤더뿐이다.
+//! `{base}` 는 두 방식 모두 사용자가 적은 엔드포인트(호스트)다. 게이트웨이의 `/openapi/llm` 은
+//! 앱이 붙인다(`GATEWAY_PATH`).
+//!
+//! 게이트웨이 쪽은 바탕화면 FabrixSample 의 규약을 따른다. 본문 조립과 SSE 파싱은 OpenAI
+//! 호환 공용 모듈(`openai::openai_body` · `openai::parse_openai_sse`)을 쓰고, 다른 것은 헤더뿐이다.
 
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -32,7 +34,10 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 const MODELS_TIMEOUT: Duration = Duration::from_secs(30);
 const PROBE_TIMEOUT: Duration = Duration::from_secs(60);
 
-/// `timeout` 은 반드시 준다 — 비워 두면 reqwest 가 기본 30초를 건다(`aipro::build_client` 참고).
+/// `timeout` 은 **반드시** 준다. reqwest blocking 클라이언트는 비워 두면 기본 30초를 걸고,
+/// 그 값은 헤더를 기다릴 때와 본문을 한 번 읽을 때마다 적용된다 — "전체 타임아웃 없음" 이
+/// 아니다. 스트리밍 대화는 `sse::STREAM_IDLE`(조각 사이 공백 상한)을 넘긴다.
+/// 프록시 환경변수는 무시한다(사내 엔드포인트는 직접 도달 가능).
 fn build_client(
     allow_invalid_certs: bool,
     timeout: Duration,
@@ -53,8 +58,20 @@ fn load_config() -> Option<FabrixConfig> {
         .filter(|c| !c.endpoint_url.trim().is_empty())
 }
 
+/// LLM 게이트웨이의 고정 경로. 사용자는 엔드포인트에 호스트만 적고 이 경로는 앱이 붙인다.
+const GATEWAY_PATH: &str = "/openapi/llm";
+
+/// 방식별 기준 주소. 게이트웨이는 사용자가 적은 엔드포인트 뒤에 `/openapi/llm` 을 붙인다.
+///
+/// 예전에는 이 경로까지 엔드포인트에 적게 했다. 이미 붙어 있으면 다시 붙이지 않는다 — 그대로
+/// 두 번 붙이면 저장해 둔 설정이 `/openapi/llm/openapi/llm` 으로 가서 404 가 난다.
 fn base(cfg: &FabrixConfig) -> String {
-    ai_settings::normalize_endpoint(&cfg.endpoint_url)
+    let b = ai_settings::normalize_endpoint(&cfg.endpoint_url);
+    if cfg.gateway() && !b.to_ascii_lowercase().ends_with(GATEWAY_PATH) {
+        format!("{b}{GATEWAY_PATH}")
+    } else {
+        b
+    }
 }
 
 /// 모델 목록 주소. 게이트웨이는 `/v1` 이 붙고 대화 주소는 안 붙는다 — 샘플 README 가 짚는
@@ -427,11 +444,11 @@ pub fn run_blocking(
     };
     // 설정의 재정의가 있으면 그 값이 이긴다 — 게이트웨이마다 허용 상한이 다르다.
     let max_tokens = cfg.max_output_tokens.unwrap_or_else(|| args.max_tokens_or_default());
-    let temperature = args.temperature.unwrap_or(crate::aipro::DEFAULT_TEMPERATURE);
+    let temperature = args.temperature.unwrap_or(crate::openai::DEFAULT_TEMPERATURE);
 
     let client = build_client(cfg.allow_invalid_certs, crate::sse::STREAM_IDLE)?;
     let body = if cfg.gateway() {
-        crate::aipro::openai_body(
+        crate::openai::openai_body(
             &model,
             &args.system_prompt,
             &args.prompt,
@@ -470,7 +487,7 @@ pub fn run_blocking(
         crate::sse::STREAM_IDLE,
         &mut |d| {
             if gateway {
-                crate::aipro::parse_openai_sse(d, "FabriX")
+                crate::openai::parse_openai_sse(d, "FabriX")
             } else {
                 parse_fabrix_sse_data(d)
             }
@@ -504,7 +521,7 @@ fn probe_chat(cfg: &FabrixConfig, model: &str) -> Result<(), String> {
     }
 }
 
-/// 연결 테스트 — 2단계(AI Pro 와 같은 모양).
+/// 연결 테스트 — 2단계.
 ///
 /// ① 모델 목록 조회. 성공하면 캐시에 반영하고 끝 — 토큰을 태우지 않는다.
 /// ② 실패하면 첫 유효 모델(직접 지정 → 캐시)로 최소 대화 1회.
@@ -560,7 +577,7 @@ mod tests {
 
     fn gw() -> FabrixConfig {
         FabrixConfig {
-            endpoint_url: "https://gw.test/openapi/llm/".into(),
+            endpoint_url: "https://gw.test/".into(),
             api_style: "openai".into(),
             client: Some("client-jwt".into()),
             openapi_token: Some("wso2-jwt".into()),
@@ -624,8 +641,25 @@ mod tests {
         let native = FabrixConfig { endpoint_url: "https://f.test/".into(), ..Default::default() };
         assert_eq!(models_url(&native), "https://f.test/openapi/chat/v1/all-models");
         assert_eq!(chat_url(&native), "https://f.test/openapi/chat/v1/messages");
+        // 게이트웨이는 호스트 뒤에 `/openapi/llm` 을 앱이 붙인다.
         assert_eq!(models_url(&gw()), "https://gw.test/openapi/llm/v1/models");
         assert_eq!(chat_url(&gw()), "https://gw.test/openapi/llm/chat/completions");
+    }
+
+    /// 예전 방식대로 `/openapi/llm` 까지 적어 저장한 설정은 경로를 두 번 붙이지 않는다.
+    #[test]
+    fn gateway_path_is_not_doubled_for_old_endpoints() {
+        for old in ["https://gw.test/openapi/llm", "https://gw.test/openapi/llm/", " https://gw.test/OpenAPI/LLM "] {
+            let cfg = FabrixConfig { endpoint_url: old.into(), ..gw() };
+            assert_eq!(chat_url(&cfg).to_ascii_lowercase(), "https://gw.test/openapi/llm/chat/completions", "{old}");
+            assert_eq!(models_url(&cfg).to_ascii_lowercase(), "https://gw.test/openapi/llm/v1/models", "{old}");
+        }
+        // 호스트 아래에 다른 경로가 있어도 그 뒤에 붙인다.
+        let cfg = FabrixConfig { endpoint_url: "https://corp.test/fabrix".into(), ..gw() };
+        assert_eq!(chat_url(&cfg), "https://corp.test/fabrix/openapi/llm/chat/completions");
+        // 채팅 API 는 그대로다.
+        let native = FabrixConfig { endpoint_url: "https://gw.test/openapi/llm".into(), ..Default::default() };
+        assert_eq!(chat_url(&native), "https://gw.test/openapi/llm/openapi/chat/v1/messages");
     }
 
     fn header(req: &reqwest::blocking::Request, name: &str) -> Option<String> {

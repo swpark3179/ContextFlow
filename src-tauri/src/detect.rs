@@ -147,10 +147,9 @@ mod tests {
         assert_eq!(claude[0].id, "default");
         assert_eq!(claude.len(), 7);
 
-        let aipro = fallback_from(agents::find("aipro").unwrap(), false);
-        assert!(!aipro.iter().any(|m| m.id == "default"));
-        assert_eq!(aipro.len(), 3);
-        assert_eq!(aipro[0].id, "glm-5.2");
+        // FabriX 는 정적 카탈로그가 없고, 원격이라 합성 `default` 도 붙이지 않는다.
+        let fabrix = fallback_from(agents::find("fabrix").unwrap(), false);
+        assert!(fabrix.is_empty());
     }
 
     #[test]

@@ -19,6 +19,7 @@ import type { WikiHit, WikiKind, WikiPageMeta, WikiSourceBundle } from "../api";
 import { extractFencedJson } from "../fencedJson";
 import { escapeDelims } from "./blocks";
 import { findByTitle, normTitle } from "./links";
+import { webFindingsBlock, webRequestBlock, type WebFinding } from "./web";
 
 export const PLAN_LABEL = "wikiplan";
 export const LINT_LABEL = "wikilint";
@@ -45,6 +46,11 @@ const QUERY_PAGE_CAP = 5_000;
 const QUERY_TOTAL_CAP = 24_000;
 const CATALOG_CAP = 200;
 const SCHEMA_CAP = 6_000;
+/** 대화 이력 — 최근 몇 턴을, 답은 앞부분만, 합쳐서 얼마까지 싣는가. */
+const HISTORY_TURNS = 6;
+const HISTORY_QUESTION_CAP = 500;
+const HISTORY_ANSWER_CAP = 1_500;
+const HISTORY_TOTAL_CAP = 8_000;
 
 const PLAN_TYPES: WikiKind[] = ["procedure", "topic", "entity"];
 const KIND_LABEL: Record<WikiKind, string> = {
@@ -319,12 +325,77 @@ export interface QueryPage {
   content: string;
 }
 
-/** 질의 — 로컬 검색으로 고른 페이지 본문 + 나머지 페이지 목록. 답은 자유 마크다운. */
+/** 대화의 앞선 턴 하나 — 질문과 (완료된) 답. */
+export interface ChatTurnText {
+  question: string;
+  answer: string;
+}
+
+/**
+ * 대화 이력 블록. 이어지는 질문("그럼 두 번째 단계는?")이 가리키는 대상을 모델이 알 수 있게
+ * 앞선 질문과 답을 싣는다.
+ *
+ * 연결이 전부 상태 없는 텍스트 스트림이라(로컬 CLI 는 매번 새 실행, FabriX 는 요청마다 새 대화)
+ * 이력은 프롬프트에 접어 넣는다. 위키 페이지 본문은 턴마다 다시 고르므로 이력에는 질문과 답만
+ * 둔다 — 앞선 프롬프트를 통째로 되풀이하면 페이지 본문이 턴마다 쌓인다. 최근 턴부터 남기고,
+ * 상한을 넘으면 오래된 턴을 버린다(마지막 턴은 언제나 남는다).
+ */
+export function historyBlock(history: ChatTurnText[]): string {
+  if (!history.length) return "";
+  let turns = history.slice(-HISTORY_TURNS).map((t) => ({
+    q: cap(t.question.trim(), HISTORY_QUESTION_CAP),
+    a: cap(t.answer.trim(), HISTORY_ANSWER_CAP),
+  }));
+  const size = () => turns.reduce((n, t) => n + t.q.length + t.a.length, 0);
+  while (turns.length > 1 && size() > HISTORY_TOTAL_CAP) turns = turns.slice(1);
+  const skipped = history.length - turns.length;
+  const lines = ["# 지금까지의 대화 (이어지는 질문의 맥락)", ""];
+  if (skipped > 0) lines.push(`(앞선 ${skipped}개 턴은 생략)`, "");
+  turns.forEach((t, n) => {
+    lines.push(`<turn n="${skipped + n + 1}">`, `질문: ${escapeDelims(t.q)}`, `답: ${escapeDelims(t.a)}`, "</turn>", "");
+  });
+  return lines.join("\n");
+}
+
+/**
+ * 질의에 본문을 실을 페이지를 고른다 — 목록 여럿을 번갈아 돌며 겹치는 것은 빼고 `cap` 장까지.
+ *
+ * 이어지는 질문은 그것만으로는 검색이 안 된다("두 번째 단계는?"). 그래서 호출부는 지금 질문의
+ * 검색 결과, 앞선 답이 인용한 페이지, 앞선 질문과 합친 검색 결과를 함께 넘긴다. 앞에서부터
+ * 번갈아 고르므로 화제를 바꾼 질문이면 지금 질문의 결과가, 이어지는 질문이면 앞선 맥락이
+ * 자리를 차지한다.
+ */
+export function pickContextPages(lists: string[][], cap: number): string[] {
+  const out: string[] = [];
+  const longest = Math.max(0, ...lists.map((l) => l.length));
+  for (let n = 0; n < longest && out.length < cap; n++) {
+    for (const list of lists) {
+      const p = list[n];
+      if (p !== undefined && !out.includes(p)) out.push(p);
+      if (out.length >= cap) break;
+    }
+  }
+  return out;
+}
+
+/** 질의에 실을 웹 검색 상태 — 남은 검색 횟수와 지금까지 찾은 것. `null` 이면 웹 검색을 끈 질의. */
+export interface QueryWebState {
+  remaining: number;
+  findings: WebFinding[];
+}
+
+/**
+ * 질의 — 로컬 검색으로 고른 페이지 본문 + 나머지 페이지 목록. 답은 자유 마크다운.
+ * `history` 가 있으면 앞선 대화에 이어지는 질문으로 묻는다. `web` 이 있으면 웹 검색을
+ * 요청할 수 있음을 알리고(`web.ts`), 이미 찾은 결과를 함께 싣는다.
+ */
 export function buildQueryPrompt(i: {
   question: string;
   pages: QueryPage[];
   catalog: WikiPageMeta[];
   inject: string;
+  history?: ChatTurnText[];
+  web?: QueryWebState | null;
 }): string {
   let used = 0;
   const bodies: string[] = [];
@@ -340,8 +411,12 @@ export function buildQueryPrompt(i: {
     .filter((p) => !shown.has(p.stem))
     .slice(0, CATALOG_CAP)
     .map((p) => `- [[${p.stem}]] (${KIND_LABEL[p.kind] ?? p.kind}) — ${p.summary}`);
+  const history = historyBlock(i.history ?? []);
+  const web = i.web ?? null;
+  const found = web ? webFindingsBlock(web.findings) : "";
   return [
-    "# 질문",
+    history,
+    history ? "# 지금 질문 (앞선 대화에 이어서)" : "# 질문",
     "",
     i.question.trim(),
     "",
@@ -352,10 +427,20 @@ export function buildQueryPrompt(i: {
     "",
     catalog.length ? catalog.join("\n") : "(없음)",
     "",
+    found,
+    web ? webRequestBlock(web.remaining) : "",
     i.inject,
     "# 답변 형식",
     "",
-    "- 위 페이지에 적힌 내용에 근거해서만 답합니다. 근거가 없으면 \"위키에 없습니다\" 라고 하고, 목록에서 열어 볼 만한 페이지를 제안합니다.",
+    web
+      ? "- 위 위키 페이지와 웹 검색 결과에 적힌 내용에 근거해서만 답합니다. 둘 다 근거가 없으면 그렇다고 말하고, 위키에서 열어 볼 만한 페이지를 제안합니다."
+      : "- 위 페이지에 적힌 내용에 근거해서만 답합니다. 근거가 없으면 \"위키에 없습니다\" 라고 하고, 목록에서 열어 볼 만한 페이지를 제안합니다.",
+    found
+      ? "- 웹 검색 결과에서 온 문장 끝에는 `[웹1]` 처럼 출처 번호를 붙입니다. 위키와 웹이 다르면 둘 다 밝히고, 업무에 관한 것은 위키를 앞세웁니다."
+      : "",
+    history
+      ? "- 앞선 대화에 이어지는 질문이면 그 맥락(가리키는 대상 · 생략된 주어)을 이어받아 답하고, 앞선 답을 그대로 되풀이하지 않습니다."
+      : "",
     "- 근거로 쓴 페이지를 문장 끝에 `[[이름]]` 으로 인용합니다.",
     "- 과거에 한 작업을 찾는 질문이면, 해당하는 업무를 목록으로 정리합니다(업무 소스 페이지 이름으로).",
     "- 맨 마지막 줄에 `관련 업무: [[task-…]], [[task-…]]` 처럼 근거가 된 업무 소스 페이지를 적습니다(없으면 생략).",

@@ -1,12 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Box, TextArea } from "../../lib/ui";
+import { useEffect, useMemo, useState } from "react";
+import { Box } from "../../lib/ui";
 import { VIOLET } from "../../lib/design";
 import { joinPath } from "../../lib/format";
 import { mdParse, splitFrontmatter } from "../../lib/markdown";
 import * as api from "../../lib/api";
-import { CANCELED } from "../../lib/runOnce";
 import { resolveLink } from "../../lib/wiki/links";
-import { aiLint, askWiki, fileAnswer, type AskOutcome } from "../../lib/wiki/pipeline";
+import { aiLint } from "../../lib/wiki/pipeline";
 import type { AiLintIssue } from "../../lib/wiki/prompts";
 import MarkdownView, { WikiLinkContext, type WikiLinks } from "../../components/MarkdownView";
 import { isArchived, reportObsidianOpen, useStore } from "../../store/useStore";
@@ -65,16 +64,16 @@ export const smallBtn: React.CSSProperties = {
 const hint: React.CSSProperties = { fontSize: 11.5, color: "#8a857c", lineHeight: 1.6 };
 
 /** 안정된 빈 목록 — 스토어 셀렉터의 기본값으로 쓴다. */
-const NO_PAGES: api.WikiPageMeta[] = [];
+export const NO_PAGES: api.WikiPageMeta[] = [];
 
 /** 업무 id → 지금 경로의 업무. 보관 'move' 로 옮겨졌어도 id 로 찾는다. */
-function useTaskById() {
+export function useTaskById() {
   const tasks = useStore((s) => s.tasks);
   return useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks]);
 }
 
 /** 위키링크의 이동과 표시 — 업무 소스 링크는 업무 id 대신 그 업무의 제목을 보인다. */
-function wikiLinks(pages: api.WikiPageMeta[], open: (target: string) => void): WikiLinks {
+export function wikiLinks(pages: api.WikiPageMeta[], open: (target: string) => void): WikiLinks {
   return {
     open,
     label: (t) => {
@@ -295,228 +294,6 @@ function PageList({
           {p.summary && <div style={{ ...hint, fontSize: 11, marginTop: 1 }}>{p.summary}</div>}
         </Box>
       ))}
-    </div>
-  );
-}
-
-/**
- * AI 에게 묻기. 로컬 검색으로 페이지를 고르고 그 본문으로만 답하게 한다 — 인용한 페이지가
- * 칩으로 뜨고, 업무 소스면 바로 원본 업무로 갈 수 있다. 쓸 만한 답은 [위키에 저장] 으로
- * `answers/` 에 남긴다(카파시 패턴의 "답도 위키에 쌓인다").
- */
-export function AskPanel({ onOpen }: { onOpen: (path: string) => void }) {
-  const s = useStore();
-  const ai = useAi();
-  const info = routeInfo(ai, "wiki.query");
-  // 셀렉터가 매번 새 배열을 내면 React 가 스냅샷이 불안정하다고 보고 렌더 루프에 빠진다.
-  const pages = useWiki((w) => w.status?.pages ?? NO_PAGES);
-  const refresh = useWiki((w) => w.refresh);
-  const byId = useTaskById();
-  const [question, setQuestion] = useState("");
-  const [asked, setAsked] = useState("");
-  const [partial, setPartial] = useState("");
-  const [out, setOut] = useState<AskOutcome | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [saved, setSaved] = useState<string | null>(null);
-  const abort = useRef<AbortController | null>(null);
-  useEffect(() => () => abort.current?.abort(), []);
-
-  const ask = () => {
-    const q = question.trim();
-    if (!q || !info.run || busy) return;
-    abort.current?.abort();
-    const ctl = new AbortController();
-    abort.current = ctl;
-    setBusy(true);
-    setError(null);
-    setOut(null);
-    setSaved(null);
-    setPartial("");
-    setAsked(q);
-    void askWiki({
-      root: s.settings.vault,
-      question: q,
-      route: info.run,
-      ai: { packs: ai.packs, settings: ai.settings },
-      signal: ctl.signal,
-      onPartial: setPartial,
-    })
-      .then(setOut)
-      .catch((e) => {
-        const msg = api.errMessage(e);
-        if (msg !== CANCELED) setError(msg);
-      })
-      .finally(() => setBusy(false));
-  };
-
-  const save = () => {
-    if (!out) return;
-    const req = { root: s.settings.vault, question: asked, answer: out.answer, cited: out.cited };
-    void fileAnswer(req)
-      .then(async (r) => {
-        const w = r.written[0];
-        setSaved(w?.path ?? null);
-        await refresh();
-      })
-      .catch((e) => s.fail(e, "위키에 저장하지 못했습니다"));
-  };
-
-  const text = out?.answer ?? partial;
-  const blocks = useMemo(() => mdParse(text), [text]);
-  const follow = (target: string) => {
-    const hit = resolveLink(target, pages);
-    if (hit) onOpen(hit.path);
-  };
-
-  return (
-    <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
-      <div
-        style={{
-          padding: "12px 14px",
-          borderBottom: "1px solid #e6e2da",
-          display: "flex",
-          flexDirection: "column",
-          gap: 8,
-        }}
-      >
-        <TextArea
-          rows={2}
-          value={question}
-          onChange={(e) => setQuestion(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-              e.preventDefault();
-              ask();
-            }
-          }}
-          placeholder="예: 배포 스크립트를 고쳤던 업무가 뭐였지? 그때 어떤 순서로 했어?"
-          style={{
-            width: "100%",
-            boxSizing: "border-box",
-            border: "1px solid #ddd8cf",
-            borderRadius: 5,
-            padding: "7px 9px",
-            fontSize: 13,
-            lineHeight: 1.6,
-            resize: "vertical",
-            outline: "none",
-          }}
-          focusStyle={{ borderColor: "#3a6fd8", boxShadow: "0 0 0 2px #e6eefc" }}
-        />
-        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <Box
-            onClick={ask}
-            style={{
-              ...smallBtn,
-              height: 26,
-              border: `1px solid ${info.run && question.trim() && !busy ? "#d8cdf6" : "#e0dcd4"}`,
-              background: info.run && question.trim() && !busy ? "#f4f0fd" : "#f7f5f1",
-              color: info.run && question.trim() && !busy ? VIOLET : "#b5afa2",
-              fontWeight: 600,
-              cursor: info.run && question.trim() && !busy ? "pointer" : "default",
-            }}
-          >
-            {busy ? "답하는 중…" : "AI에게 묻기 (Ctrl+Enter)"}
-          </Box>
-          {busy && (
-            <Box
-              style={smallBtn}
-              hover={{ background: "#f2efe9" }}
-              onClick={() => abort.current?.abort()}
-            >
-              취소
-            </Box>
-          )}
-          <span style={{ ...hint, fontSize: 11, marginLeft: "auto" }}>
-            {info.run
-              ? `${info.name ?? info.run.agentId} · ${info.modelLabel}`
-              : info.via === "route"
-                ? `지정한 연결(${info.name})을 지금 쓸 수 없습니다`
-                : "설정 → 기능별 AI 연결에서 연결을 고르세요"}
-          </span>
-        </div>
-      </div>
-      {error && <div style={{ ...hint, color: "#c04a4a", padding: "10px 14px" }}>{error}</div>}
-      {out && (
-        <div
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            gap: 4,
-            alignItems: "center",
-            padding: "6px 14px",
-            borderBottom: "1px solid #f4f1ec",
-          }}
-        >
-          <span style={{ ...hint, marginRight: 4 }}>
-            {out.cited.length ? `인용 ${out.cited.length}` : `읽은 페이지 ${out.used.length}`}
-          </span>
-          {(out.cited.length ? out.cited : out.used).map((p) => {
-            const task = p.taskId ? byId.get(p.taskId) : undefined;
-            return (
-              <span key={p.path} style={{ display: "inline-flex", gap: 2 }}>
-                <Box
-                  title={p.path}
-                  onClick={() => onOpen(p.path)}
-                  style={{
-                    fontSize: 11.5,
-                    border: "1px solid #e6e2da",
-                    borderRadius: 4,
-                    padding: "1px 7px",
-                    background: "#fdfcfa",
-                    color: "#2f5cbb",
-                    cursor: "pointer",
-                  }}
-                  hover={{ borderColor: "#cddcf8" }}
-                >
-                  {p.title}
-                </Box>
-                {task && (
-                  <Box
-                    title="원본 업무 열기"
-                    onClick={() => openTask(task)}
-                    style={{
-                      fontSize: 11,
-                      border: "1px solid #e0d6f8",
-                      borderRadius: 4,
-                      padding: "1px 5px",
-                      color: "#5a44b4",
-                      cursor: "pointer",
-                    }}
-                    hover={{ background: "#f4f0fd" }}
-                  >
-                    업무 ↗
-                  </Box>
-                )}
-              </span>
-            );
-          })}
-          <span style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
-            {saved ? (
-              <Box style={{ ...smallBtn, color: "#256b47" }} onClick={() => onOpen(saved)}>
-                저장됨 · 열기
-              </Box>
-            ) : (
-              <Box style={smallBtn} hover={{ background: "#f2efe9" }} onClick={save}>
-                위키에 저장
-              </Box>
-            )}
-          </span>
-        </div>
-      )}
-      {text ? (
-        <WikiLinkContext.Provider value={wikiLinks(pages, follow)}>
-          <MarkdownView blocks={blocks} />
-        </WikiLinkContext.Provider>
-      ) : (
-        !error && (
-          <div style={{ ...hint, padding: 14 }}>
-            위키 페이지에 근거해서만 답합니다. 로컬 검색으로 관련 페이지를 골라 그 본문을 보내고,
-            답에 인용된 페이지와 업무로 바로 갈 수 있습니다.
-          </div>
-        )
-      )}
     </div>
   );
 }

@@ -2,11 +2,11 @@ import { useEffect, useState } from "react";
 import { Input } from "../../lib/ui";
 import * as api from "../../lib/api";
 import { useAi } from "../../store/aiStore";
-import { Btn, Card, Field, Models, ReadOnlyRow, hintStyle, inputFocus, inputMono } from "./shared";
+import { Btn, ConnectionPanel, Field, Models, ReadOnlyRow, hintStyle, inputFocus, inputMono } from "./shared";
 import { sourceLabel } from "../../lib/ai";
 
 /**
- * 로컬 CLI 카드 (Claude Code · Codex CLI).
+ * 로컬 CLI 탭 (Claude Code · Codex CLI).
  *
  * 두 서비스가 같은 껍데기를 쓴다 — 탐지 경로(resolve → `--version`)와 설정 항목
  * (실행 파일 경로 하나)이 동일하기 때문이다. 다른 것은 이름과 검색할 바이너리뿐이고
@@ -54,7 +54,7 @@ export default function LocalCliCard({ id }: { id: string }) {
   };
 
   return (
-    <Card name={name} kind="local" agent={agent} loading={loading} error={error}>
+    <ConnectionPanel kind="local" agent={agent} loading={loading} error={error}>
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         <ReadOnlyRow
           label="실행 파일"
@@ -106,6 +106,6 @@ export default function LocalCliCard({ id }: { id: string }) {
         추천 · 위키 반영 모두 도구 사용을 차단한 채 실행됩니다 — 파일을 읽거나 고치지 않고
         텍스트 답변만 받습니다(필요한 내용은 앱이 프롬프트에 실어 보냅니다).
       </div>
-    </Card>
+    </ConnectionPanel>
   );
 }

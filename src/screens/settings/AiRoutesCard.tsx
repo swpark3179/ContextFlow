@@ -92,6 +92,9 @@ export default function AiRoutesCard() {
   useAutoFix(routes["wiki.query"], (m) =>
     guard(saveRoute("wiki.query", routes["wiki.query"]!.agentId, m)),
   );
+  useAutoFix(routes["wiki.web"], (m) =>
+    guard(saveRoute("wiki.web", routes["wiki.web"]!.agentId, m)),
+  );
 
   const modelsOf = (agentId: string | undefined) =>
     agentId ? (detected[agentId]?.models ?? NO_MODELS) : NO_MODELS;

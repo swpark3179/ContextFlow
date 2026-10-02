@@ -4,7 +4,6 @@ import type { DayEntry } from "./daylog";
 import type { FileEntry } from "./tree";
 import type {
   AgentInfo,
-  AiProConfig,
   AiSettings,
   DetectedAgent,
   FabrixConfig,
@@ -326,8 +325,6 @@ export const detectAgent = (id: string, force = false) =>
 export const getAiSettings = () => invoke<AiSettings>("get_ai_settings");
 export const setAgentBin = (id: string, path: string | null) =>
   invoke<AiSettings>("set_agent_bin", { id, path });
-export const setAiProConfig = (config: AiProConfig | null) =>
-  invoke<AiSettings>("set_aipro_config", { config });
 export const setFabrixConfig = (config: FabrixConfig | null) =>
   invoke<AiSettings>("set_fabrix_config", { config });
 export const setActiveAi = (agentId: string, model: string) =>
@@ -336,7 +333,6 @@ export const setActiveAi = (agentId: string, model: string) =>
 export const setAiRoute = (feature: string, agentId: string, model: string) =>
   invoke<AiSettings>("set_ai_route", { feature, agentId, model });
 
-export const probeAiPro = () => invoke<string>("probe_aipro");
 export const probeFabrix = () => invoke<string>("probe_fabrix");
 
 // -- 프롬프트 팩 -----------------------------------------------------------
@@ -353,6 +349,61 @@ export const setPromptHook = (stage: string, files: string[]) =>
 export const runAgent = (args: RunArgs, onEvent: Channel<RunEvent>) =>
   invoke<string>("run_agent", { args, onEvent });
 export const cancelRun = (runId: string) => invoke<void>("cancel_run", { runId });
+
+// -- 웹 검색 (PC 의 브라우저) -------------------------------------------------
+//
+// Rust 는 `src-tauri/src/browser.rs`. 브라우저는 전용 프로필로 띄워 DevTools 프로토콜로
+// 조종하고, 할 수 있는 일은 검색 결과 읽기와 결과 페이지 본문 읽기 둘뿐이다.
+
+export type WebEngine = "google" | "bing" | "duckduckgo" | "naver";
+
+/** Rust `BrowserOptions` 와 1:1 — 설정(`settings.json`)의 웹 검색 항목에서 만든다. */
+export interface BrowserOptions {
+  /** 직접 지정한 실행 파일. 비우면 Chrome → Edge → PATH 순으로 찾는다. */
+  path: string | null;
+  show: boolean;
+  engine: WebEngine;
+}
+
+export interface BrowserInfo {
+  path: string | null;
+  name: string | null;
+  source: "custom" | "auto" | "not-found";
+  running: boolean;
+}
+
+export interface WebResult {
+  title: string;
+  url: string;
+  snippet: string;
+}
+
+export interface SerpResult {
+  query: string;
+  engine: string;
+  url: string;
+  results: WebResult[];
+}
+
+export interface WebPage {
+  url: string;
+  finalUrl: string;
+  title: string;
+  text: string;
+  truncated: boolean;
+}
+
+export const browserDetect = (path: string | null) => invoke<BrowserInfo>("browser_detect", { path });
+export const webSearch = (opts: BrowserOptions, query: string) =>
+  invoke<SerpResult>("web_search", { opts, query });
+export const webRead = (opts: BrowserOptions, url: string) => invoke<WebPage>("web_read", { opts, url });
+export const browserClose = () => invoke<void>("browser_close");
+
+/** 웹 주소를 사용자의 기본 브라우저로 연다(AI 가 조종하는 전용 창이 아니라). */
+export async function openWebUrl(url: string): Promise<void> {
+  const { openUrl } = await import("@tauri-apps/plugin-opener");
+  await openUrl(url);
+}
 
 export interface SearchHit {
   folder: string;

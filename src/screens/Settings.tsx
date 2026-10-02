@@ -4,11 +4,10 @@ import { VIOLET } from "../lib/design";
 import { OptionCard } from "../modals/Modal";
 import { useStore, type Settings as S } from "../store/useStore";
 import * as api from "../lib/api";
+import AiConnectionsCard from "./settings/AiConnectionsCard";
 import AiRoutesCard from "./settings/AiRoutesCard";
-import AiProCard from "./settings/AiProCard";
-import FabrixCard from "./settings/FabrixCard";
-import LocalCliCard from "./settings/LocalCliCard";
 import PromptPacksCard from "./settings/PromptPacksCard";
+import WebSearchCard from "./settings/WebSearchCard";
 import WikiCard from "./settings/WikiCard";
 import { Chip, Toggle, cardStyle, headStyle, inputFocus, inputMono, rowStyle } from "./settings/shared";
 
@@ -249,15 +248,13 @@ export default function Settings() {
         <div style={{ fontSize: 13, fontWeight: 600, color: "#6a665e", marginTop: 4 }}>
           AI 연결
           <span style={{ fontSize: 11.5, fontWeight: 400, color: "#a09a8f", marginLeft: 8 }}>
-            네 가지 중 원하는 것만 설정하면 됩니다. 하나도 없어도 로컬 유사도로 추천합니다.
+            세 가지 중 원하는 것만 설정하면 됩니다. 하나도 없어도 로컬 유사도로 추천합니다.
           </span>
         </div>
-        <LocalCliCard id="claude" />
-        <LocalCliCard id="codex" />
-        <AiProCard />
-        <FabrixCard />
+        <AiConnectionsCard />
         <AiRoutesCard />
         <WikiCard />
+        <WebSearchCard />
         <PromptPacksCard />
 
         {/* 추천 임계값 --------------------------------------------------- */}

@@ -36,7 +36,7 @@ function state(settings: Partial<AiSettings>, detected: Record<string, DetectedA
 describe("routeRun", () => {
   const detected = {
     fabrix: agent("fabrix", true),
-    aipro: agent("aipro", false),
+    codex: agent("codex", false, false),
     claude: agent("claude", true, false),
   };
 
@@ -62,12 +62,12 @@ describe("routeRun", () => {
     const s = state(
       {
         active: { agentId: "fabrix", model: "m1" },
-        routes: { "wiki.ingest": { agentId: "aipro", model: "x" } },
+        routes: { "wiki.ingest": { agentId: "codex", model: "x" } },
       },
       detected,
     );
     expect(routeRun(s, "wiki.ingest")).toBeNull();
-    expect(routeInfo(s, "wiki.ingest")).toMatchObject({ via: "route", run: null, name: "AIPRO" });
+    expect(routeInfo(s, "wiki.ingest")).toMatchObject({ via: "route", run: null, name: "CODEX" });
     // 기본 연결 자체는 멀쩡하다.
     expect(activeRun(s)).toEqual({ agentId: "fabrix", model: "m1" });
   });

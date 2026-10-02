@@ -9,7 +9,7 @@
 //! 달아 돌려준다 — 조용히 사라지면 사용자가 원인을 알 수 없다.
 //!
 //! "스킬" 이 아니라 "프롬프트 팩" 인 이유: 이 앱의 Claude Code 실행은 도구를 전부 막고
-//! (`agents.rs`) `--strict-mcp-config` 를 쓰며, 원격 서비스(AI Pro · FabriX)는 파일
+//! (`agents.rs`) `--strict-mcp-config` 를 쓰며, 원격 서비스(FabriX)는 파일
 //! 시스템이 아예 없다. 따라서 여기서 주입할 수 있는 것은 프롬프트 텍스트뿐이다.
 
 use std::path::PathBuf;

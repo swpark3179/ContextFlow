@@ -554,8 +554,14 @@ export default function MarkdownView({
   imageUrl,
   onImageWidth,
   onPasteImage,
+  inline,
 }: {
   blocks: Block[];
+  /**
+   * 스크롤 상자 없이 내용 높이만큼 그린다. 위키 대화처럼 답 여러 개를 한 스크롤 안에 쌓을 때
+   * 쓴다 — 답마다 제 스크롤을 가지면 바깥 스크롤과 겹쳐 휠이 엉뚱한 곳을 굴린다.
+   */
+  inline?: boolean;
   onToggle?: (line: number) => void;
   /** 이미지 블록의 경로를 `<img src>` 로 바꾼다. `null` 이면 그리지 않는다. */
   imageUrl?: (b: Block) => string | null;
@@ -596,13 +602,17 @@ export default function MarkdownView({
               }
             : undefined
         }
-        style={{
-          flex: 1,
-          minHeight: 0,
-          overflow: "auto",
-          padding: "14px 20px 28px 20px",
-          outline: "none",
-        }}
+        style={
+          inline
+            ? { outline: "none" }
+            : {
+                flex: 1,
+                minHeight: 0,
+                overflow: "auto",
+                padding: "14px 20px 28px 20px",
+                outline: "none",
+              }
+        }
       >
         <div style={{ maxWidth: MEASURE }}>
           {!blocks.length && (

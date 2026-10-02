@@ -6,7 +6,8 @@ import * as api from "../lib/api";
 import { reportObsidianOpen, useStore } from "../store/useStore";
 import { routeInfo, useAi } from "../store/aiStore";
 import { useWiki, type QueueItem } from "../store/wikiStore";
-import { AskPanel, KIND_LABEL, KindChip, LintPanel, PagePanel, smallBtn } from "./wiki/WikiPanels";
+import { AskPanel } from "./wiki/AskPanel";
+import { KIND_LABEL, KindChip, LintPanel, PagePanel, smallBtn } from "./wiki/WikiPanels";
 
 type Tab = "page" | "ask" | "lint";
 
@@ -398,7 +399,21 @@ export default function Wiki() {
           )}
         </div>
         {tab === "page" && <PagePanel path={open} onOpen={openPage} />}
-        {tab === "ask" && <AskPanel onOpen={openPage} />}
+        {/*
+          묻기 패널은 다른 탭에서도 내리지 않는다 — 대화가 이 패널의 상태라서, 인용 칩을 눌러
+          페이지를 읽으러 가는 순간 대화가 사라지면 이어서 물을 수 없다. 받는 중인 답도 그대로
+          흘러 들어온다. 위키 화면을 떠나면(다른 화면) 이 화면째 내려가며 대화도 끝난다.
+        */}
+        <div
+          style={{
+            flex: 1,
+            minHeight: 0,
+            display: tab === "ask" ? "flex" : "none",
+            flexDirection: "column",
+          }}
+        >
+          <AskPanel onOpen={openPage} />
+        </div>
         {tab === "lint" && <LintPanel onOpen={openPage} />}
       </div>
     </div>

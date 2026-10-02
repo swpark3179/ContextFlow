@@ -113,6 +113,16 @@ export interface Settings {
   wikiDepth: "light" | "full";
   /** `full` 에서 업무 하나가 함께 고칠 수 있는 페이지 수. */
   wikiMaxPages: number;
+  /** 위키 질의 중 AI 가 PC 의 브라우저로 웹을 검색해도 되는가(묻기 패널의 [웹 검색]). */
+  webSearch: boolean;
+  /** 웹 검색에 쓸 검색 엔진. */
+  webEngine: "google" | "bing" | "duckduckgo" | "naver";
+  /** 검색하는 브라우저 창을 보이게 띄운다. 끄면 헤드리스. */
+  webShow: boolean;
+  /** 검색어 하나마다 본문을 읽을 결과 수(0 = 결과 목록의 요약만). */
+  webPages: number;
+  /** 브라우저 실행 파일 직접 지정. 비우면 Chrome → Edge 순으로 찾는다. */
+  webBrowser: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -128,7 +138,17 @@ export const DEFAULT_SETTINGS: Settings = {
   wikiAuto: true,
   wikiDepth: "full",
   wikiMaxPages: 3,
+  webSearch: false,
+  webEngine: "google",
+  webShow: false,
+  webPages: 3,
+  webBrowser: "",
 };
+
+/** 설정 → 브라우저 조종 옵션(Rust `BrowserOptions`). */
+export function browserOptions(s: Settings): api.BrowserOptions {
+  return { path: s.webBrowser.trim() || null, show: s.webShow, engine: s.webEngine };
+}
 
 export interface Toast {
   id: number;
