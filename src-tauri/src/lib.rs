@@ -256,6 +256,37 @@ async fn set_task_category(
     .map_err(|e| AppError::io(format!("카테고리 지정이 중단되었습니다: {e}")))?
 }
 
+/// 카테고리 노드 하나(하위 포함)의 경로를 바꾼다. `to` 가 `None` 이면 최상위로 올린다.
+/// 다시 시도는 `only` 에 실패한 업무 폴더만 담아 보낸다.
+#[tauri::command]
+async fn move_category(
+    root: String,
+    from: String,
+    to: Option<String>,
+    allow_merge: bool,
+    only: Option<Vec<String>>,
+) -> Result<category::CategoryChange> {
+    tauri::async_runtime::spawn_blocking(move || {
+        category::move_category(&p(&root), &from, to.as_deref(), allow_merge, only.as_deref())
+    })
+    .await
+    .map_err(|e| AppError::io(format!("카테고리 바꾸기가 중단되었습니다: {e}")))?
+}
+
+/// 카테고리 노드 하나(하위 포함)를 해제해 그 업무들을 미분류로 돌린다.
+#[tauri::command]
+async fn clear_category(
+    root: String,
+    from: String,
+    only: Option<Vec<String>>,
+) -> Result<category::CategoryChange> {
+    tauri::async_runtime::spawn_blocking(move || {
+        category::clear_category(&p(&root), &from, only.as_deref())
+    })
+    .await
+    .map_err(|e| AppError::io(format!("카테고리 해제가 중단되었습니다: {e}")))?
+}
+
 #[tauri::command]
 fn merge_tasks(
     root: String,
@@ -692,6 +723,8 @@ pub fn run() {
             absorb_task,
             split_task,
             set_task_category,
+            move_category,
+            clear_category,
             discard_task,
             read_text_file,
             write_text_file,
