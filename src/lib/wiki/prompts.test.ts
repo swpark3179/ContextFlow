@@ -110,6 +110,32 @@ describe("source prompt", () => {
     expect(p).toContain("전에 반영된 적이 있고");
     expect(p).not.toContain("# 위키 규약");
   });
+
+  it("업무 카테고리를 제목 다음 줄에 싣고, 분류 이름을 옮겨 적지 말라고 이른다 — 미분류면 둘 다 없다", () => {
+    const prompt = (category: string | null) =>
+      buildSourcePrompt({
+        schema: "",
+        bundle: bundle({ task: { ...bundle().task, category } }),
+        related: [],
+        pages: PAGES,
+        depth: "full",
+        maxPages: 3,
+        inject: "",
+      });
+    const p = prompt("프로젝트/ContextFlow");
+    expect(p).toContain("- 제목: 배포 정리\n- 카테고리: 프로젝트 › ContextFlow\n- 태그: dev");
+    // 1단계 안내의 끝, 2단계 바로 앞에 붙는다.
+    expect(p).toContain(
+      "링크하지 않습니다.\n   - `카테고리` 는 앱이 업무를 묶는 분류입니다. 관련 페이지를 고르는 데만 참고하고, 분류 이름을 그대로 소스 페이지 본문이나 wikiplan 의 `tags` 에 옮겨 적지 않습니다(원본에 나오는 낱말은 평소대로 씁니다).\n2. 맨 마지막에",
+    );
+
+    // `label(null)` 은 `미분류` 다 — 미분류 업무에 `카테고리: 미분류` 를 싣지 않는다.
+    const none = prompt(null);
+    expect(none).not.toContain("카테고리");
+    expect(none).toContain("- 제목: 배포 정리\n- 태그: dev");
+    // 빈 항목은 거르므로 줄째 빠지고 빈 줄도 남지 않는다.
+    expect(none).toContain("링크하지 않습니다.\n2. 맨 마지막에");
+  });
 });
 
 describe("parsePlan", () => {
