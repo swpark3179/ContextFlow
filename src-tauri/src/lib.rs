@@ -9,6 +9,7 @@ mod exec;
 mod fabrix;
 mod frontmatter;
 mod fsops;
+mod hub;
 mod openai;
 mod prompts;
 mod recommend;
@@ -507,14 +508,46 @@ fn create_template_from_folder(
     Ok(path.to_string_lossy().replace('\\', "/"))
 }
 
+/// 보관함 MOC(`_index/Archive.md`)를 다시 쓴다. Vault 전체를 훑으므로 블로킹 풀에서 돌고,
+/// 허브와 같은 `_index/*` 잠금 아래에서 쓴다.
 #[tauri::command]
-fn write_archive_moc(root: String, archive_days: i64) -> Result<String> {
-    let root = p(&root);
-    let tasks = vault::scan(&root)?;
-    let archived: Vec<vault::TaskMeta> =
-        tasks.into_iter().filter(|t| vault::is_archived(t, archive_days)).collect();
-    let path = vault::write_archive_moc(&root, &archived)?;
-    Ok(path.to_string_lossy().replace('\\', "/"))
+async fn write_archive_moc(root: String, archive_days: i64, force: bool) -> Result<String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<String> {
+        let root = p(&root);
+        let _held = hub::lock_index();
+        let tasks = vault::scan(&root)?;
+        let archived: Vec<vault::TaskMeta> =
+            tasks.into_iter().filter(|t| vault::is_archived(t, archive_days)).collect();
+        let path = vault::write_archive_moc(&root, &archived, archive_days, force)?;
+        Ok(path.to_string_lossy().replace('\\', "/"))
+    })
+    .await
+    .map_err(|e| AppError::io(format!("보관함 MOC 쓰기가 중단되었습니다: {e}")))?
+}
+
+/// 카테고리 허브 노트를 다시 쓴다(자동 갱신). 카테고리를 한 번도 쓰지 않은 Vault 에는 만들지
+/// 않고, 같은 자리의 사용자 노트는 건드리지 않고 `conflicts` 로 알린다.
+#[tauri::command]
+async fn write_category_hubs(root: String, arch_days: i64) -> Result<hub::HubReport> {
+    tauri::async_runtime::spawn_blocking(move || hub::write_hubs(&p(&root), arch_days, false))
+        .await
+        .map_err(|e| AppError::io(format!("카테고리 허브 갱신이 중단되었습니다: {e}")))?
+}
+
+/// 허브를 모두 다시 쓴 뒤 한 허브의 경로를 돌려준다(Obsidian 에서 보기). `key` 가 `None` 이면
+/// 전체 허브, `""` 면 미분류, 그 밖은 카테고리 키다. 파일이 있어야 Obsidian 이 연다.
+#[tauri::command]
+async fn category_hub_path(
+    root: String,
+    arch_days: i64,
+    key: Option<String>,
+) -> Result<String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<String> {
+        let path = hub::hub_path(&p(&root), arch_days, key.as_deref())?;
+        Ok(path.to_string_lossy().replace('\\', "/"))
+    })
+    .await
+    .map_err(|e| AppError::io(format!("카테고리 허브 열기가 중단되었습니다: {e}")))?
 }
 
 // ---------------------------------------------------------------------------
@@ -751,6 +784,8 @@ pub fn run() {
             create_template,
             create_template_from_folder,
             write_archive_moc,
+            write_category_hubs,
+            category_hub_path,
             recommend_tasks,
             search_full_text,
             path_exists,

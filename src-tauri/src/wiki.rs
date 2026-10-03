@@ -24,12 +24,14 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::UNIX_EPOCH;
 
 use serde::{Deserialize, Serialize};
 
 use crate::error::{AppError, Result};
 use crate::frontmatter::{unquote, Doc};
+use crate::fsops::{write_atomic, write_if_changed};
 use crate::vault::{self, TaskMeta};
 
 pub const WIKI_DIR: &str = "Wiki";
@@ -49,8 +51,8 @@ const READ_LIMIT: u64 = 2_000_000;
 const BODY_CAP: usize = 200_000;
 
 /// 페이지 유형 → 폴더. 순서가 색인의 순서다 — 절차를 맨 앞에 두는 것은 "그 일 어떻게 했더라"
-/// 가 이 위키에 가장 자주 묻는 질문이라서다.
-const KINDS: [(&str, &str, &str); 5] = [
+/// 가 이 위키에 가장 자주 묻는 질문이라서다. 카테고리 허브(`hub.rs`)도 이 순서로 묶는다.
+pub(crate) const KINDS: [(&str, &str, &str); 5] = [
     ("procedure", "procedures", "절차"),
     ("topic", "topics", "주제"),
     ("entity", "entities", "시스템 · 도구"),
@@ -412,7 +414,7 @@ fn clean_tags(tags: &[String]) -> Vec<String> {
 
 /// 마크다운 링크 경로의 퍼센트 인코딩. 한글은 그대로 두고 링크를 끊는 문자만 바꾼다 —
 /// Obsidian 과 이 앱의 뷰어가 둘 다 그대로 읽는다.
-fn encode_link(path: &str) -> String {
+pub(crate) fn encode_link(path: &str) -> String {
     let mut out = String::new();
     for c in path.chars() {
         match c {
@@ -427,20 +429,6 @@ fn encode_link(path: &str) -> String {
         }
     }
     out
-}
-
-/// 임시 파일에 쓴 뒤 이름을 바꾼다 — 쓰는 도중 앱이 죽어도 반쯤 쓴 노트가 남지 않는다.
-fn write_atomic(path: &Path, text: &str) -> Result<()> {
-    if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir)?;
-    }
-    let tmp = path.with_extension("md.tmp");
-    fs::write(&tmp, text)?;
-    if let Err(e) = fs::rename(&tmp, path) {
-        let _ = fs::remove_file(&tmp);
-        return Err(e.into());
-    }
-    Ok(())
 }
 
 /// `[[대상|별칭]]` 들의 대상. `#제목` · `^블록` 은 떼어 낸다.
@@ -506,7 +494,7 @@ fn page_meta(rel: &str, text: &str) -> PageMeta {
 
 /// 유형 폴더들의 페이지. 루트 파일(index · log · SCHEMA)과 다른 폴더는 보지 않는다 —
 /// 사용자가 `Wiki/` 아래에 따로 둔 메모까지 색인이 먹어 버리지 않게.
-fn load_pages(root: &Path) -> Vec<(PageMeta, String)> {
+pub(crate) fn load_pages(root: &Path) -> Vec<(PageMeta, String)> {
     let dir = wiki_dir(root);
     let mut out = Vec::new();
     for (_, folder, _) in KINDS {
@@ -964,8 +952,17 @@ pub fn init(root: &Path) -> Result<WikiInfo> {
 
 /// 색인 — 유형별로 묶고 제목순. **같은 페이지들이면 몇 번을 다시 만들어도 같은 바이트**다
 /// (만든 시각을 넣지 않고 페이지들의 최신 `updated` 를 쓴다). 그래야 Git 이나 동기화 도구가
-/// 반영할 때마다 색인을 "바뀐 파일" 로 잡지 않는다.
+/// 반영할 때마다 색인을 "바뀐 파일" 로 잡지 않는다. 바이트가 같으면 아예 쓰지 않는다.
+///
+/// 색인을 다시 만드는 곳이 여럿이다(반영 · 카테고리 허브 갱신 · 허브 직접 열기). 임시 파일
+/// 이름(`index.md.tmp`)이 늘 같아서 둘이 겹치면 한쪽의 rename 이 not_found 로 실패한다 —
+/// 페이지는 썼는데 반영이 실패로 보이고 log 가 빠진다. 그래서 페이지를 읽을 때부터 쓸 때까지
+/// 잠근다. 나중에 잡은 쪽이 페이지를 다시 읽으므로 색인이 낡지도 않는다. 잠금 순서는
+/// 허브 = `hub::INDEX_LOCK` → 이것, 반영 = 이것만이라 교착이 없다.
 pub fn rebuild_index(root: &Path) -> Result<PathBuf> {
+    static INDEX_MD: Mutex<()> = Mutex::new(());
+    let _held = INDEX_MD.lock().unwrap_or_else(|e| e.into_inner());
+
     let pages: Vec<PageMeta> = load_pages(root).into_iter().map(|(m, _)| m).collect();
     let latest = pages.iter().map(|p| p.updated.as_str()).max().unwrap_or("");
     let sources = pages.iter().filter(|p| p.kind == "source").count();
@@ -973,7 +970,16 @@ pub fn rebuild_index(root: &Path) -> Result<PathBuf> {
     let mut md = String::new();
     md.push_str("---\ntype: index\n---\n# 위키 색인\n\n");
     md.push_str("> ContextFlow 가 페이지들의 frontmatter 로 자동 생성합니다. 직접 고치면 다음 반영 때 덮어써집니다.\n");
-    md.push_str("> 규약은 [[Wiki/SCHEMA|SCHEMA]], 작업 기록은 [[Wiki/log|log]] 에 있습니다.\n\n");
+    md.push_str("> 규약은 [[Wiki/SCHEMA|SCHEMA]], 작업 기록은 [[Wiki/log|log]] 에 있습니다.\n");
+    // 앱이 만든 전체 허브가 있을 때만 — 허브를 쓰지 않는 Vault 에서 누르면 빈 노트가 생기는
+    // 죽은 링크나, 같은 이름의 사용자 노트로 가는 링크가 되지 않게.
+    if crate::hub::has_overall_hub(root) {
+        md.push_str(&format!(
+            "> 카테고리별로 보기는 [[{}|카테고리]] 에 있습니다.\n",
+            crate::hub::OVERALL_LINK
+        ));
+    }
+    md.push('\n');
     md.push_str(&format!(
         "전체 {}페이지 · 업무 소스 {}건{}\n",
         pages.len(),
@@ -1014,7 +1020,7 @@ pub fn rebuild_index(root: &Path) -> Result<PathBuf> {
         }
     }
     let path = wiki_dir(root).join("index.md");
-    write_atomic(&path, &md)?;
+    write_if_changed(&path, &md)?;
     Ok(path)
 }
 
