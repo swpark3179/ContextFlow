@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Box } from "../lib/ui";
 import { statusOf, GREEN } from "../lib/design";
 import EditorPane from "../components/EditorPane";
@@ -6,6 +6,7 @@ import Notepad from "../components/Notepad";
 import Explorer from "../components/Explorer";
 import CategoryPicker, { CategoryChip } from "../components/CategoryPicker";
 import { isArchived, useStore } from "../store/useStore";
+import type { TaskMeta } from "../lib/api";
 
 const STATUS_OPTIONS: [string, string, string][] = [
   ["in-progress", "진행 중", "작업 재개"],
@@ -25,6 +26,8 @@ export default function Workspace() {
   useEffect(() => setCatText(null), [s.activeFolder]);
 
   const task = s.tasks.find((t) => t.folder === s.activeFolder);
+  // 팝오버의 picker 는 이 함수가 바뀌면 철자 목록을 다시 만든다 — 업무가 바뀔 때만 새로 만든다.
+  const isSelf = useCallback((t: TaskMeta) => t.folder === task?.folder, [task?.folder]);
 
   const onMove = (e: MouseEvent) => {
     if (drag.current === "col" && dockRef.current) {
@@ -209,7 +212,7 @@ export default function Workspace() {
               <CategoryPicker
                 popover
                 autoFocus
-                exclude={task.folder}
+                exclude={isSelf}
                 value={catText}
                 onChange={setCatText}
                 onCommit={(v) => {

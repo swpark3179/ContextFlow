@@ -228,38 +228,63 @@ pub fn read_task(root: &Path, index_path: &Path) -> Result<TaskMeta> {
 
 /// Scans `Tasks/` and `Archive/**` one task-folder deep.
 pub fn scan(root: &Path) -> Result<Vec<TaskMeta>> {
-    let mut out = Vec::new();
+    match scan_all(root) {
+        (_, Some(e)) => Err(e.into()),
+        (tasks, None) => Ok(tasks),
+    }
+}
 
-    let mut visit = |dir: PathBuf| -> Result<()> {
+/// `scan` 과 같되, 폴더를 읽다 막혀도(잠김 · 동기화 중) 오류로 끝내지 않고 읽힌 업무만
+/// 돌려준다 — 노트 하나가 깨져도 목록을 비우지 않는 규칙을 폴더까지 넓혔다. 이미 디스크에
+/// 쓴 뒤라 오류로 되돌릴 수 없는 곳(카테고리 일괄 변경의 마지막 목록)이 쓴다.
+pub fn scan_best_effort(root: &Path) -> Vec<TaskMeta> {
+    scan_all(root).0
+}
+
+/// 훑은 업무와, 폴더를 읽다 처음 막힌 오류. 막힌 폴더만 건너뛰고 읽히는 것은 다 읽는다.
+fn scan_all(root: &Path) -> (Vec<TaskMeta>, Option<std::io::Error>) {
+    let mut blocked = None;
+    // `dir` 바로 아래 폴더들. 없는 폴더는 빈 목록이다.
+    let mut subdirs = |dir: &Path| -> Vec<PathBuf> {
+        let mut out = Vec::new();
         if !dir.is_dir() {
-            return Ok(());
+            return out;
         }
-        for entry in fs::read_dir(&dir)? {
-            let entry = entry?;
-            if !entry.file_type()?.is_dir() {
-                continue;
+        let entries = match fs::read_dir(dir) {
+            Ok(entries) => entries,
+            Err(e) => {
+                eprintln!("[vault] skipping {}: {}", dir.display(), e);
+                blocked.get_or_insert(e);
+                return out;
             }
-            let index = entry.path().join("index.md");
-            if index.is_file() {
-                match read_task(root, &index) {
-                    Ok(t) => out.push(t),
-                    // A single malformed note must not blank the whole list.
-                    Err(e) => eprintln!("[vault] skipping {}: {}", index.display(), e),
+        };
+        for entry in entries {
+            match entry.and_then(|entry| Ok((entry.file_type()?, entry.path()))) {
+                Ok((kind, path)) if kind.is_dir() => out.push(path),
+                Ok(_) => {}
+                Err(e) => {
+                    eprintln!("[vault] skipping an entry of {}: {}", dir.display(), e);
+                    blocked.get_or_insert(e);
                 }
             }
         }
-        Ok(())
+        out
     };
 
-    visit(root.join(TASKS_DIR))?;
-
+    let mut folders = subdirs(&root.join(TASKS_DIR));
     // Archive/<year>/<task>/ when the vault uses the "move" archive mode.
-    let archive = root.join(ARCHIVE_DIR);
-    if archive.is_dir() {
-        for entry in fs::read_dir(&archive)? {
-            let entry = entry?;
-            if entry.file_type()?.is_dir() {
-                visit(entry.path())?;
+    for year in subdirs(&root.join(ARCHIVE_DIR)) {
+        folders.extend(subdirs(&year));
+    }
+
+    let mut out = Vec::new();
+    for folder in folders {
+        let index = folder.join("index.md");
+        if index.is_file() {
+            match read_task(root, &index) {
+                Ok(t) => out.push(t),
+                // A single malformed note must not blank the whole list.
+                Err(e) => eprintln!("[vault] skipping {}: {}", index.display(), e),
             }
         }
     }
@@ -272,7 +297,7 @@ pub fn scan(root: &Path) -> Result<Vec<TaskMeta>> {
         (None, Some(_)) => Ordering::Greater,
         (None, None) => b.updated.cmp(&a.updated),
     });
-    Ok(out)
+    (out, blocked)
 }
 
 /// 수동 정렬의 기본 간격. 두 이웃 사이에 새 값을 넣을 자리를 남겨 두려는 것이라,
@@ -1411,7 +1436,7 @@ pub fn seed_sample(root: &Path) -> Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::category::set_category;
 
@@ -1533,7 +1558,7 @@ mod tests {
 
     /// `now_stamp` 은 분 단위라 한 테스트 안에서 만든 업무들은 `updated` 가 모두 같다.
     /// 정렬을 보려면 값을 직접 벌려 놓아야 한다.
-    fn set_updated(folder: &str, stamp: &str) {
+    pub(crate) fn set_updated(folder: &str, stamp: &str) {
         let index = Path::new(folder).join("index.md");
         let mut doc = Doc::parse(&fs::read_to_string(&index).unwrap());
         doc.set("updated", stamp);
@@ -1607,10 +1632,10 @@ mod tests {
 
     // -- on-disk lifecycle ---------------------------------------------------
 
-    struct TempVault(PathBuf);
+    pub(crate) struct TempVault(PathBuf);
 
     impl TempVault {
-        fn new(tag: &str) -> Self {
+        pub(crate) fn new(tag: &str) -> Self {
             let dir = std::env::temp_dir().join(format!(
                 "contextflow-test-{}-{}",
                 tag,
@@ -1623,7 +1648,7 @@ mod tests {
             ensure_layout(&dir).unwrap();
             TempVault(dir)
         }
-        fn path(&self) -> &Path {
+        pub(crate) fn path(&self) -> &Path {
             &self.0
         }
     }
@@ -1815,6 +1840,27 @@ mod tests {
         assert!(Path::new(&moved.folder).join("index.md").is_file());
         // Archived tasks must still be discoverable by a scan.
         assert_eq!(scan(v.path()).unwrap().len(), 1);
+    }
+
+    /// 카테고리 일괄 변경은 다 쓴 뒤의 목록을 `scan_best_effort` 로 읽는다. 막힌 폴더가 없으면
+    /// `scan` 과 같아야 한다 — 보관 이동 폴더 · 순서 · 깨진 노트 건너뛰기까지.
+    #[test]
+    fn best_effort_scan_matches_scan_when_nothing_is_blocked() {
+        let v = TempVault::new("scan-best-effort");
+        make(v.path(), "진행");
+        let archived = make(v.path(), "보관");
+        set_status(v.path(), Path::new(&archived.folder), "completed").unwrap();
+        set_archived(v.path(), Path::new(&archived.folder), true, "move", false).unwrap();
+        let broken = v.path().join(TASKS_DIR).join("깨진 노트");
+        fs::create_dir_all(&broken).unwrap();
+        fs::write(broken.join("index.md"), [0xff, 0xfe]).unwrap();
+        fs::write(v.path().join(TASKS_DIR).join("낱 파일.md"), "x").unwrap();
+
+        let strict: Vec<String> = scan(v.path()).unwrap().into_iter().map(|t| t.folder).collect();
+        let lenient: Vec<String> =
+            scan_best_effort(v.path()).into_iter().map(|t| t.folder).collect();
+        assert_eq!(strict.len(), 2);
+        assert_eq!(lenient, strict);
     }
 
     #[test]
@@ -2384,7 +2430,7 @@ mod tests {
 
     // -- 카테고리 -------------------------------------------------------------
 
-    fn make_in(root: &Path, title: &str, category: &str) -> TaskMeta {
+    pub(crate) fn make_in(root: &Path, title: &str, category: &str) -> TaskMeta {
         create_task(
             root,
             NewTask {
