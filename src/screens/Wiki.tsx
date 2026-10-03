@@ -92,6 +92,8 @@ export default function Wiki() {
     [s.tasks, pages, s.wikiCat],
   );
   const filtering = cats.effCat !== null;
+  /** 카테고리 고르기가 보이는가 — 카테고리를 쓰지 않는 Vault 는 지금 화면 그대로다. */
+  const pickable = cats.hasCats || filtering;
   // 고른 카테고리에 페이지가 없어지면(업무 카테고리 변경 · 페이지 삭제) 고른 값도 지운다 — 쥐고
   // 있으면 그 카테고리에 페이지가 다시 생길 때 아무것도 하지 않았는데 거르기가 되살아난다(보관함과
   // 같다). 상태를 읽기 전에는 모든 키가 0페이지라 지우지 않는다.
@@ -100,9 +102,11 @@ export default function Wiki() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [s.wikiCat, cats.effCat, w.status]);
 
-  // 검색은 로컬이라 즉시지만, 글자마다 파일을 훑지 않게 잠깐 모은다. 카테고리로 거를 때는 모두
-  // 받아 렌더에서 거른다 — 30건만 받아 거르면 그 카테고리의 결과가 앞의 다른 결과에 밀려 사라진다.
-  // 거르는지 여부만 의존성에 둔다 — 다른 카테고리로 바꿀 때는 이미 받은 결과를 다시 거르면 된다.
+  // 검색은 로컬이라 즉시지만, 글자마다 파일을 훑지 않게 잠깐 모은다. 카테고리를 고를 수 있는
+  // Vault 에서는 늘 모두 받아 렌더에서 거른다 — 30건만 받아 거르면 그 카테고리의 결과가 앞의 다른
+  // 결과에 밀려 사라지고, 거르기를 켤 때 다시 받는다면 받기 전까지 낡은 30건을 걸러 "찾지 못했습니다"
+  // 가 잠깐 잘못 뜬다. 거르지 않을 때는 `narrowHits` 가 30건으로 자른다. 그래서 거르기를 켜고 끄거나
+  // 다른 카테고리로 바꿔도 다시 받지 않는다.
   useEffect(() => {
     const q = query.trim();
     if (!q) {
@@ -110,7 +114,7 @@ export default function Wiki() {
       return;
     }
     let alive = true;
-    const limit = filtering ? Math.max(HIT_MAX, pages.length) : HIT_MAX;
+    const limit = pickable ? Math.max(HIT_MAX, pages.length) : HIT_MAX;
     const t = window.setTimeout(() => {
       void api
         .wikiSearch(vault, q, limit)
@@ -123,7 +127,7 @@ export default function Wiki() {
     };
     // pages 는 w.status 에서 나온다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, vault, w.status, filtering]);
+  }, [query, vault, w.status, pickable]);
   /** 거르는 중이면 그 카테고리의 결과만, 거른 뒤에 자른다. `검색 결과 n` 도 이 수다. */
   const shownHits = useMemo(
     () => hits && narrowHits(hits, filtering ? cats.shown.map((p) => p.path) : null, HIT_MAX),
@@ -214,7 +218,7 @@ export default function Wiki() {
             것이 없다 — 지금 화면 그대로. 미분류만 남았는데 미분류를 고른 채라면(카테고리 관리에서
             모두 미분류로) 전체로 돌아갈 길이 있어야 하므로 그때도 그린다.
           */}
-          {(cats.hasCats || filtering) && (
+          {pickable && (
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8 }}>
               <span style={{ fontSize: 11, color: "#a09a8f" }}>카테고리</span>
               <Select
@@ -271,7 +275,8 @@ export default function Wiki() {
             <>
               <div style={head}>검색 결과 {shownHits.length}</div>
               {shownHits.length === 0 &&
-                (filtering ? (
+                // 전체에서도 없으면 [전체에서 찾기] 는 거르기만 풀고 같은 빈 결과를 보인다.
+                (filtering && hits!.length > 0 ? (
                   <div style={{ ...hint, padding: "0 12px" }}>
                     <div>이 카테고리에서 찾지 못했습니다.</div>
                     <Box

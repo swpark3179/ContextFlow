@@ -5,9 +5,12 @@
  * 본다 — 업무 카테고리를 바꾸면 위키 상태를 다시 읽지 않아도 목록 · 칩이 바로 따라간다.
  *
  * 규칙은 Obsidian 허브(`src-tauri/src/hub.rs` 의 `View::members` · `wiki_of` · `sources`)와
- * **같아야** 한다. 둘이 같은 fixture(`categories.json`)로 시험한다. 허브와 다른 것은 둘이다.
+ * **같아야** 한다. 둘이 같은 fixture(`categories.json`)로 시험한다. 어느 페이지가 어느 카테고리에
+ * 드는지는 같고, 허브가 그것을 보이는 방식만 셋이 다르다.
  *
  * * 허브의 '위키' 절 · `위키 N` 은 소스가 아닌 페이지만 센다. 여기의 개수는 소스 페이지도 센다.
+ * * 허브는 소스 페이지를 보관 업무의 '보관' 절에서만 링크한다. 여기는 진행 중 업무(반영한 뒤
+ *   [재개] 한 업무)의 소스 페이지도 넣는다.
  * * 같은 업무의 소스 페이지가 둘 이상이면 허브는 경로순 마지막 하나만 링크하고, 여기는 모두 넣는다.
  */
 import { isWithin, keyOf, knownCategories, revealKeys, UNCAT_LABEL, type CategoryNode } from "../category";

@@ -133,6 +133,13 @@ describe("wikiCategoryView", () => {
     expect(wikiCategoryView(tasks, only, null).opts.map((o) => o.key)).toEqual(["프로젝트", "프로젝트/contextflow"]);
   });
 
+  it("같은 업무의 소스 페이지가 둘이면 둘 다 넣는다 — 허브는 경로순 마지막 하나만 링크한다", () => {
+    const dup = [source("sources/1.md", "1"), source("sources/1-옛.md", "1")];
+    const v = wikiCategoryView([task("1", "a")], dup, "a");
+    expect(v.shown.map((p) => p.path)).toEqual(["sources/1.md", "sources/1-옛.md"]);
+    expect(v.counts.get("a")).toBe(2);
+  });
+
   it("카테고리 노드에 페이지가 없으면 hasCats 가 거짓 — 미분류만 있어도", () => {
     const v = wikiCategoryView([task("1", "a"), task("2", null)], [source("sources/2.md", "2")], "");
     expect(v.opts).toEqual([{ key: "", path: "", name: "미분류", depth: 1, count: 1 }]);
