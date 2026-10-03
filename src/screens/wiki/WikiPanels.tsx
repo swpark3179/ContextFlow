@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
-import { Box } from "../../lib/ui";
+import { Box, Span } from "../../lib/ui";
 import { VIOLET } from "../../lib/design";
 import { joinPath } from "../../lib/format";
 import { mdParse, splitFrontmatter } from "../../lib/markdown";
 import * as api from "../../lib/api";
+import { label } from "../../lib/category";
+import { pageChips, type WikiCategoryView } from "../../lib/wiki/categories";
 import { resolveLink } from "../../lib/wiki/links";
 import { aiLint } from "../../lib/wiki/pipeline";
 import type { AiLintIssue } from "../../lib/wiki/prompts";
 import MarkdownView, { WikiLinkContext, type WikiLinks } from "../../components/MarkdownView";
+import { CategoryChip } from "../../components/CategoryPicker";
 import { isArchived, reportObsidianOpen, useStore } from "../../store/useStore";
 import { routeInfo, useAi } from "../../store/aiStore";
 import { useWiki } from "../../store/wikiStore";
@@ -66,6 +69,22 @@ const hint: React.CSSProperties = { fontSize: 11.5, color: "#8a857c", lineHeight
 /** 안정된 빈 목록 — 스토어 셀렉터의 기본값으로 쓴다. */
 export const NO_PAGES: api.WikiPageMeta[] = [];
 
+/**
+ * 위키 화면의 카테고리 계산(`wikiCategoryView`). 화면이 전체 업무 · 페이지로 한 번 만들어 패널에
+ * 넘긴다 — 패널마다 다시 세지 않게.
+ */
+export type WikiCats = WikiCategoryView<api.WikiPageMeta>;
+
+/**
+ * 거르는 카테고리의 표시 이름(`a › b`, 미분류는 `미분류`). 거르지 않으면 `null`. 철자는 전체 업무
+ * 기준 노드의 것이다 — 허브 노트의 이름과 같다.
+ */
+export function catLabel(cats: WikiCats): string | null {
+  const k = cats.effCat;
+  if (k === null) return null;
+  return label(k === "" ? null : (cats.byKey.get(k)?.path ?? k));
+}
+
 /** 업무 id → 지금 경로의 업무. 보관 'move' 로 옮겨졌어도 id 로 찾는다. */
 export function useTaskById() {
   const tasks = useStore((s) => s.tasks);
@@ -98,8 +117,19 @@ export function openTask(task: api.TaskMeta) {
  * 페이지 보기. 위키링크를 누르면 그 페이지로 간다(`WikiLinkContext`). 소스 페이지는 원본
  * 업무로 가는 [원본 업무 열기] 를, 다른 페이지는 근거가 된 업무 목록을 함께 보여 준다 —
  * "위키에서 필요한 과거 업무를 찾는다" 는 이 두 길이다.
+ *
+ * `cats` 는 첫 화면의 목록과 카테고리 칩에만 쓴다. 링크 풀이 · 근거 업무는 카테고리로 거르지
+ * 않은 전체 페이지로 한다 — 거른 채로 풀면 다른 카테고리 페이지로 가는 링크가 깨져 보인다.
  */
-export function PagePanel({ path, onOpen }: { path: string | null; onOpen: (path: string) => void }) {
+export function PagePanel({
+  path,
+  onOpen,
+  cats,
+}: {
+  path: string | null;
+  onOpen: (path: string) => void;
+  cats: WikiCats;
+}) {
   const s = useStore();
   const status = useWiki((w) => w.status);
   const pages = status?.pages ?? [];
@@ -134,12 +164,14 @@ export function PagePanel({ path, onOpen }: { path: string | null; onOpen: (path
     else s.toast("위키에 없는 페이지입니다", target, "#a8a29a");
   };
 
-  if (!path) return <Welcome onOpen={onOpen} />;
+  if (!path) return <Welcome onOpen={onOpen} cats={cats} />;
 
   const task = meta?.taskId ? byId.get(meta.taskId) : undefined;
   const backing = (meta?.sources ?? [])
     .filter((id) => id !== meta?.taskId)
     .map((id) => ({ id, page: pages.find((p) => p.kind === "source" && p.taskId === id) }));
+  // 카테고리를 쓰지 않는 Vault 에는 칩을 달지 않는다 — 모든 페이지에 `미분류` 하나씩 붙을 뿐이다.
+  const cat = meta && cats.hasCats ? pageChips(meta, cats.idx, cats.byKey) : null;
 
   return (
     <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
@@ -155,6 +187,35 @@ export function PagePanel({ path, onOpen }: { path: string | null; onOpen: (path
         }}
       >
         {meta && <KindChip kind={meta.kind} />}
+        {cat && cat.chips.length > 0 && (
+          // 칩을 누르면 왼쪽 목록을 그 카테고리로 거른다. 칩의 키는 늘 이 페이지를 포함하므로
+          // 열린 페이지는 그대로 둔다.
+          <span style={{ display: "flex", gap: 4, minWidth: 0, flex: "0 1 auto" }}>
+            {cat.chips.map((c) => (
+              <CategoryChip
+                key={c.key}
+                category={c.path}
+                onClick={() => s.set({ wikiCat: c.key })}
+                title="이 카테고리로 거르기"
+                caret={false}
+              />
+            ))}
+            {cat.rest.length > 0 && (
+              <span
+                title={[...cat.chips, ...cat.rest].map((c) => label(c.path)).join("\n")}
+                style={{
+                  flex: "0 0 auto",
+                  fontSize: 10.5,
+                  lineHeight: "16px",
+                  color: "#a09a8f",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                외 {cat.rest.length}
+              </span>
+            )}
+          </span>
+        )}
         <span style={{ fontSize: 12.5, fontWeight: 600, minWidth: 0, flex: 1 }}>
           {meta?.title ?? path}
           {meta?.updated && (
@@ -237,14 +298,30 @@ export function PagePanel({ path, onOpen }: { path: string | null; onOpen: (path
   );
 }
 
-/** 페이지를 고르지 않았을 때 — 위키가 무엇이고 지금 얼마나 쌓였는지. */
-function Welcome({ onOpen }: { onOpen: (path: string) => void }) {
-  const status = useWiki((w) => w.status);
-  const pages = status?.pages ?? [];
+/**
+ * 페이지를 고르지 않았을 때 — 위키가 무엇이고 지금 얼마나 쌓였는지. 카테고리로 거르는 중이면
+ * 절차 · 최근 갱신도 그 카테고리의 페이지에서 고르고, 첫 줄에 그 사실과 푸는 길을 둔다.
+ */
+function Welcome({ onOpen, cats }: { onOpen: (path: string) => void; cats: WikiCats }) {
+  const set = useStore((s) => s.set);
+  const pages = cats.shown;
+  const catName = catLabel(cats);
   const procedures = pages.filter((p) => p.kind === "procedure").slice(0, 12);
   const recent = [...pages].sort((a, b) => b.updated.localeCompare(a.updated)).slice(0, 8);
   return (
     <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "18px 22px" }}>
+      {catName !== null && (
+        <div style={{ ...hint, marginBottom: 8 }}>
+          ‘{catName}’ 카테고리의 페이지만 봅니다 ·{" "}
+          <Span
+            onClick={() => set({ wikiCat: null })}
+            style={{ color: "#3a6fd8", cursor: "pointer", whiteSpace: "nowrap" }}
+            hover={{ textDecoration: "underline" }}
+          >
+            전체 보기
+          </Span>
+        </div>
+      )}
       <div style={{ fontSize: 15, fontWeight: 600 }}>LLM 위키</div>
       <div style={{ ...hint, marginTop: 6, maxWidth: 640 }}>
         완료한 업무를 AI 가 읽어 위키 페이지로 정리합니다 — 업무마다 소스 페이지 한 장, 여러
