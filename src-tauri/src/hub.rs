@@ -600,6 +600,8 @@ mod tests {
     use crate::vault::tests::{make_in, set_field, set_updated, TempVault};
     use crate::vault::{read_task, set_archived, set_status};
     use crate::wiki::{apply, ApplyReq, PageWrite};
+    use serde::Deserialize;
+    use std::collections::BTreeMap;
 
     /// 업무 하나. `create_task` 의 id 는 초 단위라 한 테스트에서 겹치므로 id · `created` 를
     /// 번호로 벌려 둔다.
@@ -886,6 +888,136 @@ mod tests {
         assert!(all.ends_with(
             "- [[_index/카테고리/카테고리 · 미분류|미분류]] — 업무 1 (진행 0 · 보관 1) · 위키 2 — 카테고리 관리… 에서 정리합니다\n"
         ), "{all}");
+    }
+
+    #[derive(Deserialize)]
+    struct WikiCase {
+        note: String,
+        tasks: Vec<WikiTask>,
+        pages: Vec<WikiPage>,
+        /// 노드 키(`""` = 미분류) → 그 노드(하위 포함)에 드는 페이지 경로, 정렬해서.
+        expect: BTreeMap<String, Vec<String>>,
+    }
+
+    #[derive(Deserialize)]
+    struct WikiTask {
+        id: String,
+        category: Option<String>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct WikiPage {
+        path: String,
+        kind: String,
+        task_id: Option<String>,
+        sources: Vec<String>,
+    }
+
+    /// id · 카테고리만 채운 업무. `TaskMeta` 의 Deserialize 는 필수 필드가 많아 fixture 를
+    /// 그대로 읽지 않는다. 나머지는 계산에 닿지 않는 중립값이다 — `archived` 가 없고
+    /// `arch_days` 를 0 으로 주면 보관 판정은 늘 '진행' 이다.
+    fn bare_task(id: &str, category: Option<&str>) -> TaskMeta {
+        TaskMeta {
+            id: id.into(),
+            title: String::new(),
+            status: "in-progress".into(),
+            tags: vec![],
+            category: category.map(Into::into),
+            created: String::new(),
+            updated: String::new(),
+            parent_task: None,
+            template_ref: None,
+            completed_at: None,
+            archived: None,
+            archived_at: None,
+            runs: 0,
+            order: None,
+            folder: String::new(),
+            rel_folder: String::new(),
+            index_path: String::new(),
+            tagline: String::new(),
+        }
+    }
+
+    /// 허브가 짝짓는 데 보는 경로 · 유형 · `task_id` · `sources` 만 채운 위키 페이지.
+    fn bare_page(path: &str, kind: &str, task_id: Option<&str>, sources: &[String]) -> PageMeta {
+        PageMeta {
+            path: path.into(),
+            stem: String::new(),
+            kind: kind.into(),
+            title: String::new(),
+            summary: String::new(),
+            tags: vec![],
+            sources: sources.to_vec(),
+            created: String::new(),
+            updated: String::new(),
+            task_id: task_id.map(Into::into),
+            task_path: None,
+            source_sig: None,
+            links: vec![],
+            hash: String::new(),
+        }
+    }
+
+    /// 프런트 `src/lib/wiki/categories.ts` 와 같은 fixture — 위키 화면의 카테고리 거르기가
+    /// 허브와 같은 규칙으로 페이지를 고른다. 노드에 드는 페이지는 허브의 '위키' 절(`wiki_of`)과
+    /// 멤버 업무의 소스 페이지(`sources`)를 합친 것이다. 기대의 키 집합이 노드 키(미분류 업무가
+    /// 있으면 `""` 까지)와 같은지도 보므로, 기대 어디에도 없는 페이지는 어느 노드에도 들지
+    /// 않음이 함께 증명된다.
+    #[test]
+    fn wiki_membership_matches_the_shared_fixture() {
+        let cases: Vec<WikiCase> =
+            serde_json::from_str(include_str!("../../src/lib/wiki/categories.json")).unwrap();
+        assert!(!cases.is_empty());
+        for c in &cases {
+            let tasks: Vec<TaskMeta> =
+                c.tasks.iter().map(|t| bare_task(&t.id, t.category.as_deref())).collect();
+            let pages: Vec<PageMeta> = c
+                .pages
+                .iter()
+                .map(|p| bare_page(&p.path, &p.kind, p.task_id.as_deref(), &p.sources))
+                .collect();
+
+            // 같은 `task_id` 의 소스 페이지가 둘이면 허브는 마지막 하나만 남기고 화면은 모두
+            // 넣는다. 그 차이는 이 대조의 몫이 아니라 fixture 가 겹치지 않게 둔다.
+            let mut ids: Vec<&str> = pages
+                .iter()
+                .filter(|p| p.kind == "source")
+                .filter_map(|p| p.task_id.as_deref())
+                .collect();
+            let all = ids.len();
+            ids.sort_unstable();
+            ids.dedup();
+            assert_eq!(ids.len(), all, "{}: 소스 페이지의 taskId 가 겹친다", c.note);
+
+            let nodes = category::known_categories(tasks.iter().map(|t| t.category.as_deref()));
+            let view = View::new(Path::new(""), &tasks, &nodes, &pages, 0);
+            let mut keys: Vec<&str> = nodes.iter().map(|n| n.key.as_str()).collect();
+            if view.has_uncategorized() {
+                keys.push("");
+            }
+            keys.sort_unstable();
+            assert_eq!(c.expect.keys().map(String::as_str).collect::<Vec<_>>(), keys, "{}", c.note);
+
+            for (key, want) in &c.expect {
+                let members = view.members(if key.is_empty() { None } else { Some(key.as_str()) });
+                let mut got: Vec<&str> = view
+                    .wiki_of(&members)
+                    .iter()
+                    .map(|p| p.path.as_str())
+                    .chain(
+                        members
+                            .iter()
+                            .filter_map(|(t, _)| view.sources.get(t.id.as_str()))
+                            .map(|p| p.path.as_str()),
+                    )
+                    .collect();
+                got.sort_unstable();
+                got.dedup();
+                assert_eq!(got, *want, "{} / {key}", c.note);
+            }
+        }
     }
 
     #[test]
