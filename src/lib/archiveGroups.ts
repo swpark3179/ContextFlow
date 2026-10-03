@@ -2,12 +2,17 @@ import { keyOf, label as categoryLabel, UNCAT_LABEL } from "./category";
 import type { CategoryNode } from "./category";
 import { qLabel } from "./format";
 
-interface ArchiveGroup<T> {
+export interface ArchiveGroup<T> {
   /** 가상 스크롤의 머리 행 키. 같은 라벨이 다시 나와도 겹치지 않는다. */
   key: string;
   label: string;
   count: number;
   items: T[];
+  /**
+   * 카테고리로 묶었을 때 그 묶음의 키(`keyOf`). 미분류는 `""` 라 참 · 거짓으로 가르면 빠진다 —
+   * `undefined` 와 견준다. 분기로 묶었으면 없다.
+   */
+  cat?: string;
 }
 
 /**
@@ -48,8 +53,31 @@ export function groupArchived<
   }
   const group = (key: string, text: string): ArchiveGroup<T>[] => {
     const items = byKey.get(key);
-    return items ? [{ key: `h:c:${key}`, label: text, count: items.length, items }] : [];
+    return items ? [{ key: `h:c:${key}`, label: text, count: items.length, items, cat: key }] : [];
   };
   // 표시 철자는 `nodes` 에서 — 대소문자만 다른 업무들이 한 묶음에 섞여도 라벨은 하나다.
   return [...nodes.flatMap((n) => group(n.key, categoryLabel(n.path))), ...group("", UNCAT_LABEL)];
+}
+
+/**
+ * 보관함 MOC(`_index/Archive.md`)의 Dataview 블록 — 여닫는 펜스 줄까지 한 줄씩. 보관함 오른쪽 패널의
+ * 미리보기가 그린다. src-tauri/src/vault.rs write_archive_moc 와 같게.
+ *
+ * 보관 판정은 `isArchived` 와 같다. `completed_at AND` 를 빼면 안 된다 — Dataview 는 null 을 어느 값보다
+ * 작게 보아 완료일 없는 완료 업무까지 보관으로 잡는다. 깊이 regex 는 `reference/` 사본과 편입된 하위
+ * 노트를 막는다.
+ */
+export function archiveDataview(archDays: number): string[] {
+  const archived =
+    archDays > 0
+      ? `(archived = true OR (archived = null AND status = "completed" AND completed_at AND completed_at <= date(today) - dur(${archDays} days)))`
+      : "archived = true";
+  return [
+    "```dataview",
+    'TABLE WITHOUT ID link(file.path, title) AS "업무", completed_at AS "완료", category AS "카테고리"',
+    'FROM "Tasks" OR "Archive"',
+    `WHERE file.name = "index" AND regexmatch("^(Tasks/[^/]+|Archive/[^/]+/[^/]+)$", file.folder) AND ${archived}`,
+    "SORT completed_at DESC",
+    "```",
+  ];
 }

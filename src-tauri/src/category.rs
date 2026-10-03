@@ -13,7 +13,7 @@
 //! 정규화 규칙은 프런트(`src/lib/category.ts`)와 글자 하나까지 같아야 한다. 두 쪽이 같은
 //! fixture(`src/lib/category.cases.json`)로 테스트한다.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 
 use serde::Serialize;
@@ -28,7 +28,7 @@ const MAX_DEPTH: usize = 3;
 /// 단계 하나의 글자 수 상한. UTF-16 이 아니라 코드포인트로 센다 — 프런트도 그렇게 센다.
 const MAX_SEGMENT: usize = 30;
 /// 키가 없는 업무의 표시 이름. 그래서 맨 앞 단계의 이름으로는 쓸 수 없다.
-const UNCATEGORIZED: &str = "미분류";
+pub(crate) const UNCATEGORIZED: &str = "미분류";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
@@ -253,14 +253,14 @@ fn title_of(root: &Path, folder: &Path) -> String {
 // ---------------------------------------------------------------------------
 
 /// 같은 카테고리인지 가르는 키 — 대소문자만 다른 것은 같은 카테고리다(프런트 `keyOf`).
-fn key_of(cat: &str) -> String {
+pub(crate) fn key_of(cat: &str) -> String {
     cat.to_lowercase()
 }
 
 /// `cat` 이 `from`(키) 노드이거나 그 하위인가. 단계 단위로 견준다 — `a/bc` 는 `a/b` 안이
 /// 아니고, 키의 글자 수만큼 잘라 견주면 소문자에서 길이가 바뀌는 글자(`İ` · 켈빈 기호)에서
 /// 어긋난다.
-fn within(cat: &str, from: &str) -> bool {
+pub(crate) fn within(cat: &str, from: &str) -> bool {
     let depth = from.split('/').count();
     let segs: Vec<&str> = cat.split('/').collect();
     segs.len() >= depth
@@ -270,6 +270,75 @@ fn within(cat: &str, from: &str) -> bool {
 /// `a/B/c` 의 접두 경로들 — `a` · `a/B` · `a/B/c`. 철자 그대로다.
 fn prefixes(cat: &str) -> impl Iterator<Item = &str> {
     cat.match_indices('/').map(|(i, _)| &cat[..i]).chain(std::iter::once(cat))
+}
+
+/// 카테고리 트리의 노드 하나 — 프런트 `CategoryNode` 와 같다.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Node {
+    /// 비교 키(소문자 전체 경로).
+    pub key: String,
+    /// 표시 철자의 전체 경로 — 상위의 표시 철자를 그대로 잇는다.
+    pub path: String,
+    /// 마지막 단계.
+    pub name: String,
+    pub depth: usize,
+    /// 이 카테고리와 그 하위에 든 업무 수.
+    pub count: usize,
+}
+
+/// 업무들의 값에서 카테고리 트리를 만든다 — 프런트 `knownCategories` 의 포팅이고, 같은
+/// fixture(`src/lib/category.tree.json`)로 시험한다. `None`(미분류)은 세지 않는다.
+///
+/// 순서는 트리를 깊이 우선으로 편 것이고, 형제끼리는 단계 키의 코드포인트 순이다(UTF-8
+/// 바이트 순이 곧 코드포인트 순이라 `BTreeMap` 의 순서 그대로다). 표시 철자는 그 노드 아래
+/// 업무들이 가장 많이 쓴 철자, 같으면 코드포인트 순으로 앞선 것. 훑은 순서(`updated` 를
+/// 탄다)에 기대지 않으므로 이것으로 만든 노트는 바이트가 흔들리지 않는다.
+pub(crate) fn known_categories<'a>(cats: impl IntoIterator<Item = Option<&'a str>>) -> Vec<Node> {
+    #[derive(Default)]
+    struct Acc<'a> {
+        count: usize,
+        spell: BTreeMap<&'a str, usize>,
+        kids: BTreeMap<String, Acc<'a>>,
+    }
+
+    fn walk(level: &BTreeMap<String, Acc>, parent: Option<&Node>, out: &mut Vec<Node>) {
+        for (seg, acc) in level {
+            let name = acc
+                .spell
+                .iter()
+                .max_by(|a, b| a.1.cmp(b.1).then(b.0.cmp(a.0)))
+                .map(|(spelled, _)| spelled.to_string())
+                .unwrap_or_default();
+            let node = match parent {
+                Some(p) => Node {
+                    key: format!("{}/{seg}", p.key),
+                    path: format!("{}/{name}", p.path),
+                    name,
+                    depth: p.depth + 1,
+                    count: acc.count,
+                },
+                None => {
+                    Node { key: seg.clone(), path: name.clone(), name, depth: 1, count: acc.count }
+                }
+            };
+            out.push(node.clone());
+            walk(&acc.kids, Some(&node), out);
+        }
+    }
+
+    let mut roots: BTreeMap<String, Acc> = BTreeMap::new();
+    for cat in cats.into_iter().flatten().filter(|c| !c.is_empty()) {
+        let mut level = &mut roots;
+        for seg in cat.split('/') {
+            let acc = level.entry(key_of(seg)).or_default();
+            acc.count += 1;
+            *acc.spell.entry(seg).or_default() += 1;
+            level = &mut acc.kids;
+        }
+    }
+    let mut out = Vec::new();
+    walk(&roots, None, &mut out);
+    out
 }
 
 /// 노드를 옮겼을 때 업무 하나의 새 값.
@@ -702,6 +771,44 @@ mod tests {
             let got = retarget(c.cat.as_deref(), &c.from, c.to.as_deref());
             if got != want {
                 wrong.push(format!("{} ({:?}): {:?} — 기대 {:?}", c.note, c.cat, got, want));
+            }
+        }
+        assert!(wrong.is_empty(), "\n{}", wrong.join("\n"));
+    }
+
+    #[derive(Deserialize)]
+    struct TreeCase {
+        note: String,
+        cats: Vec<Option<String>>,
+        nodes: Vec<TreeNode>,
+    }
+
+    #[derive(Deserialize, Debug, PartialEq)]
+    struct TreeNode {
+        key: String,
+        path: String,
+        depth: usize,
+        count: usize,
+    }
+
+    /// 프런트 `knownCategories` 와 같은 fixture — 허브 노트와 사이드바가 같은 트리 · 철자 ·
+    /// 순서를 보인다.
+    #[test]
+    fn known_categories_matches_the_shared_fixture() {
+        let cases: Vec<TreeCase> =
+            serde_json::from_str(include_str!("../../src/lib/category.tree.json")).unwrap();
+        assert!(!cases.is_empty());
+        let mut wrong = Vec::new();
+        for c in &cases {
+            let got: Vec<TreeNode> = known_categories(c.cats.iter().map(|c| c.as_deref()))
+                .into_iter()
+                .map(|n| {
+                    assert_eq!(Some(n.name.as_str()), n.path.rsplit('/').next(), "{}", c.note);
+                    TreeNode { key: n.key, path: n.path, depth: n.depth, count: n.count }
+                })
+                .collect();
+            if got != c.nodes {
+                wrong.push(format!("{}: {:?} — 기대 {:?}", c.note, got, c.nodes));
             }
         }
         assert!(wrong.is_empty(), "\n{}", wrong.join("\n"));

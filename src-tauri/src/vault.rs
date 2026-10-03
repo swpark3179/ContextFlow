@@ -1333,28 +1333,78 @@ pub fn create_template(root: &Path, name: &str, desc: &str, sections: &str) -> R
 // Archive MOC — keeps the archive browsable from inside Obsidian too
 // ---------------------------------------------------------------------------
 
-pub fn write_archive_moc(root: &Path, archived: &[TaskMeta]) -> Result<PathBuf> {
-    fs::create_dir_all(root.join(INDEX_DIR))?;
+/// 보관함 MOC(`_index/Archive.md`) — 보관한 업무의 Dataview 표와, 플러그인 없이도 읽히는 정적 표.
+///
+/// **같은 보관 목록이면 몇 번을 다시 써도 같은 바이트**다. 시각을 넣지 않고 줄을 업무 내용으로만
+/// 정렬하며(훑은 순서는 `updated` 를 타서 흔들린다), 바뀐 경우에만 쓴다. 보관한 업무가 없고 파일도
+/// 없으면 만들지 않는다 — 시작할 때 한 번 쓰므로, 이 규칙이 없으면 보관한 적 없는 Vault 에도 빈
+/// MOC 가 생긴다. 사용자가 직접 여는 길(`force`)은 그래도 만든다 — 열 노트가 있어야 한다.
+///
+/// Dataview 쿼리는 프런트 `archiveDataview`(`src/lib/archiveGroups.ts`)와 글자 하나까지 같다.
+/// * `Archive/` 로 옮긴 업무까지 보고, 폴더 깊이 regex 로 `reference/` 사본과 편입된 하위
+///   노트를 뺀다.
+/// * 나이로 보관하는 규칙은 `is_archived` 와 같다. `completed_at AND` 는 Dataview 가 null 을
+///   모든 값보다 작게 보아 날짜 없는 완료 업무까지 보관으로 잡는 것을 막는다.
+pub fn write_archive_moc(
+    root: &Path,
+    archived: &[TaskMeta],
+    arch_days: i64,
+    force: bool,
+) -> Result<PathBuf> {
     let path = root.join(INDEX_DIR).join("Archive.md");
+    if !force && archived.is_empty() && !path.exists() {
+        return Ok(path);
+    }
+    let rule = if arch_days > 0 {
+        format!(
+            "(archived = true OR (archived = null AND status = \"completed\" AND completed_at AND completed_at <= date(today) - dur({arch_days} days)))"
+        )
+    } else {
+        "archived = true".to_string()
+    };
 
     let mut md = String::new();
     md.push_str("# 보관함\n\n");
     md.push_str("> ContextFlow가 자동으로 갱신합니다. 직접 수정한 내용은 다음 갱신 때 덮어써집니다.\n\n");
-    md.push_str("```dataview\nTABLE completed_at, runs\nFROM \"Tasks\"\nWHERE archived = true\nSORT completed_at DESC\n```\n\n");
-    md.push_str("## 목록\n\n| 업무 | 완료 | 회차 | 태그 |\n| --- | --- | --- | --- |\n");
-    for t in archived {
-        let link = format!("{}index", t.rel_folder);
+    md.push_str("```dataview\n");
+    md.push_str("TABLE WITHOUT ID link(file.path, title) AS \"업무\", completed_at AS \"완료\", category AS \"카테고리\"\n");
+    md.push_str("FROM \"Tasks\" OR \"Archive\"\n");
+    md.push_str(&format!(
+        "WHERE file.name = \"index\" AND regexmatch(\"^(Tasks/[^/]+|Archive/[^/]+/[^/]+)$\", file.folder) AND {rule}\n"
+    ));
+    md.push_str("SORT completed_at DESC\n```\n\n");
+
+    let mut rows: Vec<&TaskMeta> = archived.iter().collect();
+    // 완료일 내림차순(없으면 끝), 그다음 제목, 그다음 폴더.
+    rows.sort_by(|a, b| {
+        b.completed_at
+            .cmp(&a.completed_at)
+            .then(a.title.to_lowercase().cmp(&b.title.to_lowercase()))
+            .then(a.rel_folder.cmp(&b.rel_folder))
+    });
+    md.push_str(&format!("## 목록 ({})\n\n", rows.len()));
+    md.push_str("| 업무 | 완료 | 카테고리 | 회차 | 태그 |\n| --- | --- | --- | --- | --- |\n");
+    // 표 칸의 `|` 는 칸을 끊는다.
+    let cell = |s: &str| s.replace('|', "\\|");
+    for t in rows {
+        // `[YYYY-MM]` 폴더는 위키링크를 끊으므로 인코딩한 마크다운 링크로 간다(소스 페이지 꼬리말과 같다).
+        let link = format!(
+            "[{}]({})",
+            t.title.replace(['[', ']'], " "),
+            crate::fsops::encode_link(&format!("../{}index.md", t.rel_folder))
+        );
+        let category = t.category.as_deref().map(|c| c.replace('/', " › "));
+        let tags = t.tags.iter().map(|x| format!("#{x}")).collect::<Vec<_>>().join(" ");
         md.push_str(&format!(
-            "| [[{}\\|{}]] | {} | ×{} | {} |\n",
-            link,
-            t.title,
-            t.completed_at.as_deref().unwrap_or("—"),
+            "| {} | {} | {} | ×{} | {} |\n",
+            cell(&link),
+            cell(t.completed_at.as_deref().unwrap_or("—")),
+            cell(category.as_deref().unwrap_or("—")),
             t.runs,
-            t.tags.iter().map(|x| format!("#{}", x)).collect::<Vec<_>>().join(" ")
+            cell(&tags)
         ));
     }
-    md.push_str(&format!("\n_최종 갱신 {}_\n", now_stamp()));
-    fs::write(&path, md)?;
+    crate::fsops::write_if_changed(&path, &md)?;
     Ok(path)
 }
 
@@ -1562,6 +1612,15 @@ pub(crate) mod tests {
         let index = Path::new(folder).join("index.md");
         let mut doc = Doc::parse(&fs::read_to_string(&index).unwrap());
         doc.set("updated", stamp);
+        fs::write(&index, doc.render()).unwrap();
+    }
+
+    /// frontmatter 의 키 하나를 그대로 적는다. 업무 id 는 초 단위라 한 테스트에서 만든 업무끼리
+    /// 겹치고, `created` · `completed_at` 도 분 · 날 단위라 순서를 보려면 직접 벌려야 한다.
+    pub(crate) fn set_field(folder: &str, key: &str, val: &str) {
+        let index = Path::new(folder).join("index.md");
+        let mut doc = Doc::parse(&fs::read_to_string(&index).unwrap());
+        doc.set(key, val);
         fs::write(&index, doc.render()).unwrap();
     }
 
@@ -2042,20 +2101,117 @@ pub(crate) mod tests {
         assert!(tp.runs.iter().any(|r| r.text.contains("2회차 수행")));
     }
 
+    /// 이 Vault 의 보관 업무로 MOC 를 쓴다 — 커맨드(`write_archive_moc`)와 같은 길.
+    fn moc(root: &Path, arch_days: i64) -> (PathBuf, String) {
+        let archived: Vec<TaskMeta> =
+            scan(root).unwrap().into_iter().filter(|t| is_archived(t, arch_days)).collect();
+        let path = write_archive_moc(root, &archived, arch_days, false).unwrap();
+        let md = fs::read_to_string(&path).unwrap_or_default();
+        (path, md)
+    }
+
+    fn archive(root: &Path, t: &TaskMeta, mode: &str, done: &str) -> TaskMeta {
+        set_status(root, Path::new(&t.folder), "completed").unwrap();
+        set_field(&t.folder, "completed_at", done);
+        set_archived(root, Path::new(&t.folder), true, mode, false).unwrap()
+    }
+
     #[test]
     fn archive_moc_lists_archived_tasks_with_a_dataview_block() {
         let v = TempVault::new("moc");
-        let t = make(v.path(), "보관된 업무");
-        let folder = PathBuf::from(&t.folder);
-        set_status(v.path(), &folder, "completed").unwrap();
-        let archived = set_archived(v.path(), &folder, true, "tag", false).unwrap();
+        let tagged = make_in(v.path(), "보관된 업무", "프로젝트/CF");
+        let moved = make_in(v.path(), "옮겨 보관", "");
+        let piped = make_in(v.path(), "파이프", "운영");
+        make_in(v.path(), "진행 중", "운영");
+        archive(v.path(), &tagged, "tag", "2026-09-01");
+        let moved = archive(v.path(), &moved, "move", "2026-09-20");
+        set_field(&piped.folder, "title", "\"a | b [c]\"");
+        set_field(&piped.folder, "tags", "[x|y]");
+        archive(v.path(), &piped, "tag", "2026-08-01");
+        // 같은 보관 업무의 `reference/` 사본은 scan 밖이다.
+        let copy = Path::new(&tagged.folder).join("reference/사본");
+        fs::create_dir_all(&copy).unwrap();
+        fs::write(copy.join("index.md"), "---\ntitle: 사본\narchived: true\n---\n").unwrap();
 
-        let path = write_archive_moc(v.path(), &[archived]).unwrap();
-        let md = fs::read_to_string(&path).unwrap();
-        assert!(md.contains("```dataview"));
-        assert!(md.contains("WHERE archived = true"));
-        assert!(md.contains("보관된 업무"));
-        assert!(path.ends_with("Archive.md"));
+        let (path, md) = moc(v.path(), 30);
+        assert!(path.ends_with("_index/Archive.md"));
+        assert!(md.contains(
+            "```dataview\nTABLE WITHOUT ID link(file.path, title) AS \"업무\", completed_at AS \"완료\", category AS \"카테고리\"\nFROM \"Tasks\" OR \"Archive\"\nWHERE file.name = \"index\" AND regexmatch(\"^(Tasks/[^/]+|Archive/[^/]+/[^/]+)$\", file.folder) AND (archived = true OR (archived = null AND status = \"completed\" AND completed_at AND completed_at <= date(today) - dur(30 days)))\nSORT completed_at DESC\n```\n"
+        ), "{md}");
+        assert!(!md.contains("최종 갱신"), "{md}");
+
+        let table = &md[md.find("## 목록").unwrap()..];
+        let rows: Vec<&str> = table.lines().filter(|l| l.starts_with("| [")).collect();
+        assert!(table.starts_with("## 목록 (3)\n\n| 업무 | 완료 | 카테고리 | 회차 | 태그 |\n"), "{table}");
+        // 완료일 내림차순. 이동 모드 업무도 들고, 링크는 인코딩한 상대 경로다.
+        let moved_link = format!("../{}index.md", moved.rel_folder)
+            .replace(' ', "%20")
+            .replace('[', "%5B")
+            .replace(']', "%5D");
+        assert!(moved.rel_folder.starts_with("Archive/2026/"));
+        assert_eq!(rows[0], format!("| [옮겨 보관]({moved_link}) | 2026-09-20 | — | ×1 | #test |"));
+        assert!(rows[1].starts_with("| [보관된 업무](../Tasks/%5B"), "{}", rows[1]);
+        assert!(rows[1].ends_with(" | 2026-09-01 | 프로젝트 › CF | ×1 | #test |"), "{}", rows[1]);
+        // 칸의 `|` 는 이스케이프, 링크 글자의 `[ ]` 는 공백.
+        assert!(rows[2].starts_with("| [a \\| b  c ](../Tasks/"), "{}", rows[2]);
+        assert!(rows[2].ends_with(" | 2026-08-01 | 운영 | ×1 | #x\\|y |"), "{}", rows[2]);
+        assert_eq!(rows.len(), 3);
+
+        // 두 번 써도 같은 바이트이고, 다시 쓰지 않는다.
+        let old = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
+        fs::File::options().write(true).open(&path).unwrap().set_modified(old).unwrap();
+        let (_, again) = moc(v.path(), 30);
+        assert_eq!(again, md);
+        assert_eq!(fs::metadata(&path).unwrap().modified().unwrap(), old);
+    }
+
+    #[test]
+    fn archive_moc_without_an_age_rule_when_arch_days_is_zero() {
+        let v = TempVault::new("moc-no-age");
+        let t = make_in(v.path(), "보관", "");
+        archive(v.path(), &t, "tag", "2026-09-01");
+        let (_, md) = moc(v.path(), 0);
+        assert!(md.contains(
+            "WHERE file.name = \"index\" AND regexmatch(\"^(Tasks/[^/]+|Archive/[^/]+/[^/]+)$\", file.folder) AND archived = true\nSORT"
+        ), "{md}");
+        assert!(!md.contains("dur("), "{md}");
+    }
+
+    #[test]
+    fn archive_moc_is_not_created_for_a_vault_that_never_archived() {
+        let v = TempVault::new("moc-none");
+        make_in(v.path(), "진행 중", "a");
+        let (path, md) = moc(v.path(), 30);
+        assert!(!path.exists());
+        assert!(md.is_empty());
+
+        // 사용자가 직접 열 때(`force`)는 빈 목록으로라도 만든다 — 열 노트가 있어야 한다.
+        let empty = TempVault::new("moc-none-force");
+        let path = write_archive_moc(empty.path(), &[], 30, true).unwrap();
+        assert!(fs::read_to_string(&path).unwrap().contains("## 목록 (0)"));
+
+        // 한 번 생긴 뒤에는 보관 업무가 0건이 되어도 비운 목록으로 고친다.
+        let t = make_in(v.path(), "보관", "a");
+        let t = archive(v.path(), &t, "tag", "2026-09-01");
+        assert!(moc(v.path(), 30).1.contains("## 목록 (1)"));
+        set_archived(v.path(), Path::new(&t.folder), false, "tag", false).unwrap();
+        let (path, md) = moc(v.path(), 30);
+        assert!(path.exists());
+        assert!(md.contains("## 목록 (0)"), "{md}");
+    }
+
+    /// 나이로 보관 — `archived` 키가 없고 완료일이 오래면 오늘 날짜와 상관없이 보관이다.
+    #[test]
+    fn archive_moc_includes_tasks_archived_by_age() {
+        let v = TempVault::new("moc-age");
+        let t = make_in(v.path(), "오래된 완료", "");
+        set_status(v.path(), Path::new(&t.folder), "completed").unwrap();
+        set_field(&t.folder, "completed_at", "2000-01-01");
+        let (_, md) = moc(v.path(), 30);
+        assert!(md.contains("| [오래된 완료](../Tasks/"), "{md}");
+        // 날짜 없는 완료 업무는 보관이 아니다.
+        set_field(&t.folder, "completed_at", "null");
+        assert!(moc(v.path(), 30).1.contains("## 목록 (0)"));
     }
 
     #[test]

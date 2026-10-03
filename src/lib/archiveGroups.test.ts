@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { groupArchived } from "./archiveGroups";
+import { archiveDataview, groupArchived } from "./archiveGroups";
 import { knownCategories } from "./category";
 
 const t = (
@@ -69,11 +69,49 @@ describe("groupArchived — 카테고리", () => {
     ]);
   });
 
+  it("묶음의 키를 cat 에 싣는다 — 미분류는 빈 문자열, 분기 묶음에는 없다", () => {
+    // 보관함 머리 행의 [Obsidian] 이 이 키로 허브를 연다. 미분류도 열 수 있어야 한다.
+    expect(groupArchived(archived, "category", nodes).map((g) => g.cat)).toEqual([
+      "운영",
+      "프로젝트/contextflow",
+      "프로젝트/contextflow/ui",
+      "",
+    ]);
+    const quarters = groupArchived(archived, "quarter", nodes);
+    expect(quarters.length).toBeGreaterThan(0);
+    expect(quarters.every((g) => !("cat" in g))).toBe(true);
+  });
+
   it("거른 뒤 남은 업무가 없는 카테고리는 묶음이 없다", () => {
     const sorted = archived.filter((x) => x.folder === "3" || x.folder === "5");
     expect(shape(groupArchived(sorted, "category", nodes))).toEqual([
       ["h:c:운영", "운영", 1, ["3"]],
       ["h:c:프로젝트/contextflow/ui", "프로젝트 › ContextFlow › UI", 1, ["5"]],
     ]);
+  });
+});
+
+describe("archiveDataview — vault.rs write_archive_moc 와 같은 쿼리", () => {
+  const head = [
+    "```dataview",
+    'TABLE WITHOUT ID link(file.path, title) AS "업무", completed_at AS "완료", category AS "카테고리"',
+    'FROM "Tasks" OR "Archive"',
+  ];
+  const where = 'WHERE file.name = "index" AND regexmatch("^(Tasks/[^/]+|Archive/[^/]+/[^/]+)$", file.folder) AND ';
+
+  it("보관 기간이 있으면 날짜 있는 완료 업무를 나이로도 보관한다", () => {
+    expect(archiveDataview(14)).toEqual([
+      ...head,
+      where +
+        '(archived = true OR (archived = null AND status = "completed" AND completed_at AND completed_at <= date(today) - dur(14 days)))',
+      "SORT completed_at DESC",
+      "```",
+    ]);
+  });
+
+  it("0 이하면 나이 조건이 없다", () => {
+    for (const days of [0, -1]) {
+      expect(archiveDataview(days)).toEqual([...head, `${where}archived = true`, "SORT completed_at DESC", "```"]);
+    }
   });
 });

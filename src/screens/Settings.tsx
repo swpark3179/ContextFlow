@@ -18,6 +18,11 @@ const TOGGLES: [keyof S, string, string][] = [
     "보관 목록을 _index/Archive.md 에 표로 유지해 Obsidian에서도 한눈에 조회",
   ],
   [
+    "catHubs",
+    "카테고리 허브 노트 자동 갱신",
+    "카테고리마다 _index/카테고리/ 에 업무 · 위키 목록 노트를 만들어 Obsidian 에서 카테고리별로 봅니다",
+  ],
+  [
     "autoSnap",
     "컨텍스트 스냅샷 자동 저장",
     "업무 전환·보류 시 열린 탭/미저장 텍스트/메모를 .context_snapshot.json에 기록",
@@ -207,10 +212,7 @@ export default function Settings() {
                   key={v}
                   on={settings.archDays === v}
                   label={v === 0 ? "끄기" : `${v}일`}
-                  onClick={() => {
-                    s.patchSettings({ archDays: v });
-                    void s.syncMoc();
-                  }}
+                  onClick={() => s.patchSettings({ archDays: v })}
                 />
               ))}
             </div>
@@ -316,10 +318,7 @@ export default function Settings() {
               </div>
               <Toggle
                 on={!!settings[k]}
-                onClick={() => {
-                  s.patchSettings({ [k]: !settings[k] } as Partial<S>);
-                  if (k === "archMoc" && !settings.archMoc) void s.syncMoc();
-                }}
+                onClick={() => s.patchSettings({ [k]: !settings[k] } as Partial<S>)}
               />
             </div>
           ))}

@@ -342,8 +342,39 @@ export const createTemplateFromFolder = (
   desc: string,
   source: string,
 ) => invoke<string>("create_template_from_folder", { root, name, desc, source });
-export const writeArchiveMoc = (root: string, archiveDays: number) =>
-  invoke<string>("write_archive_moc", { root, archiveDays });
+/**
+ * 보관함 MOC 를 다시 쓴다. 보관한 업무가 없고 파일도 없으면 만들지 않는데, `force` 면 그래도
+ * 만든다 — 사용자가 직접 열 때 열 노트가 있어야 한다.
+ */
+export const writeArchiveMoc = (root: string, archiveDays: number, force = false) =>
+  invoke<string>("write_archive_moc", { root, archiveDays, force });
+
+/** 카테고리 허브 자동 갱신의 결과(src-tauri/src/hub.rs `HubReport`). */
+export interface HubReport {
+  /** 바이트가 바뀌어 실제로 쓴 허브 수. */
+  written: number;
+  /** 지운 표식 있는 옛 허브 수(카테고리가 사라졌거나 철자가 바뀌었다). */
+  removed: number;
+  /**
+   * 같은 자리에 표식 없는 노트가 있거나 읽지 못해 쓰지 않은 허브 — Vault 기준 `/` 경로, 정렬됨.
+   * 읽지 못한 것은 앱이 쓴 허브일 수도 있다(권한 · 다른 프로그램이 잡고 있음 · 같은 이름의 폴더).
+   */
+  conflicts: string[];
+}
+
+/**
+ * `_index/카테고리.md` · `_index/카테고리/` 의 허브 노트를 다시 쓴다(자동 갱신). 카테고리를 한 번도
+ * 쓰지 않은 Vault 에는 만들지 않는다. 바이트가 같은 허브는 건드리지 않는다.
+ */
+export const writeCategoryHubs = (root: string, archDays: number) =>
+  invoke<HubReport>("write_category_hubs", { root, archDays });
+/**
+ * 허브 하나를 열기 위해 모든 허브를 쓰고 그 절대 경로를 돌려준다. `key` 는 `null` = 전체 허브,
+ * `""` = 미분류, 그 밖은 카테고리 키(`keyOf`)다. 업무가 없는 노드면 `not_found`, 그 허브가
+ * `conflicts` 에 들면(자리에 표식 없는 노트가 있거나 읽지 못함) `already_exists` 로 거절한다.
+ */
+export const categoryHubPath = (root: string, archDays: number, key: string | null) =>
+  invoke<string>("category_hub_path", { root, archDays, key });
 
 // -- recommendation ---------------------------------------------------------
 

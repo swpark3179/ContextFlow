@@ -6,6 +6,7 @@ import Sidebar from "./components/Sidebar";
 import Toasts from "./components/Toasts";
 import ContextMenu from "./components/ContextMenu";
 import TabMenu from "./components/TabMenu";
+import CategoryMenu from "./components/CategoryMenu";
 import Workspace from "./screens/Workspace";
 import Templates from "./screens/Templates";
 import Archive from "./screens/Archive";
@@ -26,6 +27,7 @@ import { Box } from "./lib/ui";
 import { emptyNewTask, useStore } from "./store/useStore";
 import { useAi } from "./store/aiStore";
 import { useWiki } from "./store/wikiStore";
+import { startIndexSync } from "./store/indexSync";
 
 export default function App() {
   const s = useStore();
@@ -40,6 +42,10 @@ export default function App() {
     // 실패해도 앱은 로컬 유사도로 정상 동작한다.
     void useAi.getState().refreshAll();
   }, []);
+
+  // Obsidian 색인 노트(보관함 MOC · 카테고리 허브)의 자동 갱신. boot 와 따로 둔다 — StrictMode 의
+  // 두 번 도는 effect 에서도 정리 함수(stop)가 앞의 구독을 끊어 하나만 남는다.
+  useEffect(() => startIndexSync(), []);
 
   // OS-level file drops. The webview's HTML drop events never carry real paths,
   // so Tauri's window event is the only source that does.
@@ -91,6 +97,7 @@ export default function App() {
         if (st.fileDrag) st.set({ fileDrag: null });
         else if (st.ctx) st.set({ ctx: null });
         else if (st.tabCtx) st.set({ tabCtx: null });
+        else if (st.catCtx) st.set({ catCtx: null });
         else if (st.mk) st.set({ mk: null });
         else if (st.fileRen) st.set({ fileRen: null });
         else if (st.del) st.set({ del: null });
@@ -263,6 +270,7 @@ export default function App() {
 
       <ContextMenu />
       <TabMenu />
+      <CategoryMenu />
       <DeleteModal />
       <ImportModal />
       <OpenWithModal />

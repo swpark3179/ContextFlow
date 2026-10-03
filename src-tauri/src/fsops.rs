@@ -384,6 +384,50 @@ pub(crate) fn unique_dest(dir: &Path, name: &str) -> PathBuf {
     dest
 }
 
+/// 임시 파일에 쓴 뒤 이름을 바꾼다 — 쓰는 도중 앱이 죽어도 반쯤 쓴 노트가 남지 않는다.
+/// 앱이 통째로 만드는 노트(위키 · 색인 · 허브 · 보관함 MOC)가 쓴다.
+pub(crate) fn write_atomic(path: &Path, text: &str) -> Result<()> {
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir)?;
+    }
+    let tmp = path.with_extension("md.tmp");
+    fs::write(&tmp, text)?;
+    if let Err(e) = fs::rename(&tmp, path) {
+        let _ = fs::remove_file(&tmp);
+        return Err(e.into());
+    }
+    Ok(())
+}
+
+/// 지금 바이트와 다를 때만 쓴다(`write_atomic`). 돌려주는 값은 실제로 썼는지다 — 수정
+/// 시각만 바뀌어도 OneDrive · Git 같은 동기화 도구는 바뀐 파일로 잡는다.
+pub(crate) fn write_if_changed(path: &Path, text: &str) -> Result<bool> {
+    if fs::read(path).is_ok_and(|bytes| bytes == text.as_bytes()) {
+        return Ok(false);
+    }
+    write_atomic(path, text)?;
+    Ok(true)
+}
+
+/// 마크다운 링크 경로의 퍼센트 인코딩. 한글은 그대로 두고 링크를 끊는 문자만 바꾼다 —
+/// Obsidian 과 이 앱의 뷰어가 둘 다 그대로 읽는다.
+pub(crate) fn encode_link(path: &str) -> String {
+    let mut out = String::new();
+    for c in path.chars() {
+        match c {
+            ' ' => out.push_str("%20"),
+            '[' => out.push_str("%5B"),
+            ']' => out.push_str("%5D"),
+            '(' => out.push_str("%28"),
+            ')' => out.push_str("%29"),
+            '#' => out.push_str("%23"),
+            '%' => out.push_str("%25"),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
 /// 업무 폴더 안에서 파일·폴더를 옮긴다. 돌려주는 새 상대 경로는 입력과 같은 규약을
 /// 따른다 — 폴더는 `/` 로 끝난다(`list_tree` 와 프론트의 트리가 그렇게 읽는다).
 pub fn move_path(folder: &Path, rel: &str, target_dir: &str) -> Result<String> {
@@ -641,6 +685,29 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn write_if_changed_leaves_identical_bytes_alone() {
+        let d = TempDir::new("write-if-changed");
+        let path = d.path().join("새 폴더/노트.md");
+        assert!(write_if_changed(&path, "하나\n").unwrap());
+        let old = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
+        fs::File::options().write(true).open(&path).unwrap().set_modified(old).unwrap();
+        assert!(!write_if_changed(&path, "하나\n").unwrap());
+        assert_eq!(fs::metadata(&path).unwrap().modified().unwrap(), old);
+        assert!(write_if_changed(&path, "둘\n").unwrap());
+        assert_eq!(fs::read_to_string(&path).unwrap(), "둘\n");
+        assert!(!path.with_extension("md.tmp").exists());
+    }
+
+    /// 위키 · 허브 · 보관함 MOC 가 함께 쓴다 — 한글은 그대로, 링크를 끊는 글자만 바꾼다.
+    #[test]
+    fn encode_link_escapes_only_link_breakers() {
+        assert_eq!(
+            encode_link("../Tasks/[2026-10] 보고서 (초안)#1 100%/index.md"),
+            "../Tasks/%5B2026-10%5D%20보고서%20%28초안%29%231%20100%25/index.md"
+        );
     }
 
     #[test]

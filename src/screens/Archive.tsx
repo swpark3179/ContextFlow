@@ -4,12 +4,12 @@ import { GREEN, VIOLET } from "../lib/design";
 import { daysSince } from "../lib/format";
 import * as api from "../lib/api";
 import type { TaskMeta } from "../lib/api";
-import { isArchived, reportObsidianOpen, useStore } from "../store/useStore";
+import { isArchived, openCategoryHub, reportObsidianOpen, useStore } from "../store/useStore";
 import { useVirtual } from "../lib/virtual";
 import Workspace from "./Workspace";
 import { CategoryChip } from "../components/CategoryPicker";
 import { isWithin, keyOf, knownCategories, label as categoryLabel } from "../lib/category";
-import { groupArchived } from "../lib/archiveGroups";
+import { archiveDataview, groupArchived } from "../lib/archiveGroups";
 
 /**
  * 보관함 안에서 연 업무의 작업공간.
@@ -199,11 +199,11 @@ export default function Archive() {
    */
   const rows = useMemo(() => {
     const out: (
-      | { kind: "header"; key: string; label: string; count: number }
+      | { kind: "header"; key: string; label: string; count: number; cat?: string }
       | { kind: "card"; key: string; task: (typeof archived)[number] }
     )[] = [];
     groups.forEach((g) => {
-      out.push({ kind: "header", key: g.key, label: g.label, count: g.count });
+      out.push({ kind: "header", key: g.key, label: g.label, count: g.count, cat: g.cat });
       g.items.forEach((t) => out.push({ kind: "card", key: t.folder, task: t }));
     });
     return out;
@@ -491,6 +491,7 @@ export default function Archive() {
             {rows.slice(v.start, v.end).map((row, n) => {
               const i = v.start + n;
               if (row.kind === "header") {
+                const cat = row.cat;
                 return (
                   <div
                     key={row.key}
@@ -527,6 +528,32 @@ export default function Archive() {
                       {row.count}
                     </span>
                     <div style={{ flex: 1, height: 1, background: "#eae6de" }} />
+                    {/* 카테고리로 묶었을 때만 있다 — 미분류는 `""` 라 참 · 거짓으로 가르면 빠진다. 테두리까지
+                        18px 로 묶는다. 머리 행은 재어 쓰는 높이라 버튼이 크면 행이 커진다. */}
+                    {cat !== undefined && (
+                      <Box
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void openCategoryHub(cat);
+                        }}
+                        title="이 카테고리의 허브 노트를 Obsidian에서 엽니다"
+                        style={{
+                          flex: "0 0 auto",
+                          height: 18,
+                          fontSize: 10.5,
+                          lineHeight: "16px",
+                          padding: "0 7px",
+                          borderRadius: 4,
+                          border: "1px solid #e0dcd4",
+                          background: "#fff",
+                          color: "#6a665e",
+                          cursor: "pointer",
+                        }}
+                        hover={{ borderColor: "#a78bfa", color: "#5a44b4" }}
+                      >
+                        Obsidian
+                      </Box>
+                    )}
                   </div>
                 );
               }
@@ -856,23 +883,25 @@ export default function Archive() {
               lineHeight: 1.8,
             }}
           >
-            {["```dataview", "TABLE completed_at, runs", 'FROM "Tasks"', "WHERE archived = true", "SORT completed_at DESC", "```"].map(
-              (t, i) => (
-                <div
-                  key={i}
-                  style={{ whiteSpace: "pre-wrap", color: i === 0 || i === 5 ? "#b5afa2" : "#3a3630" }}
-                >
-                  {t}
-                </div>
-              ),
-            )}
+            {archiveDataview(settings.archDays).map((t, i, lines) => (
+              <div
+                key={i}
+                style={{
+                  whiteSpace: "pre-wrap",
+                  color: i === 0 || i === lines.length - 1 ? "#b5afa2" : "#3a3630",
+                }}
+              >
+                {t}
+              </div>
+            ))}
           </div>
           <Box
             onClick={() => {
               void (async () => {
                 try {
-                  // MOC 는 열기 직전에 항상 새로 쓴다 — 파일이 없어서 실패하는 일은 없다.
-                  const path = await api.writeArchiveMoc(settings.vault, settings.archDays);
+                  // MOC 는 열기 직전에 새로 쓴다. 보관 업무가 하나도 없어도 직접 열 때는 만든다
+                  // (`force`) — 자동 갱신만 빈 Vault 에 MOC 를 만들지 않는다.
+                  const path = await api.writeArchiveMoc(settings.vault, settings.archDays, true);
                   reportObsidianOpen(await api.openInObsidian(settings.vault, path));
                 } catch (e) {
                   s.fail(e, "MOC 노트를 열지 못했습니다");

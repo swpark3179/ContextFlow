@@ -145,6 +145,11 @@ export interface Settings {
    * 남도록 설정에 둔다 — Vault 별이 아니라 앱 전체에 하나다.
    */
   catClosed: string[];
+  /**
+   * 카테고리 허브 노트(`_index/카테고리.md` · `_index/카테고리/`)를 업무 목록이 바뀔 때마다 다시 쓴다.
+   * 끄면 더 갱신하지 않을 뿐, 이미 만든 노트는 그대로 둔다.
+   */
+  catHubs: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -167,6 +172,7 @@ export const DEFAULT_SETTINGS: Settings = {
   webBrowser: "",
   sideGroup: true,
   catClosed: [],
+  catHubs: true,
 };
 
 /**
@@ -179,6 +185,7 @@ export function mergeSettings(stored: unknown): Settings {
   return {
     ...merged,
     sideGroup: typeof raw.sideGroup === "boolean" ? raw.sideGroup : DEFAULT_SETTINGS.sideGroup,
+    catHubs: typeof raw.catHubs === "boolean" ? raw.catHubs : DEFAULT_SETTINGS.catHubs,
     catClosed: Array.isArray(raw.catClosed)
       ? [...new Set(raw.catClosed.filter((k): k is string => typeof k === "string"))]
       : DEFAULT_SETTINGS.catClosed,
@@ -292,6 +299,17 @@ export interface TabCtx {
   key: string;
   x: number;
   y: number;
+}
+
+/**
+ * 업무 리스트의 카테고리 묶음 머리 우클릭 메뉴. `key` 는 그 묶음의 키(`keyOf`), `path` 는 표시
+ * 철자의 경로다 — 미분류는 둘 다 `""`.
+ */
+export interface CatCtx {
+  x: number;
+  y: number;
+  key: string;
+  path: string;
 }
 
 /**
@@ -419,8 +437,8 @@ function emptyUi(): TaskUi {
  *
  * Obsidian 이 떴으면 아무것도 띄우지 않는다 — 창이 뜨는 것 자체가 결과다. 알릴 값어치가
  * 있는 것은 떠야 할 것이 안 떴을 때뿐이고, 그중 `unregistered` 는 사용자가 손쓸 수 있는
- * 유일한 경우라 무엇을 하면 되는지까지 적어 준다. 업무 노트와 Archive MOC 두 호출 지점이
- * 같은 문구를 쓰도록 여기 한 곳에 둔다.
+ * 유일한 경우라 무엇을 하면 되는지까지 적어 준다. 업무 노트 · Archive MOC · 카테고리 허브의
+ * 호출 지점이 같은 문구를 쓰도록 여기 한 곳에 둔다.
  */
 export function reportObsidianOpen(res: api.OpenOutcome): void {
   const { toast } = useStore.getState();
@@ -438,6 +456,23 @@ export function reportObsidianOpen(res: api.OpenOutcome): void {
     return;
   }
   toast("탐색기에서 열었습니다", res.detail, TOAST.muted);
+}
+
+/**
+ * 카테고리 허브를 Obsidian 에서 연다. `key` 는 `null` = 전체 허브, `""` = 미분류, 그 밖은 키(`keyOf`)다.
+ *
+ * 여는 순간 백엔드가 허브를 모두 다시 쓴다 — 자동 갱신을 꺼 두었거나 아직 한 번도 쓰지 않은 Vault
+ * 에도 열 파일이 생긴다. 자동 갱신의 충돌은 토스트로 한 번 알리고 넘어가지만(`indexSync`), 여기는
+ * 사용자가 직접 누른 것이라 같은 이름의 노트 · 읽지 못한 허브 · 업무 없는 카테고리를 실패로 알린다.
+ */
+export async function openCategoryHub(key: string | null): Promise<void> {
+  const { vault, archDays } = useStore.getState().settings;
+  try {
+    const path = await api.categoryHubPath(vault, archDays, key);
+    reportObsidianOpen(await api.openInObsidian(vault, path));
+  } catch (e) {
+    useStore.getState().fail(e, "카테고리 허브를 열지 못했습니다");
+  }
 }
 
 /** Mirrors `is_archived` in src-tauri/src/lib.rs so both agree on the rule. */
@@ -529,6 +564,7 @@ interface State {
   expanded: Record<string, boolean>;
   merge: MergeState | null;
   tabCtx: TabCtx | null;
+  catCtx: CatCtx | null;
   absorb: AbsorbState | null;
   split: SplitState | null;
   ren: RenameState | null;
@@ -671,7 +707,6 @@ interface Actions {
 
   reloadTemplates: () => Promise<void>;
   createTemplate: () => Promise<void>;
-  syncMoc: () => Promise<void>;
 
   /** 오늘의 한일에 이 업무를 올린다(같은 업무는 한 줄, 시각만 갱신). */
   noteToday: (folder?: string, title?: string) => void;
@@ -1076,6 +1111,7 @@ export const useStore = create<State & Actions>((set, get) => ({
   expanded: {},
   merge: null,
   tabCtx: null,
+  catCtx: null,
   absorb: null,
   split: null,
   ren: null,
@@ -1273,7 +1309,6 @@ export const useStore = create<State & Actions>((set, get) => ({
       await get().reloadVault(true);
       if (wasActive) await get().refreshFiles();
       await get().reloadTemplates();
-      await get().syncMoc();
     } catch (e) {
       set({ ren: null });
       get().fail(e, "이름을 바꾸지 못했습니다");
@@ -1339,7 +1374,6 @@ export const useStore = create<State & Actions>((set, get) => ({
       }
       // 바뀐 상태는 헤더의 상태 배지에 즉시 나타난다.
       await get().reloadTemplates();
-      await get().syncMoc();
     } catch (e) {
       get().fail(e, "상태를 바꾸지 못했습니다");
     }
@@ -1397,7 +1431,6 @@ export const useStore = create<State & Actions>((set, get) => ({
       // 목록만 새로 읽는다. 창을 닫았을 때 `reloadVault(false)` 를 쓰면 살아 있는 업무
       // 하나를 자동으로 골라 열어 버려, 방금 닫은 자리에 엉뚱한 업무가 나타난다.
       await get().reloadVault(close);
-      await get().syncMoc();
       return updated;
     } catch (e) {
       get().fail(e, "보관하지 못했습니다");
@@ -1426,7 +1459,6 @@ export const useStore = create<State & Actions>((set, get) => ({
       await get().reloadVault("list");
       await get().selectTask(updated.folder);
       await get().reloadTemplates();
-      await get().syncMoc();
     } catch (e) {
       get().fail(e, "재개하지 못했습니다");
     }
@@ -1575,7 +1607,7 @@ export const useStore = create<State & Actions>((set, get) => ({
   },
 
   // 화면을 직접 고르면 보관함은 언제나 목록에서 다시 시작한다.
-  setScreen: (s) => set({ screen: s, ctx: null, statusMenuOpen: false, archOpen: "" }),
+  setScreen: (s) => set({ screen: s, ctx: null, catCtx: null, statusMenuOpen: false, archOpen: "" }),
 
   setUi: (patch) => {
     const ui = { ...get().ui, ...patch };
@@ -2306,7 +2338,6 @@ export const useStore = create<State & Actions>((set, get) => ({
       }));
       await get().reloadVault(false);
       await get().reloadTemplates();
-      await get().syncMoc();
       get().toast(
         `${picked.length - 1}개 노드를 대표 노드로 병합`,
         `검색 노이즈 ${picked.length - 1}건 감소 · Run Log로 접힘`,
@@ -2385,7 +2416,6 @@ export const useStore = create<State & Actions>((set, get) => ({
       // 어디로 들어갔는지 보여 주는 것이 곧 결과다 — 그 자리를 펼쳐 두고 고른다.
       get().setUi({ treeOpen: { ...get().ui.treeOpen, [res.rel]: true }, sel: res.rel });
       await get().reloadTemplates();
-      await get().syncMoc();
       // 폴더가 디스크에서 실제로 움직였고 업무 하나가 목록에서 사라졌다 — 알린다.
       get().toast(
         "업무를 편입했습니다",
@@ -2520,16 +2550,6 @@ export const useStore = create<State & Actions>((set, get) => ({
         api.errMessage(e),
         TOAST.warn,
       );
-    }
-  },
-
-  syncMoc: async () => {
-    const { settings } = get();
-    if (!settings.archMoc) return;
-    try {
-      await api.writeArchiveMoc(settings.vault, settings.archDays);
-    } catch {
-      /* the MOC is a convenience index; failing to refresh it is not fatal */
     }
   },
 
@@ -2691,7 +2711,6 @@ export const useStore = create<State & Actions>((set, get) => ({
       // 창을 닫았으므로 `keepActive` 로 읽는다 — `false` 면 살아 있는 업무 하나를 자동으로
       // 골라 열어 방금 닫은 자리에 엉뚱한 업무가 나타난다.
       await get().reloadVault(true);
-      // `syncMoc` 은 부르지 않는다. 이 업무는 보관된 적이 없어 Archive MOC 에 실린 적도 없다.
     } catch (e) {
       get().fail(e, "완료 처리를 하지 못했습니다");
     }
