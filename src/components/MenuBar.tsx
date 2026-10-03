@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Box } from "../lib/ui";
-import { emptyNewTask, useStore } from "../store/useStore";
+import { emptyNewTask, openCategoryHub, useStore } from "../store/useStore";
 import { GREEN } from "../lib/design";
 import * as api from "../lib/api";
 
@@ -12,11 +12,13 @@ interface MenuItem {
   off?: boolean;
 }
 
-/** The design's menu strip, wired to the actions it names. */
-export default function MenuBar() {
-  const [open, setOpen] = useState<string | null>(null);
-  const s = useStore();
+type Store = ReturnType<typeof useStore.getState>;
 
+/**
+ * 메뉴 띠의 항목. 스토어 상태만 보고 정하므로, 그리지 않고도 어느 항목이 어디에 있는지 읽을 수 있다
+ * (`MenuBar.test.ts`).
+ */
+export function menuItems(s: Store): Record<string, MenuItem[]> {
   /**
    * 고른 업무가 없다 — 완료로 창을 닫은 직후(`setStatus`)이거나 Vault 가 비었을 때다.
    * 그때 업무 하나를 집어야 하는 항목들은 폴더 경로가 빈 문자열이라, 그대로 누르면
@@ -24,7 +26,7 @@ export default function MenuBar() {
    */
   const noTask = !s.activeFolder;
 
-  const menus: Record<string, MenuItem[]> = {
+  return {
     파일: [
       {
         label: "새 업무…",
@@ -89,6 +91,9 @@ export default function MenuBar() {
       { label: "정렬 초기화 (최근 수정순)", run: () => void s.clearTaskOrder() },
       // 이것도 목록 전체를 다룬다. 정리의 시작점인 미분류에서 연다.
       { label: "카테고리 관리…", run: () => s.openCatMgr() },
+      // 전체 허브는 진행 중 업무에 카테고리가 하나도 없어도 쓰인다(보관한 업무만 분류했을 때) —
+      // 그때는 업무 리스트의 ⋯ 가 숨으므로 언제나 있는 이 메뉴에도 둔다.
+      { label: "카테고리 허브 열기", run: () => void openCategoryHub(null) },
       {
         label: "Obsidian에서 열기",
         off: noTask,
@@ -110,6 +115,13 @@ export default function MenuBar() {
       { label: "설정 열기", run: () => s.setScreen("settings") },
     ],
   };
+}
+
+/** The design's menu strip, wired to the actions it names. */
+export default function MenuBar() {
+  const [open, setOpen] = useState<string | null>(null);
+  const s = useStore();
+  const menus = menuItems(s);
 
   return (
     <div

@@ -409,6 +409,25 @@ pub(crate) fn write_if_changed(path: &Path, text: &str) -> Result<bool> {
     Ok(true)
 }
 
+/// 마크다운 링크 경로의 퍼센트 인코딩. 한글은 그대로 두고 링크를 끊는 문자만 바꾼다 —
+/// Obsidian 과 이 앱의 뷰어가 둘 다 그대로 읽는다.
+pub(crate) fn encode_link(path: &str) -> String {
+    let mut out = String::new();
+    for c in path.chars() {
+        match c {
+            ' ' => out.push_str("%20"),
+            '[' => out.push_str("%5B"),
+            ']' => out.push_str("%5D"),
+            '(' => out.push_str("%28"),
+            ')' => out.push_str("%29"),
+            '#' => out.push_str("%23"),
+            '%' => out.push_str("%25"),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
 /// 업무 폴더 안에서 파일·폴더를 옮긴다. 돌려주는 새 상대 경로는 입력과 같은 규약을
 /// 따른다 — 폴더는 `/` 로 끝난다(`list_tree` 와 프론트의 트리가 그렇게 읽는다).
 pub fn move_path(folder: &Path, rel: &str, target_dir: &str) -> Result<String> {
@@ -680,6 +699,15 @@ mod tests {
         assert!(write_if_changed(&path, "둘\n").unwrap());
         assert_eq!(fs::read_to_string(&path).unwrap(), "둘\n");
         assert!(!path.with_extension("md.tmp").exists());
+    }
+
+    /// 위키 · 허브 · 보관함 MOC 가 함께 쓴다 — 한글은 그대로, 링크를 끊는 글자만 바꾼다.
+    #[test]
+    fn encode_link_escapes_only_link_breakers() {
+        assert_eq!(
+            encode_link("../Tasks/[2026-10] 보고서 (초안)#1 100%/index.md"),
+            "../Tasks/%5B2026-10%5D%20보고서%20%28초안%29%231%20100%25/index.md"
+        );
     }
 
     #[test]

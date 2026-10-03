@@ -31,7 +31,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{AppError, Result};
 use crate::frontmatter::{unquote, Doc};
-use crate::fsops::{write_atomic, write_if_changed};
+use crate::fsops::{encode_link, write_atomic, write_if_changed};
 use crate::vault::{self, TaskMeta};
 
 pub const WIKI_DIR: &str = "Wiki";
@@ -407,25 +407,6 @@ fn clean_tags(tags: &[String]) -> Vec<String> {
         }
         if out.len() >= 8 {
             break;
-        }
-    }
-    out
-}
-
-/// 마크다운 링크 경로의 퍼센트 인코딩. 한글은 그대로 두고 링크를 끊는 문자만 바꾼다 —
-/// Obsidian 과 이 앱의 뷰어가 둘 다 그대로 읽는다.
-pub(crate) fn encode_link(path: &str) -> String {
-    let mut out = String::new();
-    for c in path.chars() {
-        match c {
-            ' ' => out.push_str("%20"),
-            '[' => out.push_str("%5B"),
-            ']' => out.push_str("%5D"),
-            '(' => out.push_str("%28"),
-            ')' => out.push_str("%29"),
-            '#' => out.push_str("%23"),
-            '%' => out.push_str("%25"),
-            c => out.push(c),
         }
     }
     out

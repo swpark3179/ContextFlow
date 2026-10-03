@@ -355,7 +355,10 @@ export interface HubReport {
   written: number;
   /** 지운 표식 있는 옛 허브 수(카테고리가 사라졌거나 철자가 바뀌었다). */
   removed: number;
-  /** 표식 없는 사용자 노트가 자리를 차지해 쓰지 않은 허브 — Vault 기준 `/` 경로, 정렬됨. */
+  /**
+   * 같은 자리에 표식 없는 노트가 있거나 읽지 못해 쓰지 않은 허브 — Vault 기준 `/` 경로, 정렬됨.
+   * 읽지 못한 것은 앱이 쓴 허브일 수도 있다(권한 · 다른 프로그램이 잡고 있음 · 같은 이름의 폴더).
+   */
   conflicts: string[];
 }
 
@@ -367,8 +370,8 @@ export const writeCategoryHubs = (root: string, archDays: number) =>
   invoke<HubReport>("write_category_hubs", { root, archDays });
 /**
  * 허브 하나를 열기 위해 모든 허브를 쓰고 그 절대 경로를 돌려준다. `key` 는 `null` = 전체 허브,
- * `""` = 미분류, 그 밖은 카테고리 키(`keyOf`)다. 업무가 없는 노드면 `not_found`, 자리에 사용자
- * 노트가 있으면 `already_exists` 로 거절한다.
+ * `""` = 미분류, 그 밖은 카테고리 키(`keyOf`)다. 업무가 없는 노드면 `not_found`, 그 허브가
+ * `conflicts` 에 들면(자리에 표식 없는 노트가 있거나 읽지 못함) `already_exists` 로 거절한다.
  */
 export const categoryHubPath = (root: string, archDays: number, key: string | null) =>
   invoke<string>("category_hub_path", { root, archDays, key });

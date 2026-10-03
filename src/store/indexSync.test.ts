@@ -120,7 +120,7 @@ function wikiStatus(pages: WikiPageMeta[]): WikiStatus {
   return { dir: "/v/Wiki", exists: true, pages, tasks: [], orphans: [], moved: [], logTail: [] };
 }
 
-/** 사용자 노트가 자리를 차지한 허브(Vault 기준 경로). */
+/** 충돌로 쓰지 못한 허브(Vault 기준 경로) — 사용자 노트가 자리를 차지했거나 읽지 못했다. */
 const PATH = "_index/카테고리/카테고리 · 운영.md";
 
 const MOC = "write_archive_moc";
@@ -231,6 +231,11 @@ describe("걸러지는 변화", () => {
     await startSynced();
     useStore.getState().patchSettings({ catClosed: ["운영"] });
     useStore.getState().patchSettings({ threshold: 90 });
+    // 서명이 같아 쓰지 않는 것만으로는 모자란다 — 구독이 타이머부터 걸지 않아야 끌기 · 타자처럼
+    // 잇따르는 `set` 이 서명 계산을 되풀이하거나 기다리던 쓰기를 뒤로 밀지 않는다.
+    expect(vi.getTimerCount()).toBe(0);
+    useStore.setState((s) => ({ sidebarMin: !s.sidebarMin }));
+    expect(vi.getTimerCount()).toBe(0);
     await vi.advanceTimersByTimeAsync(800);
     expect(count(MOC)).toBe(0);
     expect(count(HUB)).toBe(0);
@@ -426,11 +431,12 @@ describe("충돌 토스트", () => {
     conflicts = ["_index/카테고리/카테고리 · 프로젝트.md", PATH];
     start();
     await vi.advanceTimersByTimeAsync(800);
+    // 충돌에는 읽지 못한 앱의 허브도 든다(hub.rs) — 사용자 노트가 있다고 단정하지 않는다.
     expect(shown).toEqual([
       {
         id: expect.any(Number),
-        title: "같은 이름의 노트가 있어 카테고리 허브 2개를 만들지 않았습니다",
-        sub: PATH,
+        title: "카테고리 허브 2개를 쓰지 못했습니다",
+        sub: `같은 이름의 노트가 있거나 읽을 수 없습니다 · ${PATH}`,
         color: TOAST.warn,
       },
     ]);
@@ -456,7 +462,7 @@ describe("충돌 토스트", () => {
     touchArchived("둘");
     await vi.advanceTimersByTimeAsync(800);
     expect(shown.length).toBe(2);
-    expect(shown[1].sub).toBe(PATH);
+    expect(shown[1].sub).toBe(`같은 이름의 노트가 있거나 읽을 수 없습니다 · ${PATH}`);
   });
 
   it("Vault 가 바뀌면 같은 경로라도 다시 알린다", async () => {

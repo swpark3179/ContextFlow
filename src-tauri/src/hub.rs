@@ -23,7 +23,7 @@ use serde::Serialize;
 use crate::category::{self, Node, UNCATEGORIZED};
 use crate::error::{AppError, Result};
 use crate::frontmatter::Doc;
-use crate::fsops::write_if_changed;
+use crate::fsops::{encode_link, write_if_changed};
 use crate::vault::{self, TaskMeta, INDEX_DIR};
 use crate::wiki::{self, PageMeta, KINDS, WIKI_DIR};
 
@@ -78,15 +78,38 @@ pub(crate) fn has_overall_hub(root: &Path) -> bool {
     fs::read_to_string(overall_path(root)).is_ok_and(|text| is_marked(&text))
 }
 
-/// 표시 경로(`a/B`)의 노드 허브 파일 이름 — `카테고리 · a › B.md`. 단계는 이미 파일 이름을
-/// 깨는 글자를 뺀 값이라 `stem_of`(60자에서 자른다)를 거치지 않는다.
+/// 노드 허브 이름(확장자 없이)의 바이트 상한. ext4 · APFS 는 이름 하나가 255바이트까지라
+/// 한글 30자 × 3단계면 넘는다. 임시 파일(`.md.tmp`, 7바이트)까지 그 안에 들게 둔다. UTF-16
+/// 단위로 재는 NTFS 도 단위 수가 바이트 수보다 크지 않아 함께 지켜진다.
+const MAX_STEM: usize = 240;
+
+/// 표시 경로(`a/B`)의 노드 허브 이름(확장자 없이) — `카테고리 · a › B`. 단계는 이미 파일 이름을
+/// 깨는 글자를 뺀 값이라 `stem_of`(60자에서 자른다)를 거치지 않는다. `MAX_STEM` 을 넘을 때만
+/// 글자 경계에서 자르고 경로의 해시를 붙인다 — 잘린 앞부분이 같은 형제와도 겹치지 않고,
+/// 바이트도 고정된다. 파일 이름 · 위키링크 · 상대 경로가 모두 이것을 쓴다.
+fn hub_stem(path: &str) -> String {
+    let stem = format!("{PREFIX}{}", path.replace('/', SEP));
+    if stem.len() <= MAX_STEM {
+        return stem;
+    }
+    // FNV-1a 32. `DefaultHasher` 는 Rust 판마다 값이 달라질 수 있어 파일 이름에 못 쓴다.
+    let hash =
+        path.bytes().fold(0x811c_9dc5_u32, |h, b| (h ^ u32::from(b)).wrapping_mul(0x0100_0193));
+    let tail = format!("… {hash:08x}");
+    let mut end = MAX_STEM - tail.len();
+    while !stem.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}{tail}", stem[..end].trim_end_matches([' ', '›']))
+}
+
 fn file_name(path: &str) -> String {
-    format!("{PREFIX}{}.md", path.replace('/', SEP))
+    format!("{}.md", hub_stem(path))
 }
 
 /// 노드 허브의 위키링크 대상(확장자 없이).
 fn hub_link(path: &str) -> String {
-    format!("{OVERALL_LINK}/{PREFIX}{}", path.replace('/', SEP))
+    format!("{OVERALL_LINK}/{}", hub_stem(path))
 }
 
 fn node_rel(path: &str) -> String {
@@ -107,7 +130,7 @@ fn task_link(t: &TaskMeta) -> String {
     format!(
         "[{}]({})",
         link_text(&t.title),
-        wiki::encode_link(&format!("../../{}index.md", t.rel_folder))
+        encode_link(&format!("../../{}index.md", t.rel_folder))
     )
 }
 
@@ -376,11 +399,15 @@ impl<'a> View<'a> {
 
         if self.dataview {
             // 키에는 `"` 와 `\` 가 없다(정리 규칙). `lower` 에 null 을 넘기지 않으려 `default` 를 쓴다.
+            // 목록 값은 첫 항목으로 본다(`category::read` 와 같다) — 목록째 넘기면 `startswith` 가
+            // 항목마다 돌아 비지 않은 목록이 되고, 그것이 참이라 모든 노드 허브에 든다. DQL 에는
+            // 변수가 없어 두 번 쓴다.
+            let value =
+                "lower(default(choice(typeof(category) = \"array\", category[0], category), \"\"))";
             let cond = match node {
-                Some(n) => format!(
-                    "(lower(default(category, \"\")) = \"{k}\" OR startswith(lower(default(category, \"\")), \"{k}/\"))",
-                    k = n.key
-                ),
+                Some(n) => {
+                    format!("({value} = \"{k}\" OR startswith({value}, \"{k}/\"))", k = n.key)
+                }
                 None => "!category".to_string(),
             };
             md.push_str("\n> [!note]- Dataview 로 보기 — Obsidian 에서 고친 값까지 바로 반영\n");
@@ -401,15 +428,19 @@ impl<'a> View<'a> {
 struct Built {
     nodes: Vec<Node>,
     uncategorized: bool,
+    /// 쓰다 실패한 허브(Vault 기준 상대 경로)와 그 오류. 직접 열기가 그 허브를 고른 때만
+    /// 오류로 돌려준다.
+    failed: Vec<(String, AppError)>,
 }
 
 /// 카테고리 허브를 다시 쓴다. `force` 는 직접 열기용이다.
 ///
-/// 자동 갱신(`force = false`)은 카테고리가 하나라도 있거나 표식 있는 전체 허브가 이미 있을
+/// 자동 갱신(`force = false`)은 카테고리가 하나라도 있거나 앱이 만든 허브(표식)가 이미 있을
 /// 때만 쓴다 — 카테고리를 한 번도 쓰지 않은 Vault 에 미분류뿐인 허브를 만들지 않는다.
-/// `force` 는 그때도 쓴다(전체 허브를 처음 만드는 것). 그 뒤로는 전체 허브가 있으니 자동
-/// 갱신도 허브를 지키고, `Wiki/index.md` 의 허브 줄이 켜졌다 꺼졌다 하지 않는다. 전체
-/// 허브는 어느 모드에서도 지우지 않고, 노드 · 미분류 허브의 정리는 두 모드가 같다.
+/// `force` 는 그때도 쓴다(전체 허브를 처음 만드는 것). 그 뒤로는 허브가 있으니 자동 갱신도
+/// 허브를 지키고, `Wiki/index.md` 의 허브 줄이 켜졌다 꺼졌다 하지 않는다. 전체 허브는 어느
+/// 모드에서도 지우지 않고, 노드 · 미분류 허브의 정리는 두 모드가 같다 — 전체 허브가 지워졌거나
+/// 그 자리가 사용자 노트여도, 남은 노드 · 미분류 허브가 있으면 자동 갱신이 정리하고 고친다.
 pub fn write_hubs(root: &Path, arch_days: i64, force: bool) -> Result<HubReport> {
     let _held = lock_index();
     Ok(write_locked(root, arch_days, force)?.0)
@@ -418,7 +449,12 @@ pub fn write_hubs(root: &Path, arch_days: i64, force: bool) -> Result<HubReport>
 fn write_locked(root: &Path, arch_days: i64, force: bool) -> Result<(HubReport, Option<Built>)> {
     // 엄격하게 훑는다 — 폴더 하나가 막혀 업무가 빠진 목록으로 허브를 지우면 안 된다.
     let tasks = vault::scan(root)?;
-    if !force && tasks.iter().all(|t| t.category.is_none()) && !has_overall_hub(root) {
+    let dir = root.join(INDEX_DIR).join(HUB_DIR);
+    if !force
+        && tasks.iter().all(|t| t.category.is_none())
+        && !has_overall_hub(root)
+        && !has_marked_hub(&dir)
+    {
         return Ok((HubReport::default(), None));
     }
     let pages: Vec<PageMeta> = wiki::load_pages(root).into_iter().map(|(m, _)| m).collect();
@@ -435,7 +471,6 @@ fn write_locked(root: &Path, arch_days: i64, force: bool) -> Result<(HubReport, 
 
     // 2. 옛 허브를 먼저 지운다. 대소문자만 바뀐 철자도 여기서 지우고 새 이름으로 쓰므로,
     //    대소문자만 다른 rename 에서 Windows · macOS 가 어느 이름을 남기는지에 기대지 않는다.
-    let dir = root.join(INDEX_DIR).join(HUB_DIR);
     let keep: HashSet<&str> = wanted.iter().map(|(name, _)| name.as_str()).collect();
     let mut report = HubReport { removed: prune(&dir, &keep)?, ..HubReport::default() };
 
@@ -445,6 +480,9 @@ fn write_locked(root: &Path, arch_days: i64, force: bool) -> Result<(HubReport, 
     for (name, text) in wanted {
         targets.push((dir.join(&name), format!("{INDEX_DIR}/{HUB_DIR}/{name}"), text));
     }
+    // 하나를 쓰지 못해도(동기화 도구가 잡고 있는 등) 나머지 허브와 색인은 쓴다 — 남은 하나는
+    // 다음 갱신 때 다시 쓴다.
+    let mut failed = Vec::new();
     for (path, rel, text) in targets {
         let ours = match fs::read_to_string(&path) {
             Ok(old) => is_marked(&old),
@@ -452,17 +490,45 @@ fn write_locked(root: &Path, arch_days: i64, force: bool) -> Result<(HubReport, 
         };
         if !ours {
             report.conflicts.push(rel);
-        } else if write_if_changed(&path, &text)? {
-            report.written += 1;
+            continue;
+        }
+        match write_if_changed(&path, &text) {
+            Ok(true) => report.written += 1,
+            Ok(false) => {}
+            Err(e) => {
+                eprintln!("[hub] 허브를 쓰지 못했습니다 {rel}: {e}");
+                failed.push((rel, e));
+            }
         }
     }
     report.conflicts.sort();
 
-    // 4. 위키 색인의 허브 줄(바뀐 경우에만 쓴다).
-    if root.join(WIKI_DIR).join("index.md").is_file() {
-        wiki::rebuild_index(root)?;
+    // 4. 위키 색인의 허브 줄(바뀐 경우에만 쓴다). 앱이 만든 색인(`type: index`)일 때만 —
+    //    위키를 쓰지 않는 Vault 의 같은 이름 사용자 노트를 덮어쓰지 않는다. 편의 줄이라 실패해도
+    //    허브 쓰기는 성공으로 둔다.
+    let index = root.join(WIKI_DIR).join("index.md");
+    if fs::read_to_string(&index)
+        .is_ok_and(|text| Doc::parse(&text).get_str("type").as_deref() == Some("index"))
+    {
+        if let Err(e) = wiki::rebuild_index(root) {
+            eprintln!("[hub] 위키 색인의 허브 줄을 고치지 못했습니다: {e}");
+        }
     }
-    Ok((report, Some(Built { nodes, uncategorized })))
+    Ok((report, Some(Built { nodes, uncategorized, failed })))
+}
+
+/// `_index/카테고리/` 에 앱이 만든 허브가 하나라도 있는가(`prune` 과 같은 규칙). 읽지 못하면
+/// 없는 것으로 본다.
+fn has_marked_hub(dir: &Path) -> bool {
+    fs::read_dir(dir).is_ok_and(|entries| {
+        entries.flatten().any(|entry| {
+            let name = entry.file_name().to_string_lossy().to_lowercase();
+            !name.starts_with('.')
+                && name.ends_with(".md")
+                && entry.file_type().is_ok_and(|t| t.is_file())
+                && fs::read_to_string(entry.path()).is_ok_and(|text| is_marked(&text))
+        })
+    })
 }
 
 /// `_index/카테고리/` 의 표식 있는 노트 중 원하는 이름과 **정확히** 같지 않은 것을 지운다.
@@ -503,7 +569,8 @@ fn prune(dir: &Path, keep: &HashSet<&str>) -> Result<usize> {
 pub fn hub_path(root: &Path, arch_days: i64, key: Option<&str>) -> Result<PathBuf> {
     let _held = lock_index();
     let (report, built) = write_locked(root, arch_days, true)?;
-    let built = built.unwrap_or(Built { nodes: Vec::new(), uncategorized: false });
+    let mut built =
+        built.unwrap_or(Built { nodes: Vec::new(), uncategorized: false, failed: Vec::new() });
     let missing = || AppError::new("not_found", "그 카테고리의 업무가 없습니다");
     let rel = match key {
         None => overall_rel(),
@@ -518,8 +585,11 @@ pub fn hub_path(root: &Path, arch_days: i64, key: Option<&str>) -> Result<PathBu
     if report.conflicts.contains(&rel) {
         return Err(AppError::new(
             "already_exists",
-            format!("‘{rel}’ 이름의 노트가 이미 있어 허브를 만들지 않았습니다"),
+            format!("‘{rel}’ 자리에 같은 이름의 노트가 있거나 읽을 수 없어 허브를 쓰지 않았습니다"),
         ));
+    }
+    if let Some(i) = built.failed.iter().position(|(failed, _)| *failed == rel) {
+        return Err(built.failed.swap_remove(i).1);
     }
     Ok(root.join(rel))
 }
@@ -587,7 +657,7 @@ mod tests {
     }
 
     fn task_href(t: &TaskMeta) -> String {
-        wiki::encode_link(&format!("../../{}index.md", t.rel_folder))
+        encode_link(&format!("../../{}index.md", t.rel_folder))
     }
 
     /// `_index/카테고리/` 의 파일 이름들.
@@ -712,8 +782,8 @@ mod tests {
         let root = v.path();
         task(root, 1, "직속 진행", "프로젝트");
         let done = task(root, 2, "직속 완료", "프로젝트");
+        // 완료일은 `set_status` 가 찍는 오늘이다 — 날짜를 박아 두면 30일 뒤 나이로 보관이 된다.
         set_status(root, Path::new(&done.folder), "completed").unwrap();
-        set_field(&done.folder, "completed_at", "2026-09-29");
         let kept = task(root, 3, "하위 보관", "프로젝트/CF");
         archive(root, &kept, "tag", "2026-09-30");
         let deep = task(root, 4, "깊은 보관", "프로젝트/CF/UI");
@@ -983,12 +1053,14 @@ mod tests {
              > ```dataview\n\
              > TABLE WITHOUT ID link(file.path, title) AS \"업무\", status AS \"상태\", completed_at AS \"완료\", category AS \"카테고리\"\n\
              > FROM \"Tasks\" OR \"Archive\"\n\
-             > WHERE file.name = \"index\" AND regexmatch(\"^(Tasks/[^/]+|Archive/[^/]+/[^/]+)$\", file.folder) AND (lower(default(category, \"\")) = \"a\" OR startswith(lower(default(category, \"\")), \"a/\"))\n\
+             > WHERE file.name = \"index\" AND regexmatch(\"^(Tasks/[^/]+|Archive/[^/]+/[^/]+)$\", file.folder) AND (lower(default(choice(typeof(category) = \"array\", category[0], category), \"\")) = \"a\" OR startswith(lower(default(choice(typeof(category) = \"array\", category[0], category), \"\")), \"a/\"))\n\
              > SORT completed_at DESC\n\
              > ```\n"
         ));
-        assert!(hub(root, "A › b")
-            .contains("= \"a/b\" OR startswith(lower(default(category, \"\")), \"a/b/\"))\n"));
+        // 목록 값은 첫 항목으로 본다 — 목록째 `startswith` 에 넘기면 모든 노드에서 참이 된다.
+        assert!(hub(root, "A › b").contains(
+            "= \"a/b\" OR startswith(lower(default(choice(typeof(category) = \"array\", category[0], category), \"\")), \"a/b/\"))\n"
+        ));
         assert!(hub(root, UNCATEGORIZED).contains("file.folder) AND !category\n> SORT"));
     }
 
@@ -1096,7 +1168,7 @@ mod tests {
             (e.kind.as_str(), e.message.as_str()),
             (
                 "already_exists",
-                "‘_index/카테고리.md’ 이름의 노트가 이미 있어 허브를 만들지 않았습니다"
+                "‘_index/카테고리.md’ 자리에 같은 이름의 노트가 있거나 읽을 수 없어 허브를 쓰지 않았습니다"
             )
         );
         assert_eq!(overall(root), "내 노트\n");
@@ -1131,5 +1203,139 @@ mod tests {
         fs::write(overall_path(root), "내 노트\n").unwrap();
         wiki::rebuild_index(root).unwrap();
         assert!(!fs::read_to_string(&index).unwrap().contains(line));
+    }
+
+    /// 앱이 만든 색인(`type: index`)이 아닌 `Wiki/index.md` 는 허브 줄을 넣으려고 다시 만들지
+    /// 않는다 — 위키를 쓰지 않는 Vault 의 사용자 노트일 수 있다.
+    #[test]
+    fn a_users_wiki_index_is_not_rebuilt_for_the_hub_line() {
+        let v = TempVault::new("hub-user-index");
+        let root = v.path();
+        task(root, 1, "가", "a");
+        let index = root.join(WIKI_DIR).join("index.md");
+        fs::create_dir_all(root.join(WIKI_DIR)).unwrap();
+        let mine = "---\ntype: moc\n---\n# 내 위키 MOC\n\n- [[어딘가]]\n";
+        fs::write(&index, mine).unwrap();
+
+        let r = write_hubs(root, 30, false).unwrap();
+        assert_eq!((r.written, r.conflicts.len()), (2, 0));
+        assert_eq!(fs::read_to_string(&index).unwrap(), mine);
+        hub_path(root, 30, Some("a")).unwrap();
+        assert_eq!(fs::read_to_string(&index).unwrap(), mine);
+    }
+
+    /// 색인의 허브 줄은 편의라, 색인을 쓰지 못해도 허브 쓰기와 직접 열기는 성공한다.
+    #[test]
+    fn a_blocked_wiki_index_does_not_fail_the_hubs() {
+        let v = TempVault::new("hub-index-blocked");
+        let root = v.path();
+        let t = task(root, 1, "가", "a");
+        let t = archive(root, &t, "tag", "2026-09-30");
+        ingest(root, &t, vec![page("source", &t.title)]);
+        let index = root.join(WIKI_DIR).join("index.md");
+        let before = fs::read_to_string(&index).unwrap();
+        // 전체 허브가 생기면 허브 줄이 들어가야 하는데, 임시 파일 자리가 막혀 색인을 못 쓴다.
+        fs::create_dir_all(root.join(WIKI_DIR).join("index.md.tmp")).unwrap();
+
+        let path = hub_path(root, 30, Some("a")).unwrap();
+        assert!(path.is_file());
+        assert!(has_overall_hub(root));
+        assert_eq!(fs::read_to_string(&index).unwrap(), before);
+        write_hubs(root, 30, false).unwrap();
+    }
+
+    /// 허브 하나가 막혀도(동기화 도구가 잡고 있는 등) 나머지 허브와 색인은 쓴다. 직접 열기는
+    /// 그 허브를 고른 때만 실패한다.
+    #[test]
+    fn one_blocked_hub_does_not_stop_the_others() {
+        let v = TempVault::new("hub-blocked");
+        let root = v.path();
+        task(root, 1, "가", "a");
+        task(root, 2, "나", "b");
+        // 임시 파일 자리에 폴더가 있으면 `write_atomic` 이 실패한다.
+        let blocked = root.join(INDEX_DIR).join(HUB_DIR).join(format!("{PREFIX}a.md.tmp"));
+        fs::create_dir_all(&blocked).unwrap();
+
+        let r = write_hubs(root, 30, false).unwrap();
+        assert_eq!((r.written, r.conflicts.len()), (2, 0));
+        assert!(!hub_file(root, "a").exists());
+        assert!(hub(root, "b").contains("# b\n"));
+        assert!(overall(root).contains("[[_index/카테고리/카테고리 · a|a]]"));
+        assert!(hub_path(root, 30, Some("b")).unwrap().is_file());
+        assert!(hub_path(root, 30, None).unwrap().is_file());
+        assert_eq!(hub_path(root, 30, Some("a")).unwrap_err().kind, "io");
+        // 풀리면 다음 쓰기가 마저 쓴다.
+        fs::remove_dir(&blocked).unwrap();
+        assert!(hub_path(root, 30, Some("a")).unwrap().is_file());
+    }
+
+    /// 한글 30자 × 3단계면 이름이 ext4 · APFS 의 255바이트를 넘는다. 그때만 잘라 해시를 붙이고,
+    /// 링크 · 정리 · 직접 열기가 모두 같은 이름을 쓴다.
+    #[test]
+    fn a_long_category_gets_a_capped_stable_file_name() {
+        let v = TempVault::new("hub-long");
+        let root = v.path();
+        let seg = |c: char| c.to_string().repeat(30);
+        let two = format!("{}/{}", seg('가'), seg('나'));
+        // 끝 글자만 다른 형제 — 자른 앞부분이 같아도 이름이 겹치지 않아야 한다.
+        let long = format!("{two}/{}가", "다".repeat(29));
+        let twin = format!("{two}/{}나", "다".repeat(29));
+        task(root, 1, "긴 것", &long);
+        task(root, 2, "형제", &twin);
+        task(root, 3, "짧은 것", "b");
+
+        let r = write_hubs(root, 30, false).unwrap();
+        assert_eq!((r.written, r.conflicts.len()), (6, 0), "{r:?}");
+        let names = hub_names(root);
+        assert_eq!(names.len(), 5, "{names:?}");
+        for name in &names {
+            // 임시 파일(`.md.tmp`)까지 255바이트 안에 든다.
+            assert!(name.len() + 4 <= 255, "{name}");
+            let stem = name.strip_suffix(".md").unwrap();
+            assert!(overall(root).contains(&format!("[[{OVERALL_LINK}/{stem}|")), "{stem}");
+        }
+        // 넘지 않는 이름은 그대로다.
+        assert!(hub_file(root, &two.replace('/', SEP)).is_file());
+        assert!(hub_file(root, "b").is_file());
+
+        let a = hub_path(root, 30, Some(&long)).unwrap();
+        let b = hub_path(root, 30, Some(&twin)).unwrap();
+        assert!(a.is_file() && b.is_file() && a != b, "{a:?} {b:?}");
+        assert!(fs::read_to_string(&a).unwrap().contains("- [긴 것]("));
+        // 바이트가 고정된다.
+        let before = snapshot(root);
+        let r = write_hubs(root, 30, false).unwrap();
+        assert_eq!((r.written, r.removed), (0, 0));
+        assert_eq!(snapshot(root), before);
+    }
+
+    /// 전체 허브가 지워진 뒤 마지막 카테고리를 비워도, 남은 앱 허브가 있으면 자동 갱신이
+    /// 정리한다. 직접 열어 만든 미분류 허브도 지우지 않고 고친다.
+    #[test]
+    fn leftover_hubs_are_kept_up_to_date_after_the_last_category_goes() {
+        let v = TempVault::new("hub-leftover");
+        let root = v.path();
+        let t = task(root, 1, "가", "a");
+        write_hubs(root, 30, false).unwrap();
+        fs::remove_file(overall_path(root)).unwrap();
+        category::set_category(root, &[t.folder.clone()], None).unwrap();
+
+        let r = write_hubs(root, 30, false).unwrap();
+        assert_eq!(r.removed, 1);
+        assert_eq!(hub_names(root), ["카테고리 · 미분류.md"]);
+        assert!(hub(root, UNCATEGORIZED).contains("- [가]("));
+        assert!(has_overall_hub(root));
+
+        // 전체 허브 자리가 사용자 노트인 Vault — 직접 열어 만든 미분류 허브.
+        let v = TempVault::new("hub-leftover-user");
+        let root = v.path();
+        task(root, 1, "가", "");
+        fs::write(overall_path(root), "내 노트\n").unwrap();
+        hub_path(root, 30, Some("")).unwrap();
+        task(root, 2, "나", "");
+        let r = write_hubs(root, 30, false).unwrap();
+        assert_eq!(r.conflicts, ["_index/카테고리.md"]);
+        assert!(hub(root, UNCATEGORIZED).contains("- [나]("));
+        assert_eq!(overall(root), "내 노트\n");
     }
 }

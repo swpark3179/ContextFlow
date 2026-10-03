@@ -104,7 +104,13 @@ export function startIndexSync(): () => void {
     if (key === conflictKey) return;
     conflictKey = key;
     const { toast } = useStore.getState();
-    toast(`같은 이름의 노트가 있어 카테고리 허브 ${sorted.length}개를 만들지 않았습니다`, sorted[0], TOAST.warn);
+    // 충돌은 표식 없는 사용자 노트만이 아니다 — 앱의 허브라도 읽지 못하면 덮어쓰지 않고 여기로 온다
+    // (hub.rs `HubReport::conflicts`). 그래서 "만들지 않았다" 대신 "쓰지 못했다" 고 두 경우를 함께 말한다.
+    toast(
+      `카테고리 허브 ${sorted.length}개를 쓰지 못했습니다`,
+      `같은 이름의 노트가 있거나 읽을 수 없습니다 · ${sorted[0]}`,
+      TOAST.warn,
+    );
   };
 
   /** 문턱을 보고 서명이 바뀐 쪽만 쓴다. 쓰는 사이에 상태가 바뀔 수 있어 허브 앞에서 다시 읽는다. */

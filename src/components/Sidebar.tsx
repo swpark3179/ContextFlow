@@ -713,7 +713,8 @@ export default function Sidebar() {
       // 보고 있는 업무의 카테고리에서 연다 — 대개 그 묶음을 정리하려고 여는 것이다.
       run: () => s.openCatMgr(keyOf(tasks.find((t) => t.folder === s.activeFolder)?.category ?? null)),
     },
-    // 전체 허브(`_index/카테고리.md`)를 여는 곳은 여기뿐이다 — 묶음 머리 메뉴는 그 카테고리의 허브를 연다.
+    // 전체 허브(`_index/카테고리.md`)를 연다 — 묶음 머리 메뉴는 그 카테고리의 허브를 연다. 이 ⋯ 는 진행 중
+    // 업무에 카테고리가 있을 때만 보이므로 메뉴 띠의 업무 메뉴에도 같은 항목이 있다(`MenuBar`).
     { label: "카테고리 허브 열기", run: () => void openCategoryHub(null) },
   ];
 

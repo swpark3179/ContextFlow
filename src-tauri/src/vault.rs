@@ -1391,7 +1391,7 @@ pub fn write_archive_moc(
         let link = format!(
             "[{}]({})",
             t.title.replace(['[', ']'], " "),
-            crate::wiki::encode_link(&format!("../{}index.md", t.rel_folder))
+            crate::fsops::encode_link(&format!("../{}index.md", t.rel_folder))
         );
         let category = t.category.as_deref().map(|c| c.replace('/', " › "));
         let tags = t.tags.iter().map(|x| format!("#{x}")).collect::<Vec<_>>().join(" ");

@@ -463,7 +463,7 @@ export function reportObsidianOpen(res: api.OpenOutcome): void {
  *
  * 여는 순간 백엔드가 허브를 모두 다시 쓴다 — 자동 갱신을 꺼 두었거나 아직 한 번도 쓰지 않은 Vault
  * 에도 열 파일이 생긴다. 자동 갱신의 충돌은 토스트로 한 번 알리고 넘어가지만(`indexSync`), 여기는
- * 사용자가 직접 누른 것이라 같은 이름의 노트 · 업무 없는 카테고리를 실패로 알린다.
+ * 사용자가 직접 누른 것이라 같은 이름의 노트 · 읽지 못한 허브 · 업무 없는 카테고리를 실패로 알린다.
  */
 export async function openCategoryHub(key: string | null): Promise<void> {
   const { vault, archDays } = useStore.getState().settings;
