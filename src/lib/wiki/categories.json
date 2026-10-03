@@ -1,0 +1,113 @@
+[
+  {
+    "note": "소스 페이지는 자기 업무의 카테고리에만 든다 — sources 에 다른 업무가 있어도",
+    "tasks": [
+      { "id": "a", "category": "프로젝트/CF" },
+      { "id": "b", "category": "운영" }
+    ],
+    "pages": [
+      { "path": "sources/a.md", "kind": "source", "taskId": "a", "sources": ["a", "b"] },
+      { "path": "sources/b.md", "kind": "source", "taskId": "b", "sources": ["b"] }
+    ],
+    "expect": {
+      "프로젝트": ["sources/a.md"],
+      "프로젝트/cf": ["sources/a.md"],
+      "운영": ["sources/b.md"]
+    }
+  },
+  {
+    "note": "소스가 아닌 페이지는 sources 업무들의 카테고리 모두에 든다 — 남은 taskId 는 무시, 출처 없는 페이지는 어디에도 없다",
+    "tasks": [
+      { "id": "a", "category": "프로젝트/CF/UI" },
+      { "id": "b", "category": "운영" },
+      { "id": "c", "category": null }
+    ],
+    "pages": [
+      { "path": "topics/공통.md", "kind": "topic", "taskId": null, "sources": ["a", "b"] },
+      { "path": "procedures/배포.md", "kind": "procedure", "taskId": "b", "sources": ["c"] },
+      { "path": "answers/질문.md", "kind": "answer", "taskId": null, "sources": [] },
+      { "path": "topics/옛.md", "kind": "topic", "taskId": null, "sources": ["task-없음"] }
+    ],
+    "expect": {
+      "프로젝트": ["topics/공통.md"],
+      "프로젝트/cf": ["topics/공통.md"],
+      "프로젝트/cf/ui": ["topics/공통.md"],
+      "운영": ["topics/공통.md"],
+      "": ["procedures/배포.md"]
+    }
+  },
+  {
+    "note": "대소문자만 다른 철자와 켈빈 기호(K)는 한 노드다",
+    "tasks": [
+      { "id": "a", "category": "Kube/Ops" },
+      { "id": "b", "category": "kube" },
+      { "id": "c", "category": "Kube/ops" }
+    ],
+    "pages": [
+      { "path": "sources/a.md", "kind": "source", "taskId": "a", "sources": ["a"] },
+      { "path": "sources/c.md", "kind": "source", "taskId": "c", "sources": ["c"] },
+      { "path": "topics/t.md", "kind": "topic", "taskId": null, "sources": ["b"] }
+    ],
+    "expect": {
+      "kube": ["sources/a.md", "sources/c.md", "topics/t.md"],
+      "kube/ops": ["sources/a.md", "sources/c.md"]
+    }
+  },
+  {
+    "note": "하위까지 합치되 a/bc 는 a/b 의 하위가 아니다 — 상위의 페이지는 합이 아니라 합집합",
+    "tasks": [
+      { "id": "x", "category": "a/b" },
+      { "id": "y", "category": "a/bc" },
+      { "id": "z", "category": "a/b/c" }
+    ],
+    "pages": [
+      { "path": "sources/x.md", "kind": "source", "taskId": "x", "sources": ["x"] },
+      { "path": "sources/y.md", "kind": "source", "taskId": "y", "sources": ["y"] },
+      { "path": "topics/z.md", "kind": "topic", "taskId": null, "sources": ["z"] },
+      { "path": "topics/xy.md", "kind": "topic", "taskId": null, "sources": ["x", "y"] }
+    ],
+    "expect": {
+      "a": ["sources/x.md", "sources/y.md", "topics/xy.md", "topics/z.md"],
+      "a/b": ["sources/x.md", "topics/xy.md", "topics/z.md"],
+      "a/b/c": ["topics/z.md"],
+      "a/bc": ["sources/y.md", "topics/xy.md"]
+    }
+  },
+  {
+    "note": "같은 id 의 업무가 둘이면 둘의 카테고리 모두에 든다",
+    "tasks": [
+      { "id": "dup", "category": "x" },
+      { "id": "dup", "category": null },
+      { "id": "e", "category": "y" }
+    ],
+    "pages": [
+      { "path": "topics/d.md", "kind": "topic", "taskId": null, "sources": ["dup"] },
+      { "path": "sources/e.md", "kind": "source", "taskId": "e", "sources": ["e"] }
+    ],
+    "expect": {
+      "x": ["topics/d.md"],
+      "y": ["sources/e.md"],
+      "": ["topics/d.md"]
+    }
+  },
+  {
+    "note": "업무와 이어지지 않은 페이지는 어디에도 없다 — 고아 소스 · task_id 없는 소스 · 출처 없는 답변",
+    "tasks": [{ "id": "f", "category": "z" }],
+    "pages": [
+      { "path": "sources/orphan.md", "kind": "source", "taskId": "gone", "sources": ["f"] },
+      { "path": "sources/notask.md", "kind": "source", "taskId": null, "sources": ["f"] },
+      { "path": "answers/a.md", "kind": "answer", "taskId": null, "sources": [] }
+    ],
+    "expect": {
+      "z": []
+    }
+  },
+  {
+    "note": "미분류 업무만 있는 Vault",
+    "tasks": [{ "id": "g", "category": null }],
+    "pages": [{ "path": "sources/g.md", "kind": "source", "taskId": "g", "sources": ["g"] }],
+    "expect": {
+      "": ["sources/g.md"]
+    }
+  }
+]
