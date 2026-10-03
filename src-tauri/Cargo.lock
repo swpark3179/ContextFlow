@@ -488,7 +488,7 @@ dependencies = [
 
 [[package]]
 name = "contextflow"
-version = "0.3.0"
+version = "1.0.0"
 dependencies = [
  "chrono",
  "reqwest 0.12.28",
