@@ -502,6 +502,8 @@ interface State {
   archMonth: string;
   /** 보관함 카테고리 거르기. `null` = 전체, `""` = 미분류, 그 밖은 키(`keyOf`) — 하위 포함. */
   archCat: string | null;
+  /** 위키 화면 카테고리 거르기. null = 전체, "" = 미분류, 그 밖은 키 — 하위 포함. */
+  wikiCat: string | null;
   /** 보관함 묶는 기준. */
   archGroup: "quarter" | "category";
   /**
@@ -886,7 +888,7 @@ async function assignCategory(folders: string[], category: string | null): Promi
 }
 
 /**
- * 카테고리 `from` 의 업무가 옮겨 간 뒤의 화면 상태 — 보관함 거르기와 관리 대화상자의 노드(`patch`),
+ * 카테고리 `from` 의 업무가 옮겨 간 뒤의 화면 상태 — 보관함 · 위키 거르기와 관리 대화상자의 노드(`patch`),
  * 업무 리스트의 접힘(`closed`, 그대로면 `null`)을 새 키로 따라 옮긴다. `next` 는 서브트리 키의 새 키
  * (미분류 `""`), `before` 는 작업 전에 있던 노드의 키, `tasks` 는 작업 뒤의 업무 목록이다. `none` 은
  * 모두 미분류로 — 노드도 거르기도 업무가 간 미분류로 옮긴다.
@@ -922,6 +924,7 @@ function followMove(
   return {
     patch: {
       ...(moved(s.archCat) && { archCat: next(s.archCat) || (none ? "" : null) }),
+      ...(moved(s.wikiCat) && { wikiCat: next(s.wikiCat) || (none ? "" : null) }),
       // 노드가 바뀌면 선택을 비운다 — 고른 줄이 다른 목록의 것이 된다.
       ...(mgr && node !== null && node !== mgr.node && { catMgr: { ...mgr, node, sel: [], last: null } }),
     },
@@ -1069,6 +1072,7 @@ export const useStore = create<State & Actions>((set, get) => ({
   archYear: "all",
   archMonth: "all",
   archCat: null,
+  wikiCat: null,
   archGroup: "quarter",
   archOpen: "",
 

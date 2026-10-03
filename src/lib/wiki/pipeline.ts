@@ -7,6 +7,7 @@
  */
 import type { AiSettings, PromptPack } from "../ai";
 import * as api from "../api";
+import { segments } from "../category";
 import { injectionFor } from "../promptPacks";
 import { CANCELED, runWithRetry } from "../runOnce";
 import { guessSummary, parsePageBlocks } from "./blocks";
@@ -96,7 +97,9 @@ export async function ingestTask(o: IngestOptions): Promise<IngestOutcome> {
   const [schema, status] = await Promise.all([readSchema(o.root), api.wikiStatus(o.root, 0)]);
   const pages = status.pages;
   const head = bundle.files[0]?.text?.slice(0, 600) ?? "";
-  const query = [bundle.task.title, bundle.task.tags.join(" "), head].join(" ");
+  // 카테고리 이름도 검색어에 더한다 — 같은 분류의 페이지가 관련 페이지 목록에서 앞서게.
+  const { title, tags, category } = bundle.task;
+  const query = [title, tags.join(" "), segments(category).join(" "), head].join(" ");
   const related = await api.wikiSearch(o.root, query, 30).catch(() => [] as api.WikiHit[]);
   canceled(o.signal);
 

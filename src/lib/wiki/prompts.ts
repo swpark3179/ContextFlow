@@ -16,6 +16,7 @@
  * "어떻게 돌려줄지" 를 정하고, 둘이 부딪히면 뒤의 형식이 이긴다고 못박는다.
  */
 import type { WikiHit, WikiKind, WikiPageMeta, WikiSourceBundle } from "../api";
+import { label } from "../category";
 import { extractFencedJson } from "../fencedJson";
 import { escapeDelims } from "./blocks";
 import { findByTitle, normTitle } from "./links";
@@ -88,6 +89,8 @@ export function renderBundle(b: WikiSourceBundle): string {
     "",
     `- 업무 id: ${t.id}`,
     `- 제목: ${t.title}`,
+    // 미분류는 적지 않는다 — `label(null)` 이 `미분류` 라 분류 이름처럼 읽힌다.
+    ...(t.category ? [`- 카테고리: ${label(t.category)}`] : []),
     `- 태그: ${t.tags.length ? t.tags.join(", ") : "(없음)"}`,
     `- 만든 날: ${t.created || "?"} · 완료: ${t.completedAt ?? "?"}`,
     `- 폴더: ${t.relFolder}`,
@@ -159,6 +162,9 @@ export function buildSourcePrompt(i: SourcePromptInput): string {
     "     `## 문제와 해결` · `## 키워드` · `## 관련` 중 원본에 내용이 있는 것만, 이 순서로.",
     "   - `## 관련` 에는 위 목록의 기존 페이지 중 실제로 관련된 것만 `[[이름|보이는 글]]` 로 적습니다.",
     "   - 원본에 없는 내용을 지어내지 않습니다. 업무 폴더 경로로 링크하지 않습니다.",
+    t.category
+      ? "   - `카테고리` 는 앱이 업무를 묶는 분류입니다. 관련 페이지를 고르는 데만 참고하고, 분류 이름을 그대로 소스 페이지 본문이나 wikiplan 의 `tags` 에 옮겨 적지 않습니다(원본에 나오는 낱말은 평소대로 씁니다)."
+      : "",
     "",
     `2. 맨 마지막에 \`\`\`${PLAN_LABEL} 펜스 하나를 둡니다. 펜스 뒤에는 아무것도 쓰지 않습니다.`,
     "",

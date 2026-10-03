@@ -19,6 +19,8 @@ const calls: Call[] = [];
 let reply: string | null = "";
 /** 응답을 보내기 전에 기다릴 것 — 취소 시험용. */
 let hold: Promise<void> = Promise.resolve();
+/** 반영할 업무의 카테고리. */
+let category: string | null = null;
 
 const SOURCE_OK = [
   "<<<PAGE source>>>",
@@ -37,7 +39,7 @@ function task() {
     title: "배포 정리",
     status: "completed",
     tags: ["dev"],
-    category: null,
+    category,
     created: "",
     updated: "",
     parentTask: null,
@@ -122,6 +124,7 @@ beforeEach(() => {
   calls.length = 0;
   reply = SOURCE_OK;
   hold = Promise.resolve();
+  category = null;
   useStore.setState({
     settings: { ...DEFAULT_SETTINGS, vault: "/v", wikiDepth: "light" },
     toasts: [],
@@ -174,6 +177,26 @@ describe("위키 반영 큐", () => {
 
     expect(useWiki.getState().queue[0]).toMatchObject({ state: "done", written: 1 });
     expect(useStore.getState().toasts.at(-1)?.title).toBe("위키에 반영했습니다");
+  });
+
+  it("업무 카테고리를 관련 페이지 검색어와 프롬프트에 싣는다", async () => {
+    category = "프로젝트/ContextFlow";
+    useWiki.getState().enqueue("task-1", "배포 정리");
+    await drained();
+
+    expect(calls.find((c) => c.cmd === "wiki_search")!.args.query).toContain("프로젝트 ContextFlow");
+    const { prompt } = calls.find((c) => c.cmd === "run_agent")!.args.args as { prompt: string };
+    expect(prompt).toContain("- 카테고리: 프로젝트 › ContextFlow");
+    expect(prompt).toContain("`카테고리` 는 앱이 업무를 묶는 분류입니다");
+  });
+
+  it("미분류 업무는 카테고리 줄도 안내도 싣지 않는다", async () => {
+    useWiki.getState().enqueue("task-1", "배포 정리");
+    await drained();
+
+    const { prompt } = calls.find((c) => c.cmd === "run_agent")!.args.args as { prompt: string };
+    expect(prompt).not.toContain("- 카테고리:");
+    expect(prompt).not.toContain("`카테고리` 는 앱이 업무를 묶는 분류입니다");
   });
 
   it("AI 가 실패하면 위키에 쓰지 않고 사유를 남긴다", async () => {
