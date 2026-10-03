@@ -1,18 +1,30 @@
 import { useEffect, useMemo, useState } from "react";
-import { Box, Input } from "../lib/ui";
+import { Box, Input, Select } from "../lib/ui";
 import { VIOLET } from "../lib/design";
 import { joinPath } from "../lib/format";
 import * as api from "../lib/api";
-import { reportObsidianOpen, useStore } from "../store/useStore";
+import { narrowHits, wikiCategoryView } from "../lib/wiki/categories";
+import { openCategoryHub, reportObsidianOpen, useStore } from "../store/useStore";
 import { routeInfo, useAi } from "../store/aiStore";
 import { useWiki, type QueueItem } from "../store/wikiStore";
 import { AskPanel } from "./wiki/AskPanel";
-import { KIND_LABEL, KindChip, LintPanel, PagePanel, smallBtn } from "./wiki/WikiPanels";
+import {
+  catLabel,
+  KIND_LABEL,
+  KindChip,
+  LintPanel,
+  NO_PAGES,
+  PagePanel,
+  smallBtn,
+} from "./wiki/WikiPanels";
 
 type Tab = "page" | "ask" | "lint";
 
 /** 분류 트리의 순서 — 색인(index.md)과 같다. 절차가 맨 앞이다. */
 const ORDER: api.WikiKind[] = ["procedure", "topic", "entity", "source", "answer"];
+
+/** 검색 결과를 보이는 최대 건수. */
+const HIT_MAX = 30;
 
 const hint: React.CSSProperties = { fontSize: 11.5, color: "#8a857c", lineHeight: 1.6 };
 const head: React.CSSProperties = {
@@ -69,7 +81,28 @@ export default function Wiki() {
       .catch((e) => useStore.getState().fail(e, "위키 폴더를 만들지 못했습니다"));
   }, [vault]);
 
-  // 검색은 로컬이라 즉시지만, 글자마다 파일을 훑지 않게 잠깐 모은다.
+  // 안정된 빈 목록 — 상태를 읽기 전에도 아래 메모가 렌더마다 다시 돌지 않게.
+  const pages = w.status?.pages ?? NO_PAGES;
+  /**
+   * 카테고리 거르기. 업무 카테고리를 그때그때 보므로, 업무 카테고리를 바꾸면 위키 상태를 다시
+   * 읽지 않아도 목록 · 개수 · 칩이 바로 따라간다.
+   */
+  const cats = useMemo(
+    () => wikiCategoryView(s.tasks, pages, s.wikiCat),
+    [s.tasks, pages, s.wikiCat],
+  );
+  const filtering = cats.effCat !== null;
+  // 고른 카테고리에 페이지가 없어지면(업무 카테고리 변경 · 페이지 삭제) 고른 값도 지운다 — 쥐고
+  // 있으면 그 카테고리에 페이지가 다시 생길 때 아무것도 하지 않았는데 거르기가 되살아난다(보관함과
+  // 같다). 상태를 읽기 전에는 모든 키가 0페이지라 지우지 않는다.
+  useEffect(() => {
+    if (s.wikiCat !== null && cats.effCat === null && w.status) s.set({ wikiCat: null });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [s.wikiCat, cats.effCat, w.status]);
+
+  // 검색은 로컬이라 즉시지만, 글자마다 파일을 훑지 않게 잠깐 모은다. 카테고리로 거를 때는 모두
+  // 받아 렌더에서 거른다 — 30건만 받아 거르면 그 카테고리의 결과가 앞의 다른 결과에 밀려 사라진다.
+  // 거르는지 여부만 의존성에 둔다 — 다른 카테고리로 바꿀 때는 이미 받은 결과를 다시 거르면 된다.
   useEffect(() => {
     const q = query.trim();
     if (!q) {
@@ -77,9 +110,10 @@ export default function Wiki() {
       return;
     }
     let alive = true;
+    const limit = filtering ? Math.max(HIT_MAX, pages.length) : HIT_MAX;
     const t = window.setTimeout(() => {
       void api
-        .wikiSearch(vault, q, 30)
+        .wikiSearch(vault, q, limit)
         .then((r) => alive && setHits(r))
         .catch(() => alive && setHits([]));
     }, 180);
@@ -87,15 +121,21 @@ export default function Wiki() {
       alive = false;
       window.clearTimeout(t);
     };
-  }, [query, vault, w.status]);
+    // pages 는 w.status 에서 나온다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, vault, w.status, filtering]);
+  /** 거르는 중이면 그 카테고리의 결과만, 거른 뒤에 자른다. `검색 결과 n` 도 이 수다. */
+  const shownHits = useMemo(
+    () => hits && narrowHits(hits, filtering ? cats.shown.map((p) => p.path) : null, HIT_MAX),
+    [hits, filtering, cats.shown],
+  );
 
-  const pages = w.status?.pages ?? [];
   const grouped = useMemo(() => {
     const g: Record<string, api.WikiPageMeta[]> = {};
-    for (const p of pages) (g[p.kind] ??= []).push(p);
+    for (const p of cats.shown) (g[p.kind] ??= []).push(p);
     for (const k of Object.keys(g)) g[k]!.sort((a, b) => a.title.localeCompare(b.title, "ko"));
     return g;
-  }, [pages]);
+  }, [cats.shown]);
 
   const pending = (w.status?.tasks ?? []).filter((t) => t.state !== "fresh");
   const ingest = routeInfo(ai, "wiki.ingest");
@@ -117,6 +157,7 @@ export default function Wiki() {
       .openInObsidian(vault, joinPath(vault, rel))
       .then(reportObsidianOpen)
       .catch((e) => s.fail(e, "Obsidian 에서 열지 못했습니다"));
+  const catName = catLabel(cats);
 
   return (
     <div style={{ flex: 1, minHeight: 0, display: "flex", background: "#fff" }}>
@@ -135,14 +176,26 @@ export default function Wiki() {
           <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
             <span style={{ fontSize: 14, fontWeight: 600 }}>LLM 위키</span>
             <span style={{ ...hint, fontSize: 11 }}>
-              {pages.length}페이지 · 업무 {grouped.source?.length ?? 0}건
+              {cats.shown.length}페이지 · 업무 {grouped.source?.length ?? 0}건
             </span>
             <span style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
+              {/*
+                거르는 중이면 그 카테고리의 허브를 연다. 미분류도 안전하다 — 미분류 페이지가 있으면
+                미분류 업무가 있고, 그러면 미분류 허브도 있다.
+              */}
               <Box
-                title="Wiki/index.md 를 Obsidian 에서 엽니다"
+                title={
+                  cats.effCat === null
+                    ? "Wiki/index.md 를 Obsidian 에서 엽니다"
+                    : `‘${catName}’ 허브를 Obsidian 에서 엽니다`
+                }
                 style={{ ...smallBtn, height: 22, padding: "0 7px" }}
                 hover={{ background: "#f2efe9" }}
-                onClick={() => openInObsidian("Wiki/index.md")}
+                onClick={() =>
+                  cats.effCat === null
+                    ? openInObsidian("Wiki/index.md")
+                    : void openCategoryHub(cats.effCat)
+                }
               >
                 Obsidian
               </Box>
@@ -156,6 +209,43 @@ export default function Wiki() {
               </Box>
             </span>
           </div>
+          {/*
+            제목 줄은 이미 폭이 찼으므로 한 줄을 따로 둔다. 카테고리를 쓰지 않는 Vault 에는 거를
+            것이 없다 — 지금 화면 그대로. 미분류만 남았는데 미분류를 고른 채라면(카테고리 관리에서
+            모두 미분류로) 전체로 돌아갈 길이 있어야 하므로 그때도 그린다.
+          */}
+          {(cats.hasCats || filtering) && (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8 }}>
+              <span style={{ fontSize: 11, color: "#a09a8f" }}>카테고리</span>
+              <Select
+                // `*` 는 카테고리에 쓸 수 없는 글자라 어떤 키와도 겹치지 않는다.
+                value={cats.effCat ?? "*"}
+                onChange={(e) => s.set({ wikiCat: e.target.value === "*" ? null : e.target.value })}
+                title="카테고리로 거르기 — 괄호는 위키 페이지 수(하위 포함)"
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  height: 24,
+                  padding: "0 4px",
+                  border: "1px solid #ddd8cf",
+                  borderRadius: 4,
+                  background: "#fff",
+                  color: "#4e4a43",
+                  fontSize: 11.5,
+                  outline: "none",
+                  cursor: "pointer",
+                }}
+              >
+                <option value="*">전체 ({pages.length})</option>
+                {cats.opts.map((o) => (
+                  // option 은 앞의 ASCII 공백을 지우므로 들여쓰기는 NBSP 로. 미분류는 맨 끝이다.
+                  <option key={o.key} value={o.key}>
+                    {`${"\u00a0\u00a0".repeat(o.depth - 1)}${o.name} (${o.count})`}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          )}
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -177,13 +267,25 @@ export default function Wiki() {
         </div>
 
         <div style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
-          {hits ? (
+          {shownHits ? (
             <>
-              <div style={head}>검색 결과 {hits.length}</div>
-              {hits.length === 0 && (
-                <div style={{ ...hint, padding: "0 12px" }}>찾지 못했습니다.</div>
-              )}
-              {hits.map((h) => (
+              <div style={head}>검색 결과 {shownHits.length}</div>
+              {shownHits.length === 0 &&
+                (filtering ? (
+                  <div style={{ ...hint, padding: "0 12px" }}>
+                    <div>이 카테고리에서 찾지 못했습니다.</div>
+                    <Box
+                      onClick={() => s.set({ wikiCat: null })}
+                      style={{ ...smallBtn, display: "inline-flex", marginTop: 6 }}
+                      hover={{ background: "#f2efe9" }}
+                    >
+                      전체에서 찾기
+                    </Box>
+                  </div>
+                ) : (
+                  <div style={{ ...hint, padding: "0 12px" }}>찾지 못했습니다.</div>
+                ))}
+              {shownHits.map((h) => (
                 <Box
                   key={h.path}
                   onClick={() => openPage(h.path)}
@@ -237,7 +339,7 @@ export default function Wiki() {
               </div>
             ))
           )}
-          {!hits && pages.length === 0 && (
+          {!shownHits && pages.length === 0 && (
             <div style={{ ...hint, padding: "10px 12px" }}>아직 위키 페이지가 없습니다.</div>
           )}
         </div>
@@ -398,7 +500,7 @@ export default function Wiki() {
             </Box>
           )}
         </div>
-        {tab === "page" && <PagePanel path={open} onOpen={openPage} />}
+        {tab === "page" && <PagePanel path={open} onOpen={openPage} cats={cats} />}
         {/*
           묻기 패널은 다른 탭에서도 내리지 않는다 — 대화가 이 패널의 상태라서, 인용 칩을 눌러
           페이지를 읽으러 가는 순간 대화가 사라지면 이어서 물을 수 없다. 받는 중인 답도 그대로

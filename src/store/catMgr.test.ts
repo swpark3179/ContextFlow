@@ -1,9 +1,9 @@
 /**
  * 카테고리 관리 대화상자의 스토어 — 일괄 지정 · 경로 바꾸기 · 해제가 백엔드에 넘기는 값과 순서,
- * 그 뒤에 따라 옮겨야 하는 화면 상태(업무 리스트의 접힘 · 보관함 거르기 · 고른 노드).
+ * 그 뒤에 따라 옮겨야 하는 화면 상태(업무 리스트의 접힘 · 보관함 · 위키 거르기 · 고른 노드).
  *
  * 접힘과 거르기는 키로 들고 있어서, 업무만 옮기고 키를 그대로 두면 사이드바가 엉뚱한 묶음을 접고
- * 보관함이 거르기를 놓아 버린다. 화면에서는 "그냥 펼쳐졌다" 로만 보이므로 커맨드 모킹으로 지킨다.
+ * 보관함 · 위키 화면이 거르기를 놓아 버린다. 화면에서는 "그냥 펼쳐졌다" 로만 보이므로 커맨드 모킹으로 지킨다.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { isWithin, retarget } from "../lib/category";
@@ -132,14 +132,18 @@ function argsOf(cmd: string, nth = 0): Record<string, unknown> {
   return hit.args;
 }
 
-/** 대화상자를 연 상태. 열린 업무는 없다 — 내려쓰기 · 다시 읽기는 순서 테스트만 본다. */
-function open(node = "a/b", catClosed: string[] = [], archCat: string | null = null) {
+/**
+ * 대화상자를 연 상태. 열린 업무는 없다 — 내려쓰기 · 다시 읽기는 순서 테스트만 본다. 위키 거르기는
+ * 따로 주지 않으면 보관함 거르기와 같은 키다 — 둘은 같은 규칙으로 따라간다.
+ */
+function open(node = "a/b", catClosed: string[] = [], archCat: string | null = null, wikiCat = archCat) {
   useStore.setState({
     settings: { ...DEFAULT_SETTINGS, vault: "/v", archDays: 14, catClosed },
     tasks: vault,
     activeFolder: "",
     uiCache: {},
     archCat,
+    wikiCat,
     toasts: [],
   });
   st().openCatMgr(node, "all");
@@ -299,16 +303,16 @@ describe("moveCategoryNode — 경로 바꾸기", () => {
       // 같은 틱이 끝난 뒤의 상태 — 그 사이에 그려지는 화면은 없다.
       queueMicrotask(() => {
         const now = st();
-        seen.push([now.settings.catClosed, now.archCat, now.catMgr?.node]);
+        seen.push([now.settings.catClosed, now.archCat, now.wikiCat, now.catMgr?.node]);
       });
     });
 
     await st().moveCategoryNode("a/b", "a/c", true);
     stop();
 
-    const want = [["a/c/c", "a", "q", ""], "a/c/c", "a/c"];
+    const want = [["a/c/c", "a", "q", ""], "a/c/c", "a/c/c", "a/c"];
     expect(seen).toEqual([want]);
-    expect([st().settings.catClosed, st().archCat, mgr().node]).toEqual(want);
+    expect([st().settings.catClosed, st().archCat, st().wikiCat, mgr().node]).toEqual(want);
     expect(mgr()).toMatchObject({ sel: [], last: null, edit: null, busy: false });
     expect(argsOf("save_settings").value).toMatchObject({ catClosed: want[0] });
     expect(toasts()).toEqual([["카테고리를 합쳤습니다", "‘a › b’ → ‘a › c’ · 업무 3건(보관 2)"]]);
@@ -366,7 +370,12 @@ describe("moveCategoryNode — 경로 바꾸기", () => {
     await st().moveCategoryNode("a/b", "x", false);
 
     expect(mgr().failed.map((f) => f.folder)).toEqual([A, B, C]);
-    expect([st().settings.catClosed, st().archCat, mgr().node]).toEqual([["a/b", "a/b/c"], "a/b", "a/b"]);
+    expect([st().settings.catClosed, st().archCat, st().wikiCat, mgr().node]).toEqual([
+      ["a/b", "a/b/c"],
+      "a/b",
+      "a/b",
+      "a/b",
+    ]);
     expect(cmds()).not.toContain("save_settings");
     expect(toasts()).toEqual([]);
   });
@@ -457,7 +466,7 @@ describe("clearCategoryNode — 해제", () => {
 
     expect(argsOf("clear_category")).toEqual({ root: "/v", from: "a/b", only: null });
     expect(cmds()).not.toContain("move_category");
-    expect([st().settings.catClosed, st().archCat, mgr().node]).toEqual([["a"], "", ""]);
+    expect([st().settings.catClosed, st().archCat, st().wikiCat, mgr().node]).toEqual([["a"], "", "", ""]);
     expect(toasts()).toEqual([["카테고리를 해제했습니다", "‘a › b’ → 미분류 · 업무 3건(보관 2)"]]);
   });
 
@@ -481,6 +490,15 @@ describe("clearCategoryNode — 해제", () => {
     expect(argsOf("move_category")).toEqual({ root: "/v", from: "proj/sub", to: "Proj", allowMerge: false, only: null });
     expect(mgr().node).toBe("proj");
     expect(toasts()).toEqual([["카테고리를 해제했습니다", "‘Proj › sub’ → ‘Proj’ · 업무 2건(보관 1)"]]);
+  });
+
+  it("거르기는 하위 키도 따라가고, 보관함 · 위키 거르기는 서로 따로다", async () => {
+    vault = [task(A, "결제 점검", "Proj/sub"), task(B, "결제 설계", "Proj/sub/x", true)];
+    open("proj/sub", [], "proj/sub", "proj/sub/x");
+
+    await st().clearCategoryNode("proj/sub", "parent");
+
+    expect([st().archCat, st().wikiCat]).toEqual(["proj", "proj/x"]);
   });
 
   it("못 올린 업무의 다시 시도도 해제다 — 합치기를 허락해 그 업무만 올린다", async () => {
@@ -510,7 +528,7 @@ describe("clearCategoryNode — 해제", () => {
 
     expect(argsOf("move_category")).toMatchObject({ from: "a", to: null, allowMerge: false });
     expect(vault.map((t) => t.category)).toEqual([null, "x", "y"]);
-    expect([st().settings.catClosed, st().archCat, mgr().node]).toEqual([["x", "y", ""], null, ""]);
+    expect([st().settings.catClosed, st().archCat, st().wikiCat, mgr().node]).toEqual([["x", "y", ""], null, null, ""]);
     expect(toasts()).toEqual([["카테고리를 해제했습니다", "‘a’ → 최상위 · 업무 2건(보관 1)"]]);
   });
 
