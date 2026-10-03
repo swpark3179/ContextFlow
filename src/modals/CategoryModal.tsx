@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import { Box, Input } from "../lib/ui";
+import { Box, Input, Span } from "../lib/ui";
 import { statusOf } from "../lib/design";
 import type { TaskMeta } from "../lib/api";
 import {
@@ -19,7 +19,7 @@ import {
   type CategoryNode,
   type MovePlan,
 } from "../lib/category";
-import { isArchived, useStore } from "../store/useStore";
+import { isArchived, openCategoryHub, useStore } from "../store/useStore";
 import CategoryPicker from "../components/CategoryPicker";
 import {
   GhostButton,
@@ -357,6 +357,22 @@ function CategoryBody() {
               </div>
               <div style={{ fontSize: 11, color: "#a09a8f", marginTop: 2 }}>
                 진행 {nLive} · 보관 {nArch}
+                {/* 허브는 업무가 있는 노드에만 있다 — 미분류도 같다. 오른쪽 버튼 줄에 하나 더 두지 않는다. */}
+                {nLive + nArch > 0 && (
+                  <Span
+                    onClick={() => void openCategoryHub(node)}
+                    style={{
+                      marginLeft: 8,
+                      fontSize: 11.5,
+                      color: "#3a6fd8",
+                      cursor: "pointer",
+                      whiteSpace: "nowrap",
+                    }}
+                    hover={{ textDecoration: "underline" }}
+                  >
+                    Obsidian에서 보기 ↗
+                  </Span>
+                )}
               </div>
             </div>
             {/* 미분류는 이름이 아니라 이름이 없는 것이라 바꾸거나 해제할 것이 없다. */}

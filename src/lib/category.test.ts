@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import cases from "./category.cases.json";
 import moves from "./category.move.json";
+import tree from "./category.tree.json";
 import {
   categoryErrorMessage,
   categoryKey,
@@ -123,6 +124,21 @@ describe("knownCategories", () => {
       "！",
       "\u{1F600}",
     ]);
+  });
+});
+
+interface TreeCase {
+  note: string;
+  cats: (string | null)[];
+  nodes: { key: string; path: string; depth: number; count: number }[];
+}
+
+describe("knownCategories — Rust 와 같은 fixture", () => {
+  // 허브 노트(src-tauri/src/hub.rs)가 같은 트리를 Rust 로 다시 만든다. 순서 · 철자가 어긋나면
+  // 사이드바와 Obsidian 의 카테고리가 서로 다르게 보인다.
+  it.each((tree as TreeCase[]).map((c) => [c.note, c] as const))("%s", (_note, c) => {
+    const nodes = knownCategories(cats(...c.cats));
+    expect(nodes.map(({ key, path, depth, count }) => ({ key, path, depth, count }))).toEqual(c.nodes);
   });
 });
 

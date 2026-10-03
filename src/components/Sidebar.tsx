@@ -12,7 +12,7 @@ import {
   type CategoryNode,
 } from "../lib/category";
 import type { TaskMeta } from "../lib/api";
-import { emptyNewTask, isArchived, useStore, type Screen } from "../store/useStore";
+import { emptyNewTask, isArchived, openCategoryHub, useStore, type Screen } from "../store/useStore";
 import { useWiki } from "../store/wikiStore";
 
 /**
@@ -502,7 +502,7 @@ function TaskRow({
 /**
  * 카테고리 트리의 머리 행. 탐색기 폴더 행과 같은 치수다(폴더 아이콘만 없다) — 사이드바의
  * 두 트리가 같은 눈금으로 읽히게. 누르면 접고 편다. 검색 중에는 모두 펼쳐 보이므로 눌러도
- * 그대로다.
+ * 그대로다. 우클릭은 묶음 머리 메뉴(`CategoryMenu`)를 연다.
  */
 function CategoryRow({
   row,
@@ -511,6 +511,7 @@ function CategoryRow({
   dim,
   onToggle,
   onNew,
+  onMenu,
 }: {
   row: CategoryNode & { open: boolean };
   forceOpen: boolean;
@@ -518,11 +519,13 @@ function CategoryRow({
   dim: boolean;
   onToggle: () => void;
   onNew: () => void;
+  onMenu: (e: React.MouseEvent) => void;
 }) {
   const uncat = row.key === "";
   return (
     <Box
       onClick={onToggle}
+      onContextMenu={onMenu}
       style={{
         display: "flex",
         alignItems: "center",
@@ -710,6 +713,8 @@ export default function Sidebar() {
       // 보고 있는 업무의 카테고리에서 연다 — 대개 그 묶음을 정리하려고 여는 것이다.
       run: () => s.openCatMgr(keyOf(tasks.find((t) => t.folder === s.activeFolder)?.category ?? null)),
     },
+    // 전체 허브(`_index/카테고리.md`)를 여는 곳은 여기뿐이다 — 묶음 머리 메뉴는 그 카테고리의 허브를 연다.
+    { label: "카테고리 허브 열기", run: () => void openCategoryHub(null) },
   ];
 
   const listRef = useRef<HTMLDivElement | null>(null);
@@ -1188,6 +1193,12 @@ export default function Sidebar() {
                   });
                 }}
                 onNew={() => openNew(r.path)}
+                // 놓은 직후의 우클릭도 접기와 같은 까닭으로 무시한다. 웹뷰 기본 메뉴는 늘 막는다.
+                onMenu={(e) => {
+                  e.preventDefault();
+                  if (drag || justDropped()) return;
+                  s.set({ catCtx: { x: e.clientX, y: e.clientY, key: r.key, path: r.path } });
+                }}
               />
             );
           }
