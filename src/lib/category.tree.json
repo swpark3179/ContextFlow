@@ -1,0 +1,77 @@
+[
+  { "note": "업무가 없으면 빈 목록", "cats": [], "nodes": [] },
+  {
+    "note": "미분류(null)는 세지 않는다",
+    "cats": [null, "a", null],
+    "nodes": [{ "key": "a", "path": "a", "depth": 1, "count": 1 }]
+  },
+  {
+    "note": "철자는 가장 많이 쓴 것",
+    "cats": ["a/X", "A/x", "a/x"],
+    "nodes": [
+      { "key": "a", "path": "a", "depth": 1, "count": 3 },
+      { "key": "a/x", "path": "a/x", "depth": 2, "count": 3 }
+    ]
+  },
+  {
+    "note": "동률이면 코드포인트 순으로 앞선 철자",
+    "cats": ["proj", "Proj"],
+    "nodes": [{ "key": "proj", "path": "Proj", "depth": 1, "count": 2 }]
+  },
+  {
+    "note": "세 철자가 동률",
+    "cats": ["Ab/c", "ab/C", "AB/c"],
+    "nodes": [
+      { "key": "ab", "path": "AB", "depth": 1, "count": 3 },
+      { "key": "ab/c", "path": "AB/c", "depth": 2, "count": 3 }
+    ]
+  },
+  {
+    "note": "형제는 키의 코드포인트 순 — 숫자 · 영문(대소문자 무시) · 한글",
+    "cats": ["b", "A", "가", "1", "Z", "나"],
+    "nodes": [
+      { "key": "1", "path": "1", "depth": 1, "count": 1 },
+      { "key": "a", "path": "A", "depth": 1, "count": 1 },
+      { "key": "b", "path": "b", "depth": 1, "count": 1 },
+      { "key": "z", "path": "Z", "depth": 1, "count": 1 },
+      { "key": "가", "path": "가", "depth": 1, "count": 1 },
+      { "key": "나", "path": "나", "depth": 1, "count": 1 }
+    ]
+  },
+  {
+    "note": "공백 · 구두점도 코드포인트 순(localeCompare 와 다르다)",
+    "cats": ["a b", "a-b", "ab"],
+    "nodes": [
+      { "key": "a b", "path": "a b", "depth": 1, "count": 1 },
+      { "key": "a-b", "path": "a-b", "depth": 1, "count": 1 },
+      { "key": "ab", "path": "ab", "depth": 1, "count": 1 }
+    ]
+  },
+  {
+    "note": "상위는 하위 업무로만 생기고 깊이 우선으로 편다",
+    "cats": ["프로젝트/ContextFlow/UI", "프로젝트/ContextFlow", "프로젝트/운영", "운영/점검"],
+    "nodes": [
+      { "key": "운영", "path": "운영", "depth": 1, "count": 1 },
+      { "key": "운영/점검", "path": "운영/점검", "depth": 2, "count": 1 },
+      { "key": "프로젝트", "path": "프로젝트", "depth": 1, "count": 3 },
+      { "key": "프로젝트/contextflow", "path": "프로젝트/ContextFlow", "depth": 2, "count": 2 },
+      { "key": "프로젝트/contextflow/ui", "path": "프로젝트/ContextFlow/UI", "depth": 3, "count": 1 },
+      { "key": "프로젝트/운영", "path": "프로젝트/운영", "depth": 2, "count": 1 }
+    ]
+  },
+  {
+    "note": "하위 경로는 상위의 표시 철자를 잇는다",
+    "cats": ["Proj/a", "proj/b", "proj/c"],
+    "nodes": [
+      { "key": "proj", "path": "proj", "depth": 1, "count": 3 },
+      { "key": "proj/a", "path": "proj/a", "depth": 2, "count": 1 },
+      { "key": "proj/b", "path": "proj/b", "depth": 2, "count": 1 },
+      { "key": "proj/c", "path": "proj/c", "depth": 2, "count": 1 }
+    ]
+  },
+  {
+    "note": "켈빈 기호(K)는 k 와 같은 키, 철자는 코드포인트가 앞선 k",
+    "cats": ["Kelvin", "kelvin"],
+    "nodes": [{ "key": "kelvin", "path": "kelvin", "depth": 1, "count": 2 }]
+  }
+]
