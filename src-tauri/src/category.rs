@@ -943,6 +943,41 @@ mod tests {
         assert_eq!(cats(root, &[&short, &long]), some(&["z/x", "z/b/c"]));
     }
 
+    /// 다 쓴 뒤의 목록 읽기가 막혀도 쓴 것을 오류로 돌리지 않는다 — 오류로 끝나면 화면이 같은 이동을
+    /// 다시 보내, 상위로 올리는 이동에서는 이미 옮긴 업무를 또 옮긴다. 루트로 돌면 권한으로 폴더를 막을
+    /// 수 없어 확인하지 못하니 그냥 지나간다.
+    #[cfg(unix)]
+    #[test]
+    fn a_blocked_folder_after_the_writes_is_not_an_error() {
+        use std::os::unix::fs::PermissionsExt;
+
+        struct Unblock(PathBuf);
+        impl Drop for Unblock {
+            fn drop(&mut self) {
+                let _ = fs::set_permissions(&self.0, fs::Permissions::from_mode(0o755));
+            }
+        }
+
+        let v = TempVault::new("rewrite-blocked");
+        let root = v.path();
+        let live = make_in(root, "진행 업무", "a");
+        let old = make_in(root, "보관 업무", "a");
+        let moved = set_archived(root, Path::new(&old.folder), true, "move", false).unwrap();
+        let year = Path::new(&moved.folder).parent().unwrap().to_path_buf();
+        fs::set_permissions(&year, fs::Permissions::from_mode(0o000)).unwrap();
+        let _unblock = Unblock(year.clone());
+        if fs::read_dir(&year).is_ok() {
+            return;
+        }
+
+        assert!(scan(root).is_err(), "막힌 폴더가 있으면 엄격한 훑기는 오류다");
+        let res = set_category(root, &[live.folder.clone()], Some("b")).unwrap();
+        assert_eq!(res.changed, vec![live.folder.clone()]);
+        let listed: Vec<_> = res.tasks.iter().map(|t| t.folder.clone()).collect();
+        assert_eq!(listed, vec![live.folder.clone()]);
+        assert_eq!(cat_of(root, &live).as_deref(), Some("b"));
+    }
+
     #[test]
     fn refuses_what_cannot_be_a_move() {
         let v = TempVault::new("move-refuse");

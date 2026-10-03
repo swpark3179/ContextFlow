@@ -57,6 +57,8 @@ let clash = false;
 let unreadable: string[] = [];
 /** 경로 바꾸기가 쓰기를 마친 뒤에 오류를 낸다. */
 let broken = false;
+/** 그사이 지워졌거나 편입돼 index.md 가 없는 업무 폴더. */
+let gone: string[] = [];
 
 const idx = (folder: string) => `${folder}/index.md`;
 const scanned = () => vault.filter((t) => !unreadable.includes(t.folder));
@@ -108,6 +110,8 @@ vi.mock("@tauri-apps/api/core", () => ({
       }
       case "scan_vault":
         return scanned();
+      case "path_exists":
+        return !gone.some((f) => args.path === `${f}/index.md`);
       default:
         return undefined;
     }
@@ -150,6 +154,7 @@ beforeEach(() => {
   clash = false;
   unreadable = [];
   broken = false;
+  gone = [];
   vault = [
     task(A, "결제 점검", "a/b"),
     task(B, "결제 설계", "a/b/c", true),
@@ -412,6 +417,17 @@ describe("moveCategoryNode — 경로 바꾸기", () => {
     expect(argsOf("move_category", 2)).toMatchObject({ only: [C], allowMerge: true });
     expect(mgr()).toMatchObject({ failed: [], retry: null });
     expect(vault.map((t) => t.category)).toEqual(["x", "x/c", "x", "a/c"]);
+  });
+
+  it("그사이 지워진 업무는 실패로 적지 않는다 — 다시 보낼 것이 없다", async () => {
+    open();
+    // 대화상자의 목록에는 있었지만 그사이 지워졌다(또는 다른 업무에 편입됐다).
+    vault = vault.filter((t) => t.folder !== C);
+    gone = [C];
+
+    await st().moveCategoryNode("a/b", "x", false);
+
+    expect(mgr()).toMatchObject({ failed: [], retry: null });
   });
 
   it("목적지가 안 되면 아무것도 부르지 않는다 — 자기 하위 · 미분류", async () => {

@@ -196,8 +196,18 @@ function CategoryBody() {
       );
   const n = changing.length;
   const nKept = changing.filter(arch).length;
-  // 제자리로 가는 예시는 보여 줄 것이 없다.
-  const example = plan?.example && plan.example.from !== plan.example.to ? plan.example : null;
+  // 예시는 실제로 바뀌는 업무 가운데 가장 깊은 것 — 제자리로 가는 업무로는 보여 줄 것이 없다.
+  const example = (() => {
+    if (!plan || plan.invalid) return null;
+    let best: { from: string; to: string | null; depth: number } | null = null;
+    for (const t of plan.targets) {
+      const r = retarget(t.category, node, plan.value);
+      if (!r || r.error || r.value === t.category) continue;
+      const depth = segments(t.category).length;
+      if (!best || depth > best.depth) best = { from: t.category!, to: r.value, depth };
+    }
+    return best;
+  })();
   const editReady = !m.busy && ok && n > 0;
 
   const retry = async () => {

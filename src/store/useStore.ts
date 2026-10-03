@@ -940,24 +940,34 @@ async function changeCategoryNode(
         op.kind === "none"
           ? await api.clearCategory(vault, from, only)
           : await api.moveCategory(vault, from, to, allowMerge, only);
+      // 백엔드는 읽지 못한 노트를 목록에서 뺄 뿐 실패로 내지 않는다. 그런 노트는 옛 카테고리로 남으니
+      // 옛 노드도 남는다(접힘을 지킨다). 그사이 지워졌거나 편입된 업무는 index.md 가 없어 여기서 빠진다.
+      const seen = new Set([...res.changed, ...res.failed.map((f) => f.folder), ...res.tasks.map((t) => t.folder)]);
+      const unread: typeof planned = [];
+      for (const t of planned.filter((t) => !seen.has(t.folder))) {
+        if (await api.pathExists(joinPath(t.folder, "index.md")).catch(() => true)) unread.push(t);
+      }
       // 업무와 **같은 틱에** 옮긴다 — 사이에 그려지면 트리 · 보관함이 사라진 키를 보고 접힘과
       // 거르기를 놓아 버린다. 하나도 못 바꿨으면 노드는 제자리라 따라가지 않는다.
       if (!res.changed.length) useStore.setState({ tasks: res.tasks });
       else {
-        const { patch, closed } = followMove(useStore.getState(), from, next, before, res.tasks, op.kind === "none");
+        const stay = st.tasks.filter((t) => unread.some((u) => u.folder === t.folder));
+        const { patch, closed } = followMove(
+          useStore.getState(),
+          from,
+          next,
+          before,
+          [...res.tasks, ...stay],
+          op.kind === "none",
+        );
         useStore.setState({ tasks: res.tasks, ...patch });
         if (closed) st.patchSettings({ catClosed: closed });
       }
       await useStore.getState().resyncIndexDocs(res.changed);
-      return res;
+      return { ...res, unread };
     });
-    // 백엔드는 읽지 못한 노트를 목록에서 뺄 뿐 실패로 내지 않는다 — 옛 카테고리로 남으니 실패로 적어
-    // [다시 시도] 가 함께 보내게 한다.
-    const seen = new Set([...res.changed, ...res.failed.map((f) => f.folder), ...res.tasks.map((t) => t.folder)]);
-    const failed = [
-      ...res.failed,
-      ...planned.filter((t) => !seen.has(t.folder)).map(({ folder, title }) => ({ folder, title, reason: SKIPPED })),
-    ];
+    // 읽지 못한 노트는 실패로 적어 [다시 시도] 가 함께 보내게 한다.
+    const failed = [...res.failed, ...res.unread.map(({ folder, title }) => ({ folder, title, reason: SKIPPED }))];
     patchCatMgr({
       edit: null,
       failed,
