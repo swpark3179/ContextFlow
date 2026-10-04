@@ -72,6 +72,9 @@ export default function Wiki() {
     answer: true,
   });
 
+  // 화면에 들어왔다 — 도크의 `+N 반영` 은 여기서 지운다.
+  useEffect(() => useWiki.getState().seenFresh(), []);
+
   // 화면에 들어올 때 위키 폴더를 마련하고(씨앗은 없을 때만) 상태를 다시 읽는다.
   useEffect(() => {
     if (!vault) return;

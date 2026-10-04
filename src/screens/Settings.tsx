@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Box, Input } from "../lib/ui";
-import { VIOLET } from "../lib/design";
+import { AiSignal, AiStep, Box, Input } from "../lib/ui";
+import { AI, AI_SIGNAL_KINDS, TEXT, VIOLET } from "../lib/design";
 import { OptionCard } from "../modals/Modal";
 import { useStore, type Settings as S } from "../store/useStore";
 import * as api from "../lib/api";
@@ -215,6 +215,95 @@ export default function Settings() {
                 onClick={() => s.patchSettings({ mdDefault: "text" })}
               />
             </div>
+          </div>
+        </div>
+
+        {/* AI 작업 표시 -------------------------------------------------- */}
+        <div style={cardStyle}>
+          <div style={headStyle}>AI 작업 표시</div>
+          <div style={rowStyle}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 12.5, fontWeight: 500 }}>신호 점 모양</div>
+              <div style={{ fontSize: 11.5, color: TEXT.sub, marginTop: 2, lineHeight: 1.5 }}>
+                AI 가 일하는 동안 단추 · 단계 · 도크에 뜨는 보라 점. 움직이는 보라는 늘 "AI 가 지금 일한다"는 뜻입니다.
+              </div>
+            </div>
+            <div role="radiogroup" style={{ display: "flex", gap: 6 }}>
+              {AI_SIGNAL_KINDS.map(([k, name]) => {
+                const on = settings.aiSignal === k;
+                return (
+                  <Box
+                    key={k}
+                    role="radio"
+                    aria-checked={on}
+                    onClick={() => s.patchSettings({ aiSignal: k })}
+                    style={{
+                      width: 74,
+                      height: 58,
+                      borderRadius: 7,
+                      border: `1px solid ${on ? "#bda9f0" : "#e6e2da"}`,
+                      background: on ? "#faf7ff" : "#fff",
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 8,
+                      cursor: "pointer",
+                    }}
+                    hover={{ borderColor: on ? "#bda9f0" : "#d6d0c6" }}
+                  >
+                    <span style={{ height: 18, display: "flex", alignItems: "center" }}>
+                      <AiSignal size={9} kind={k} />
+                    </span>
+                    <span style={{ fontSize: 11.5, color: on ? AI.fg : TEXT.body, fontWeight: on ? 600 : 400 }}>
+                      {name}
+                    </span>
+                  </Box>
+                );
+              })}
+            </div>
+          </div>
+          <div style={rowStyle}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 12.5, fontWeight: 500 }}>움직임 줄이기</div>
+              <div style={{ fontSize: 11.5, color: TEXT.sub, marginTop: 2, lineHeight: 1.5 }}>
+                줄이면 흐르는 빛 · 링 · 진행 띠가 모두 느린 깜빡임 하나로 바뀝니다. 신호는 남아서 멈춘 것과 구분됩니다.
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 4 }}>
+              <Chip
+                on={settings.motion === "system"}
+                label="시스템 설정 따르기"
+                onClick={() => s.patchSettings({ motion: "system" })}
+              />
+              <Chip
+                on={settings.motion === "reduce"}
+                label="항상 줄이기"
+                onClick={() => s.patchSettings({ motion: "reduce" })}
+              />
+            </div>
+          </div>
+          {/* 미리보기 — 고른 모양 · 움직임이 실제 화면에서 어떻게 보이는지. */}
+          <div style={{ padding: "10px 12px", display: "flex", alignItems: "center", gap: 9, background: "#faf9f6" }}>
+            <span style={{ fontSize: 11.5, color: TEXT.sub, flex: "0 0 auto" }}>미리보기</span>
+            <span
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                fontSize: 12.5,
+                fontWeight: 500,
+                padding: "5px 9px",
+                borderRadius: 6,
+                background: AI.soft,
+                border: `1px solid ${AI.softBd}`,
+              }}
+            >
+              <span style={{ width: 16, display: "flex", justifyContent: "center" }}>
+                <AiSignal />
+              </span>
+              <AiStep>웹 페이지 읽는 중 2/3 · v2.tauri.app</AiStep>
+            </span>
           </div>
         </div>
 

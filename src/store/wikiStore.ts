@@ -41,6 +41,11 @@ interface WikiState {
   error: string | null;
   queue: QueueItem[];
   running: boolean;
+  /**
+   * 위키 화면 밖에 있는 동안 반영을 마친 업무 수. 사이드바 도크가 `+N 반영` 으로 보여 주고,
+   * 위키 화면에 들어오면 지운다(`seenFresh`) — 토스트를 놓쳐도 새로 쌓인 것이 남는다.
+   */
+  fresh: number;
 
   refresh: () => Promise<void>;
   /** 반영 대기열에 넣는다. 이미 대기 중이거나 도는 중이면 무시한다. */
@@ -51,6 +56,8 @@ interface WikiState {
   cancel: () => void;
   /** 끝난 항목(성공 · 실패 · 취소)을 목록에서 치운다. */
   clearFinished: () => void;
+  /** 위키 화면을 봤다 — `fresh` 를 지운다. */
+  seenFresh: () => void;
 }
 
 /** 지금 도는 반영의 취소 손잡이. 상태가 아니라 손잡이라 스토어 밖에 둔다. */
@@ -123,6 +130,8 @@ export const useWiki = create<WikiState>((set, get) => {
       set({ running: false });
       const { done, failed, pages } = batch;
       batch = { done: 0, failed: 0, pages: 0 };
+      // 위키 화면을 보고 있으면 새로 쌓인 것이 이미 눈앞에 있다.
+      if (done && useStore.getState().screen !== "wiki") set((s) => ({ fresh: s.fresh + done }));
       // 반영은 화면에 보이지 않는 곳(Wiki/ 폴더)에서 일어난다 — 끝났다는 사실 자체를 알린다.
       if (done || failed) {
         const toast = useStore.getState().toast;
@@ -147,6 +156,7 @@ export const useWiki = create<WikiState>((set, get) => {
     error: null,
     queue: [],
     running: false,
+    fresh: 0,
 
     refresh: async () => {
       const { vault, archDays } = useStore.getState().settings;
@@ -190,5 +200,9 @@ export const useWiki = create<WikiState>((set, get) => {
 
     clearFinished: () =>
       set((s) => ({ queue: s.queue.filter((q) => q.state === "queued" || q.state === "running") })),
+
+    seenFresh: () => {
+      if (get().fresh) set({ fresh: 0 });
+    },
   };
 });

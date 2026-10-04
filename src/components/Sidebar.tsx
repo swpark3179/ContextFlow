@@ -53,6 +53,7 @@ function WikiDock() {
     (w) => w.queue.filter((q) => q.state !== "queued" && q.state !== "running").length,
   );
   const current = useWiki((w) => w.queue.find((q) => q.state === "running"));
+  const fresh = useWiki((w) => w.fresh);
   const on = screen === "wiki";
   if (running && total > 0) {
     return (
@@ -131,7 +132,27 @@ function WikiDock() {
           flex: "0 0 9px",
         }}
       />
-      <span style={{ fontSize: 11.5, color: TEXT.sub, flex: 1, minWidth: 0 }}>위키</span>
+      <span style={{ fontSize: 11.5, color: TEXT.sub, flex: fresh ? "0 1 auto" : 1, minWidth: 0 }}>위키</span>
+      {fresh > 0 && (
+        <span
+          className="cf-up"
+          title="위키 화면 밖에 있는 동안 반영을 마친 업무 수 — 위키를 열면 지워집니다"
+          style={{
+            flex: "0 0 auto",
+            fontSize: 11,
+            fontWeight: 600,
+            color: AI.fg,
+            background: AI.bg,
+            borderRadius: 3,
+            padding: "0 5px",
+            lineHeight: "16px",
+            whiteSpace: "nowrap",
+          }}
+        >
+          +{fresh} 반영
+        </span>
+      )}
+      {fresh > 0 && <span style={{ flex: 1 }} />}
       <span
         style={{
           fontFamily: "'Roboto Mono',monospace",

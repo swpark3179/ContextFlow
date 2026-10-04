@@ -146,7 +146,7 @@ beforeEach(() => {
     },
     packs: [],
   });
-  useWiki.setState({ queue: [], running: false, status: null });
+  useWiki.setState({ queue: [], running: false, status: null, fresh: 0 });
 });
 
 describe("위키 반영 큐", () => {
@@ -177,6 +177,24 @@ describe("위키 반영 큐", () => {
 
     expect(useWiki.getState().queue[0]).toMatchObject({ state: "done", written: 1 });
     expect(useStore.getState().toasts.at(-1)?.title).toBe("위키에 반영했습니다");
+  });
+
+  /** 토스트는 몇 초 뒤 사라진다 — 위키 화면 밖에서 끝난 반영은 도크에 `+N 반영` 으로 남긴다. */
+  it("위키 화면 밖에서 마친 반영 수를 쌓고, 위키를 보면 지운다", async () => {
+    useStore.setState({ screen: "workspace" });
+    useWiki.getState().enqueue("task-1", "배포 정리");
+    await drained();
+    expect(useWiki.getState().fresh).toBe(1);
+
+    useWiki.getState().seenFresh();
+    expect(useWiki.getState().fresh).toBe(0);
+  });
+
+  it("위키 화면을 보는 중에 끝난 반영은 쌓지 않는다", async () => {
+    useStore.setState({ screen: "wiki" });
+    useWiki.getState().enqueue("task-1", "배포 정리");
+    await drained();
+    expect(useWiki.getState().fresh).toBe(0);
   });
 
   it("업무 카테고리를 관련 페이지 검색어와 프롬프트에 싣는다", async () => {
