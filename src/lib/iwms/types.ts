@@ -127,6 +127,62 @@ export interface IwmsPush {
   undoneAt: string | null;
 }
 
+/** i-WMS 에 덧붙일 행 하나(Rust `day::NewRow`). `entryId` · `title` 은 입력 이력에만 남는다. */
+export interface NewRow {
+  entryId: number | null;
+  title: string;
+  ciKey: string;
+  wbsid: string;
+  minutes: number;
+  note: string;
+  reqDate: string;
+  /** 고른 대가 구분 — 백엔드가 카테고리의 `priceType` 과 같은지 한 번 더 본다. */
+  price: Price;
+}
+
+export interface CategoryDiff {
+  ciKey: string;
+  ciName: string;
+  wbsid: string;
+  task: string;
+  priceType: string;
+  before: IwmsRow[];
+  after: IwmsRow[];
+  added: number;
+  removed: number;
+}
+
+export interface IwmsPreview {
+  workDate: string;
+  diffs: CategoryDiff[];
+  beforeMinutes: number;
+  afterMinutes: number;
+  standardMinutes: number;
+  maxMinutes: number;
+  warnings: string[];
+}
+
+export interface PreviewOut {
+  /** 확정할 때 돌려줄 일회용 토큰(10분). */
+  token: string;
+  preview: IwmsPreview;
+}
+
+export interface CommitOut {
+  commitId: string;
+  preview: IwmsPreview;
+  /** 저장 뒤 다시 조회해 기대한 행과 같았다. */
+  verified: boolean;
+  mismatches: string[];
+  pushes: IwmsPush[];
+}
+
+export interface UndoOut {
+  preview: IwmsPreview;
+  verified: boolean;
+  mismatches: string[];
+}
+
 /** 카테고리의 키. 같은 `wbsid` 가 두 탭(대가포함 · 비대상)에 있을 수 있어 탭까지 묶는다. */
 export function categoryKey(c: { ciKey: string; wbsid: string }): string {
   return `${c.ciKey}|${c.wbsid}`;

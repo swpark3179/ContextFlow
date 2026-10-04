@@ -24,9 +24,12 @@ interface IwmsState {
   connect: () => Promise<IwmsStatus>;
   disconnect: () => Promise<void>;
   /**
-   * 그날의 i-WMS 현황. 세션이 없거나 만료면 **한 번** 다시 연결하고 다시 묻는다 — 사내 SSO 라
-   * 창이 잠깐 떴다 닫히는 것으로 끝나는 일이 대부분이다.
+   * i-WMS 커맨드를 부른다. 세션이 없거나 만료면(`iwms_session`) **한 번** 다시 연결하고 다시 부른다 — 사내
+   * SSO 라 창이 잠깐 떴다 닫히는 것으로 끝나는 일이 대부분이다. 확정(`iwmsCommit`)에는 쓰지 않는다 — 토큰이
+   * 한 번 쓰이면 사라지므로 다시 미리봐야 한다.
    */
+  call: <T>(fn: () => Promise<T>) => Promise<T>;
+  /** 그날의 i-WMS 현황(`call` 로). */
   day: (date: string) => Promise<IwmsDay>;
 
   /**
@@ -80,16 +83,18 @@ export const useIwms = create<IwmsState>((set, get) => ({
     set({ status: await iwms.iwmsStatus() });
   },
 
-  day: async (date) => {
+  call: async (fn) => {
     try {
-      return await iwms.iwmsDay(date);
+      return await fn();
     } catch (e) {
       if (api.errKind(e) !== "iwms_session") throw e;
       const status = await get().connect();
       if (!status.connected) throw new Error(status.message);
-      return await iwms.iwmsDay(date);
+      return await fn();
     }
   },
+
+  day: (date) => get().call(() => iwms.iwmsDay(date)),
 
   push: null,
   pushBusy: false,

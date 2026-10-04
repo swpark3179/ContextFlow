@@ -5,8 +5,8 @@
 //! `priceType` 이 `O`(운영) 면 대가포함, `N`(비대상) 이면 대가미포함이다.
 
 use chrono::NaiveDate;
-use serde::Serialize;
-use serde_json::Value;
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 
 use super::client::{flag, num, s};
 
@@ -243,6 +243,353 @@ pub fn summarize(mh_list: &Value, init: &Value, work_date: &str, user_id: &str, 
     })
 }
 
+// ---------------------------------------------------------------------------
+// 쓰기 계획 — 저장 페이로드 · 미리보기 · 검증
+// ---------------------------------------------------------------------------
+//
+// 저장은 **탭을 통째로 바꾼다**(auto-wms `MH-INPUT-SCREENS.md` §6.2). 그래서 조회한 탭을 원형(`Value`)
+// 그대로 복제해 대상 카테고리의 행만 바꿔 끼우고, 건드린 탭만 싣는다. 이 앱의 규칙은 **덧붙이기**다 —
+// 그 카테고리에 이미 있는 행은 원형 그대로 두고 순번만 다시 매기며, 새 행은 그 뒤에 붙인다. 지우는 것은
+// 이 앱이 넣은 행(되돌리기)뿐이다.
+
+/// 상세내용 상한(i-WMS 화면 · 서버).
+pub const NOTE_MAX: usize = 1000;
+/// 하루 상한. i-WMS 화면이 저장 전에 막는 유일한 값이다.
+pub const DAY_LIMIT: i64 = 1440;
+
+/// 덧붙일 행 하나. `entry_id` · `title` 은 i-WMS 로 가지 않고 입력 이력(`iwms_pushes`)에만 남는다.
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct NewRow {
+    #[serde(default)]
+    pub entry_id: Option<i64>,
+    #[serde(default)]
+    pub title: String,
+    pub ci_key: String,
+    pub wbsid: String,
+    pub minutes: i64,
+    pub note: String,
+    /// `YYYY-MM-DD` 또는 빈 값.
+    #[serde(default)]
+    pub req_date: String,
+    /// 사용자가 고른 대가 구분(`O` · `N`). 주면 카테고리의 `priceType` 과 같아야 한다 — 대가포함 업무가
+    /// 비대상 탭에 들어가는 일을 저장 전에 막는다.
+    #[serde(default)]
+    pub price: String,
+}
+
+/// 지울 행 — 이 앱이 넣은 그대로의 값으로 찾는다.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Removal {
+    pub ci_key: String,
+    pub wbsid: String,
+    pub minutes: i64,
+    pub note: String,
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CategoryDiff {
+    pub ci_key: String,
+    pub ci_name: String,
+    pub wbsid: String,
+    pub task: String,
+    pub price_type: String,
+    /// 저장 전 그 카테고리에 있던 행(값이 있는 것).
+    pub before: Vec<Row>,
+    /// 저장 뒤 그 카테고리의 행.
+    pub after: Vec<Row>,
+    pub added: usize,
+    pub removed: usize,
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Preview {
+    pub work_date: String,
+    pub diffs: Vec<CategoryDiff>,
+    pub before_minutes: i64,
+    pub after_minutes: i64,
+    pub standard_minutes: i64,
+    pub max_minutes: i64,
+    pub warnings: Vec<String>,
+}
+
+/// 쓰기 하나의 계획. `tabs` 는 저장에 실을 탭(건드린 것만, 모든 행 포함)이다.
+#[derive(Clone, Debug)]
+pub struct Plan {
+    pub tabs: Vec<Value>,
+    pub preview: Preview,
+    /// 카테고리별 저장 전 원형 행 — 입력 이력에 남겨 손으로 되살릴 근거로 둔다.
+    pub before: Vec<(String, String, Vec<Value>)>,
+    /// 카테고리별 저장 뒤 기대하는 행 — 재조회 검증에 쓴다.
+    pub expected: Vec<(String, String, Vec<Row>)>,
+}
+
+/// 원형 행에 쓰는 필드만 바꾼다. 나머지(`taskId` · `sequence` · 사용자 정보 …)는 그대로 나간다.
+fn set_row(row: &mut Value, minutes: i64, note: Option<&str>, req_date: &str) {
+    row["mh"] = json!(minutes);
+    row["orgmh"] = json!(minutes);
+    row["note"] = note.map(|n| json!(n)).unwrap_or(Value::Null);
+    row["reqDate"] = json!(req_date);
+    row["exceptTimeYn"] = json!("0");
+    row["exceptDayYn"] = json!("0");
+}
+
+/// 같은 카테고리의 행이 여럿이면 `rowseq` 1..n · `rowspan` n (§6.4).
+fn renumber(rows: &mut [Value]) {
+    let n = rows.len() as i64;
+    for (i, r) in rows.iter_mut().enumerate() {
+        r["rowseq"] = json!(i as i64 + 1);
+        r["rowspan"] = json!(n);
+    }
+}
+
+fn tab_index(mh_list: &Value, ci_key: &str) -> Option<usize> {
+    tabs(mh_list).ok()?.iter().position(|t| tab_key(t) == ci_key)
+}
+
+fn sum_minutes(mh_list: &Value) -> i64 {
+    tabs(mh_list)
+        .map(|ts| ts.iter().flat_map(|t| tab_rows(t)).map(|r| num(r, "mh").unwrap_or(0)).sum())
+        .unwrap_or(0)
+}
+
+/// 카테고리 키를 처음 나온 순서대로 묶는다.
+pub fn group_keys<'a>(keys: impl Iterator<Item = (&'a str, &'a str)>) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    for (c, w) in keys {
+        if !out.iter().any(|(a, b)| a == c && b == w) {
+            out.push((c.to_string(), w.to_string()));
+        }
+    }
+    out
+}
+
+/// 대상 카테고리들의 지금 상태 — 미리보기와 확정 사이에 i-WMS 에서 바뀌었는지 이것을 견준다.
+/// 해시 대신 정규화한 글 그대로를 견준다(의존성을 늘리지 않고, 정확하다).
+pub fn state_of(mh_list: &Value, keys: &[(String, String)]) -> String {
+    let mut sorted = keys.to_vec();
+    sorted.sort();
+    let state: Vec<Value> = sorted
+        .iter()
+        .map(|(ci, wbs)| {
+            let rows: Vec<Value> = tab_index(mh_list, ci)
+                .and_then(|i| tabs(mh_list).ok().map(|ts| tab_rows(&ts[i]).to_vec()))
+                .unwrap_or_default()
+                .iter()
+                .filter(|r| s(r, "wbsid") == *wbs)
+                .map(|r| {
+                    json!([num(r, "mh").unwrap_or(0), s(r, "note"), s(r, "reqDate"), s(r, "exceptTimeYn"),
+                           s(r, "exceptDayYn"), num(r, "rowseq").unwrap_or(1)])
+                })
+                .collect();
+            json!([ci, wbs, rows])
+        })
+        .collect();
+    Value::Array(state).to_string()
+}
+
+/// 저장 뒤 다시 조회한 값이 기대와 같은가. 순번은 서버가 다시 매길 수 있어 보지 않는다.
+pub fn verify(mh_list: &Value, expected: &[(String, String, Vec<Row>)]) -> Vec<String> {
+    let key = |r: &Row| (r.minutes, r.note.trim().to_string(), r.req_date.clone(), r.except_time, r.except_day);
+    let mut bad = Vec::new();
+    for (ci, wbs, want) in expected {
+        let actual: Vec<Row> = tab_index(mh_list, ci)
+            .and_then(|i| tabs(mh_list).ok().map(|ts| tab_rows(&ts[i]).to_vec()))
+            .unwrap_or_default()
+            .iter()
+            .filter(|r| s(r, "wbsid") == *wbs && row_active(r))
+            .map(row_view)
+            .collect();
+        let mut a: Vec<_> = actual.iter().map(key).collect();
+        let mut w: Vec<_> = want.iter().map(key).collect();
+        a.sort();
+        w.sort();
+        if a != w {
+            bad.push(format!("{ci}/{wbs}: 기대 {}행 {}분, 실제 {}행 {}분", w.len(), w.iter().map(|x| x.0).sum::<i64>(),
+                             a.len(), a.iter().map(|x| x.0).sum::<i64>()));
+        }
+    }
+    bad
+}
+
+/// 행을 바꿔 끼우는 공통 길 — `change(활성 원형 행, 기준 행) → 새 행들` 로 카테고리마다 정한다.
+fn plan_with(
+    mh_list: &Value,
+    init: &Value,
+    keys: &[(String, String)],
+    work_date: &str,
+    today: &str,
+    mut change: impl FnMut(&str, &str, Vec<Value>, &Value) -> Result<Vec<Value>, String>,
+) -> Result<Plan, String> {
+    if approved(init) {
+        return Err(format!("{work_date} 은 결재가 끝난 날이라 바꿀 수 없습니다"));
+    }
+    let mut source = mh_list.clone();
+    let before_minutes = sum_minutes(mh_list);
+    let mut touched: Vec<usize> = Vec::new();
+    let mut diffs = Vec::new();
+    let mut before = Vec::new();
+    let mut expected = Vec::new();
+
+    for (ci, wbs) in keys {
+        let ti = tab_index(&source, ci).ok_or_else(|| format!("그날 i-WMS 에 없는 탭입니다: {ci}"))?;
+        let tab = &mut source["operationNonObjectMhList"][ti];
+        if let Some(why) = tab_blocked(tab, work_date, today) {
+            return Err(format!("{}: {why}", tab_name(tab)));
+        }
+        let ci_name = tab_name(tab);
+        let rows = tab
+            .get_mut("mhList")
+            .and_then(Value::as_array_mut)
+            .ok_or_else(|| format!("{ci_name} 탭에 행 목록이 없습니다"))?;
+        let idxs: Vec<usize> = rows.iter().enumerate().filter(|(_, r)| s(r, "wbsid") == *wbs).map(|(i, _)| i).collect();
+        let at = *idxs.first().ok_or_else(|| format!("그날 {ci_name} 탭에 없는 카테고리입니다: {wbs}"))?;
+        let base = rows[at].clone();
+        let raw: Vec<Value> = idxs.iter().map(|i| rows[*i].clone()).collect();
+        let active: Vec<Value> = raw.iter().filter(|r| row_active(r)).cloned().collect();
+        let before_rows: Vec<Row> = active.iter().map(row_view).collect();
+
+        let mut next = change(ci, wbs, active, &base)?;
+        if next.is_empty() {
+            // 다 지웠으면 빈 자리 한 줄을 남긴다 — 탭에 그 카테고리가 계속 보여야 한다.
+            let mut empty = base.clone();
+            set_row(&mut empty, 0, None, "");
+            next.push(empty);
+        }
+        renumber(&mut next);
+        let after_rows: Vec<Row> = next.iter().filter(|r| row_active(r)).map(row_view).collect();
+
+        for i in idxs.iter().rev() {
+            rows.remove(*i);
+        }
+        for (k, r) in next.into_iter().enumerate() {
+            rows.insert(at + k, r);
+        }
+        if !touched.contains(&ti) {
+            touched.push(ti);
+        }
+        diffs.push(CategoryDiff {
+            ci_key: ci.clone(),
+            ci_name,
+            wbsid: wbs.clone(),
+            task: s(&base, "wbsname7"),
+            price_type: s(&base, "priceType"),
+            added: after_rows.len().saturating_sub(before_rows.len()),
+            removed: before_rows.len().saturating_sub(after_rows.len()),
+            before: before_rows,
+            after: after_rows.clone(),
+        });
+        before.push((ci.clone(), wbs.clone(), raw));
+        expected.push((ci.clone(), wbs.clone(), after_rows));
+    }
+
+    let after_minutes = sum_minutes(&source);
+    if after_minutes > DAY_LIMIT {
+        return Err(format!("하루 합계가 {after_minutes}분이 되어 상한 {DAY_LIMIT}분을 넘습니다"));
+    }
+    let standard = num(init, "standardTime").unwrap_or(480);
+    let max = num(init, "maxDailyTime").unwrap_or(standard);
+    let mut warnings = Vec::new();
+    if after_minutes != standard {
+        let d = after_minutes - standard;
+        warnings.push(format!(
+            "저장 뒤 합계 {after_minutes}분 — 기준 {standard}분보다 {}분 {}",
+            d.abs(),
+            if d > 0 { "많습니다" } else { "적습니다" }
+        ));
+    }
+    if after_minutes > max && max != standard {
+        warnings.push(format!("최대 {max}분을 넘습니다"));
+    }
+    touched.sort_unstable();
+    let out_tabs = touched.iter().map(|i| source["operationNonObjectMhList"][*i].clone()).collect();
+    Ok(Plan {
+        tabs: out_tabs,
+        preview: Preview {
+            work_date: work_date.to_string(),
+            diffs,
+            before_minutes,
+            after_minutes,
+            standard_minutes: standard,
+            max_minutes: max,
+            warnings,
+        },
+        before,
+        expected,
+    })
+}
+
+/// 덧붙이기 계획. 입력을 먼저 전부 검사한다(분 · 상세내용 · 같은 카테고리의 대가 구분).
+pub fn plan_append(mh_list: &Value, init: &Value, rows: &[NewRow], work_date: &str, today: &str) -> Result<Plan, String> {
+    if rows.is_empty() {
+        return Err("넣을 행이 없습니다".into());
+    }
+    for r in rows {
+        let label = if r.title.is_empty() { r.wbsid.as_str() } else { r.title.as_str() };
+        if r.minutes <= 0 || r.minutes > DAY_LIMIT {
+            return Err(format!("{label}: 분은 1~{DAY_LIMIT} 사이여야 합니다"));
+        }
+        if r.note.trim().is_empty() {
+            return Err(format!("{label}: 상세내용이 비어 있습니다 — i-WMS 가 저장을 거부합니다"));
+        }
+        if r.note.chars().count() > NOTE_MAX {
+            return Err(format!("{label}: 상세내용이 {NOTE_MAX}자를 넘습니다"));
+        }
+        if !r.req_date.is_empty() && normalize_date(&r.req_date).is_err() {
+            return Err(format!("{label}: 요청일 형식이 아닙니다({})", r.req_date));
+        }
+    }
+    let keys = group_keys(rows.iter().map(|r| (r.ci_key.as_str(), r.wbsid.as_str())));
+    plan_with(mh_list, init, &keys, work_date, today, |ci, wbs, active, base| {
+        let mut next = active;
+        let price = s(base, "priceType");
+        for r in rows.iter().filter(|r| r.ci_key == ci && r.wbsid == wbs) {
+            if !r.price.is_empty() && r.price != price {
+                return Err(format!("{}: 대가 구분({})과 카테고리의 대가 구분({price})이 다릅니다", r.title, r.price));
+            }
+            let mut row = base.clone();
+            set_row(&mut row, r.minutes, Some(r.note.trim()), &r.req_date);
+            next.push(row);
+        }
+        Ok(next)
+    })
+}
+
+/// 되돌리기 계획 — 이 앱이 넣은 행만 지운다(분 · 상세내용으로 찾는다). 못 찾으면 그사이 바뀐 것이라 거절한다.
+pub fn plan_remove(mh_list: &Value, init: &Value, removals: &[Removal], work_date: &str, today: &str) -> Result<Plan, String> {
+    if removals.is_empty() {
+        return Err("되돌릴 행이 없습니다".into());
+    }
+    let keys = group_keys(removals.iter().map(|r| (r.ci_key.as_str(), r.wbsid.as_str())));
+    plan_with(mh_list, init, &keys, work_date, today, |ci, wbs, active, _| {
+        let mut next = active;
+        for r in removals.iter().filter(|r| r.ci_key == ci && r.wbsid == wbs) {
+            let at = next
+                .iter()
+                .position(|x| num(x, "mh").unwrap_or(0) == r.minutes && s(x, "note").trim() == r.note.trim())
+                .ok_or_else(|| {
+                    format!("{wbs} 에서 이 앱이 넣은 행({}분)을 찾지 못했습니다 — 그사이 i-WMS 에서 바뀌었습니다", r.minutes)
+                })?;
+            next.remove(at);
+        }
+        Ok(next)
+    })
+}
+
+/// 저장 요청 본문(§6.2). 기준을 넘으면 'MH 정상 확인' 을 켠다 — i-WMS 화면이 그렇게 보낸다.
+pub fn payload(plan: &Plan, init: &Value, user_id: &str, ymd: &str) -> Value {
+    json!({
+        "clickMHConfirm": plan.preview.after_minutes > plan.preview.standard_minutes,
+        "userId": user_id,
+        "workDate": ymd,
+        "improvedFlag": init.get("improvedFlag").and_then(Value::as_bool).unwrap_or(true),
+        "mhList": plan.tabs,
+        "mhInputVOList": [],
+    })
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -316,5 +663,136 @@ pub(crate) mod tests {
     #[test]
     fn a_response_without_tabs_is_an_error() {
         assert!(summarize(&json!({"checkAuthMessage":"FAIL"}), &json!({}), "2026-10-02", "u", TODAY).is_err());
+    }
+
+    // -- 쓰기 계획 ------------------------------------------------------------
+
+    const DAY: &str = "2026-10-02";
+
+    fn row(ci: &str, wbs: &str, minutes: i64, note: &str) -> NewRow {
+        NewRow {
+            entry_id: Some(1),
+            title: "t".into(),
+            ci_key: ci.into(),
+            wbsid: wbs.into(),
+            minutes,
+            note: note.into(),
+            req_date: String::new(),
+            price: String::new(),
+        }
+    }
+
+    fn rows_of<'a>(tab: &'a Value, wbs: &str) -> Vec<&'a Value> {
+        tab_rows(tab).iter().filter(|r| s(r, "wbsid") == wbs).collect()
+    }
+
+    #[test]
+    fn appending_keeps_existing_rows_and_renumbers() {
+        let (mh, init) = sample();
+        let plan = plan_append(&mh, &init, &[row("MSPCMDBCHG-000001", "nbbc100000", 20, "C-3. 셋째")], DAY, TODAY).unwrap();
+        assert_eq!(plan.tabs.len(), 1, "건드린 탭만 싣는다");
+        let tab = &plan.tabs[0];
+        assert_eq!(tab_rows(tab).len(), 5, "그 탭의 모든 행이 실린다(빈 자리 포함)");
+        let cat = rows_of(tab, "nbbc100000");
+        let seen: Vec<_> = cat.iter().map(|r| (num(r, "rowseq").unwrap(), num(r, "rowspan").unwrap(), num(r, "mh").unwrap(), s(r, "note"))).collect();
+        assert_eq!(seen, [(1, 3, 30, "B-1. 첫째".into()), (2, 3, 45, "B-2. 둘째".into()), (3, 3, 20, "C-3. 셋째".into())]);
+        assert_eq!(s(cat[0], "reqDate"), "2026-10-01", "기존 행은 원형 그대로");
+        assert_eq!(cat[2]["taskId"], cat[0]["taskId"], "새 행은 그 카테고리의 행을 복제한다");
+        assert_eq!(cat[2]["orgmh"], json!(20));
+        // 같은 탭의 다른 카테고리는 그대로다.
+        assert_eq!(s(rows_of(tab, "nbaa200000")[0], "note"), "정기 모니터링 수행");
+
+        let p = &plan.preview;
+        assert_eq!((p.before_minutes, p.after_minutes), (165, 185));
+        assert_eq!(p.diffs[0].before.len(), 2);
+        assert_eq!(p.diffs[0].after.len(), 3);
+        assert_eq!(p.diffs[0].added, 1);
+        assert!(p.warnings[0].contains("기준 480분보다 295분 적습니다"));
+    }
+
+    #[test]
+    fn an_empty_placeholder_is_replaced_and_several_rows_share_a_category() {
+        let (mh, init) = sample();
+        let rows = [row("NON-OBJECT", "nbbl300000", 30, "a"), row("NON-OBJECT", "nbbl300000", 40, "b")];
+        let plan = plan_append(&mh, &init, &rows, DAY, TODAY).unwrap();
+        let cat = rows_of(&plan.tabs[0], "nbbl300000");
+        assert_eq!(cat.len(), 2, "빈 자리 행은 새 행으로 바뀐다");
+        assert_eq!(cat.iter().map(|r| s(r, "note")).collect::<Vec<_>>(), ["a", "b"]);
+        assert_eq!(plan.expected[0].2.len(), 2);
+        let body = payload(&plan, &init, "sample.user", "20261002");
+        assert_eq!(body["workDate"], "20261002");
+        assert_eq!(body["clickMHConfirm"], false);
+        assert_eq!(body["improvedFlag"], true);
+        assert_eq!(body["mhInputVOList"], json!([]));
+        assert_eq!(body["mhList"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn bad_input_is_refused_before_anything_is_built() {
+        let (mh, mut init) = sample();
+        let ci = "MSPCMDBCHG-000001";
+        assert!(plan_append(&mh, &init, &[], DAY, TODAY).is_err());
+        assert!(plan_append(&mh, &init, &[row(ci, "nbaa300000", 0, "a")], DAY, TODAY).unwrap_err().contains("분은"));
+        assert!(plan_append(&mh, &init, &[row(ci, "nbaa300000", 10, " ")], DAY, TODAY).unwrap_err().contains("상세내용이 비어"));
+        assert!(plan_append(&mh, &init, &[row(ci, "nbaa300000", 10, &"가".repeat(1001))], DAY, TODAY).is_err());
+        assert!(plan_append(&mh, &init, &[row(ci, "zzzz", 10, "a")], DAY, TODAY).unwrap_err().contains("없는 카테고리"));
+        assert!(plan_append(&mh, &init, &[row("NOPE", "nbaa300000", 10, "a")], DAY, TODAY).unwrap_err().contains("없는 탭"));
+        assert!(plan_append(&mh, &init, &[row(ci, "nbaa300000", 1300, "a")], DAY, TODAY).unwrap_err().contains("1440"));
+        assert!(plan_append(&mh, &init, &[row(ci, "nbaa300000", 10, "a")], "2026-10-13", TODAY).unwrap_err().contains("마감일"));
+        let wrong = NewRow { price: "N".into(), ..row(ci, "nbaa300000", 10, "a") };
+        assert!(plan_append(&mh, &init, &[wrong], DAY, TODAY).unwrap_err().contains("대가 구분"));
+        init["mhapprovalflag"] = json!(true);
+        assert!(plan_append(&mh, &init, &[row(ci, "nbaa300000", 10, "a")], DAY, TODAY).unwrap_err().contains("결재"));
+    }
+
+    #[test]
+    fn undo_removes_only_the_rows_this_app_added() {
+        let (mh, init) = sample();
+        let ci = "MSPCMDBCHG-000001";
+        // 덧붙인 뒤의 상태를 서버가 돌려준다고 치고, 거기서 되돌린다.
+        let added = plan_append(&mh, &init, &[row(ci, "nbbc100000", 20, "C-3. 셋째"), row(ci, "nbaa300000", 10, "새 행")], DAY, TODAY).unwrap();
+        let mut server = mh.clone();
+        server["operationNonObjectMhList"][0] = added.tabs[0].clone();
+
+        let undo = plan_remove(
+            &server,
+            &init,
+            &[
+                Removal { ci_key: ci.into(), wbsid: "nbbc100000".into(), minutes: 20, note: "C-3. 셋째".into() },
+                Removal { ci_key: ci.into(), wbsid: "nbaa300000".into(), minutes: 10, note: "새 행".into() },
+            ],
+            DAY,
+            TODAY,
+        )
+        .unwrap();
+        let tab = &undo.tabs[0];
+        let multi: Vec<_> = rows_of(tab, "nbbc100000").iter().map(|r| (num(r, "mh").unwrap(), num(r, "rowspan").unwrap())).collect();
+        assert_eq!(multi, [(30, 2), (45, 2)], "원래 있던 두 행은 남는다");
+        let empty = rows_of(tab, "nbaa300000");
+        assert_eq!(empty.len(), 1, "다 지운 카테고리는 빈 자리 한 줄");
+        assert!(!row_active(empty[0]));
+        assert_eq!(undo.preview.after_minutes, 165);
+
+        // 그사이 누가 고쳐 그 행이 없으면 거절한다.
+        let gone = plan_remove(&mh, &init, &[Removal { ci_key: ci.into(), wbsid: "nbbc100000".into(), minutes: 20, note: "C-3. 셋째".into() }], DAY, TODAY);
+        assert!(gone.unwrap_err().contains("찾지 못했습니다"));
+    }
+
+    #[test]
+    fn state_changes_are_detected_and_saves_are_verified() {
+        let (mh, init) = sample();
+        let keys = vec![("MSPCMDBCHG-000001".to_string(), "nbbc100000".to_string())];
+        let before = state_of(&mh, &keys);
+        let mut other = mh.clone();
+        other["operationNonObjectMhList"][0]["mhList"][0]["note"] = json!("다른 카테고리를 고쳤다");
+        assert_eq!(state_of(&other, &keys), before, "대상 밖의 변화는 보지 않는다");
+        other["operationNonObjectMhList"][0]["mhList"][3]["mh"] = json!(50.0);
+        assert_ne!(state_of(&other, &keys), before);
+
+        let plan = plan_append(&mh, &init, &[row("MSPCMDBCHG-000001", "nbbc100000", 20, "C")], DAY, TODAY).unwrap();
+        let mut saved = mh.clone();
+        saved["operationNonObjectMhList"][0] = plan.tabs[0].clone();
+        assert!(verify(&saved, &plan.expected).is_empty());
+        assert_eq!(verify(&mh, &plan.expected).len(), 1, "저장이 안 됐으면 어긋난다");
     }
 }

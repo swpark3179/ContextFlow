@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { Box, TextArea } from "../lib/ui";
 import * as api from "../lib/api";
 import * as iwmsApi from "../lib/iwms/api";
+import { problemsOf, rowsOf } from "../lib/iwms/check";
 import { collectMaterial } from "../lib/iwms/material";
 import { targetsOf, type Target } from "../lib/iwms/marks";
 import { mergeDrafts, type Draft } from "../lib/iwms/parse";
@@ -11,9 +12,13 @@ import {
   PRICE_LABEL,
   categoryKey,
   registUrl,
+  type CommitOut,
   type IwmsCategory,
   type IwmsDay,
+  type IwmsPreview,
   type IwmsSettings,
+  type PreviewOut,
+  type UndoOut,
 } from "../lib/iwms/types";
 import { injectionFor } from "../lib/promptPacks";
 import { routeInfo, routeRun, useAi } from "../store/aiStore";
@@ -41,7 +46,13 @@ export default function IwmsPushModal() {
   return <PushView key={push.day} day={push.day} />;
 }
 
-type Phase = "loading" | "refining" | "review";
+/**
+ * `review` 에서 고치고 → `preview`(i-WMS 에 쓰지 않는 미리보기)에서 확인하고 → [최종 확정] → `done`(결과 ·
+ * 되돌리기). `-ing` 단계는 기다리는 중이라 닫지 않는다.
+ */
+type Phase = "loading" | "refining" | "review" | "previewing" | "preview" | "saving" | "done" | "undoing";
+
+const BUSY: Phase[] = ["loading", "refining", "previewing", "saving", "undoing"];
 
 function PushView({ day }: { day: string }) {
   const vault = useStore((s) => s.settings.vault);
@@ -57,9 +68,12 @@ function PushView({ day }: { day: string }) {
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [table, setTable] = useState<CodeTable | null>(null);
   const [partial, setPartial] = useState(0);
+  const [preview, setPreview] = useState<PreviewOut | null>(null);
+  const [result, setResult] = useState<CommitOut | null>(null);
+  const [undone, setUndone] = useState<UndoOut | null>(null);
   const abort = useRef<AbortController | null>(null);
 
-  const busy = phase !== "review";
+  const busy = BUSY.includes(phase);
   useEffect(() => {
     useIwms.setState({ pushBusy: busy });
   }, [busy]);
@@ -189,6 +203,50 @@ function PushView({ day }: { day: string }) {
     void runRefine(iday, settings, rows, drafts.filter((d) => included.has(d.entryId)));
   };
 
+  const live = rows.map((t) => draftOf(t.entry.id)).filter((d): d is Draft => !!d);
+  const problems = problemsOf(live, iday);
+
+  const doPreview = async () => {
+    setPhase("previewing");
+    setError("");
+    try {
+      setPreview(await iw.call(() => iwmsApi.iwmsPreview(day, rowsOf(live))));
+      setPhase("preview");
+    } catch (e) {
+      setError(api.errMessage(e));
+      setPhase("review");
+    }
+  };
+
+  /** 토큰은 한 번만 쓰인다 — 실패하면 검토로 돌아가 다시 미리본다. */
+  const doCommit = async () => {
+    if (!preview) return;
+    setPhase("saving");
+    setError("");
+    try {
+      setResult(await iwmsApi.iwmsCommit(preview.token));
+      setPhase("done");
+    } catch (e) {
+      const again = api.errKind(e) === "iwms_session" ? " — 다시 연결한 뒤 [미리보기] 부터 다시 하세요" : "";
+      setError(`${api.errMessage(e)}${again}`);
+      setPreview(null);
+      setPhase("review");
+    }
+  };
+
+  const doUndo = async () => {
+    if (!result) return;
+    setPhase("undoing");
+    setError("");
+    try {
+      setUndone(await iw.call(() => iwmsApi.iwmsUndo(result.commitId)));
+    } catch (e) {
+      setError(api.errMessage(e));
+    } finally {
+      setPhase("done");
+    }
+  };
+
   const ai = routeInfo(useAi.getState(), "iwms.refine");
   const wd = WEEKDAY[new Date(`${day}T12:00:00`).getDay()] ?? "";
 
@@ -258,53 +316,96 @@ function PushView({ day }: { day: string }) {
           </Notice>
         )}
 
-        {targets.map((t) => {
-          const d = draftOf(t.entry.id);
-          const on = included.has(t.entry.id);
-          if (!on || !d) {
-            return <ExcludedRow key={t.entry.id} t={t} onInclude={() => setIncluding(t, true)} />;
-          }
-          return (
-            <DraftRow
-              key={t.entry.id}
-              t={t}
-              d={d}
-              options={table?.groups.find((g) => g.price === t.price)?.list ?? []}
-              disabled={busy}
-              onCategory={(c) => update(d.entryId, { category: c, edited: { category: true } })}
-              onMinutes={(m) => update(d.entryId, { minutes: m, edited: { minutes: true } })}
-              onMinutesDone={() => update(d.entryId, {}, true)}
-              onNote={(n) => update(d.entryId, { note: n, edited: { note: true } })}
-              onExclude={() => setIncluding(t, false)}
-            />
-          );
-        })}
+        {(phase === "preview" || phase === "saving") && preview && <PreviewPane p={preview.preview} />}
+        {(phase === "done" || phase === "undoing") && result && <ResultPane r={result} undone={undone} />}
+
+        {["loading", "refining", "review", "previewing"].includes(phase) &&
+          targets.map((t) => {
+            const d = draftOf(t.entry.id);
+            const on = included.has(t.entry.id);
+            if (!on || !d) {
+              return <ExcludedRow key={t.entry.id} t={t} onInclude={() => setIncluding(t, true)} />;
+            }
+            return (
+              <DraftRow
+                key={t.entry.id}
+                t={t}
+                d={d}
+                options={table?.groups.find((g) => g.price === t.price)?.list ?? []}
+                disabled={busy}
+                onCategory={(c) => update(d.entryId, { category: c, edited: { category: true } })}
+                onMinutes={(m) => update(d.entryId, { minutes: m, edited: { minutes: true } })}
+                onMinutesDone={() => update(d.entryId, {}, true)}
+                onNote={(n) => update(d.entryId, { note: n, edited: { note: true } })}
+                onExclude={() => setIncluding(t, false)}
+              />
+            );
+          })}
+        {phase === "review" && live.length > 0 && problems.length > 0 && (
+          <Notice tone="warn">
+            미리보기 전에 고칠 것
+            {problems.map((m) => (
+              <div key={m}>· {m}</div>
+            ))}
+          </Notice>
+        )}
       </div>
 
       <ModalFooter>
-        <GhostButton onClick={reRefine}>다시 정제</GhostButton>
-        <GhostButton
-          onClick={() =>
-            iday &&
-            setDrafts((prev) =>
-              refit(
-                prev.map((d) => ({ ...d, edited: { ...d.edited, minutes: false } })),
-                remainingOf(iday),
-                settings,
-              ),
-            )
-          }
-        >
-          분 다시 나누기
-        </GhostButton>
-        <span style={{ fontSize: 11, color: "#a09a8f" }}>
-          {ai.run ? `${ai.name} · ${ai.modelLabel ?? "기본 모델"}` : "AI 연결 없음"}
-          {ai.via === "default" ? " (기본 연결)" : ""}
-        </span>
-        <div style={{ flex: 1 }} />
-        <PrimaryButton onClick={() => !busy && iw.closePush(false)} disabled={busy}>
-          닫기
-        </PrimaryButton>
+        {["loading", "refining", "review", "previewing"].includes(phase) && (
+          <>
+            <GhostButton onClick={reRefine}>다시 정제</GhostButton>
+            <GhostButton
+              onClick={() =>
+                iday &&
+                setDrafts((prev) =>
+                  refit(
+                    prev.map((d) => ({ ...d, edited: { ...d.edited, minutes: false } })),
+                    remainingOf(iday),
+                    settings,
+                  ),
+                )
+              }
+            >
+              분 다시 나누기
+            </GhostButton>
+            <span style={{ fontSize: 11, color: "#a09a8f" }}>
+              {ai.run ? `${ai.name} · ${ai.modelLabel ?? "기본 모델"}` : "AI 연결 없음"}
+              {ai.via === "default" ? " (기본 연결)" : ""}
+            </span>
+            <div style={{ flex: 1 }} />
+            <GhostButton onClick={() => !busy && iw.closePush(false)}>닫기</GhostButton>
+            <PrimaryButton onClick={() => void doPreview()} disabled={busy || problems.length > 0}>
+              {phase === "previewing" ? "미리보는 중…" : "미리보기 →"}
+            </PrimaryButton>
+          </>
+        )}
+        {(phase === "preview" || phase === "saving") && (
+          <>
+            <GhostButton onClick={() => phase === "preview" && setPhase("review")}>← 고치기</GhostButton>
+            <span style={{ fontSize: 11, color: "#a09a8f" }}>
+              아직 i-WMS 에 쓰지 않았습니다 · 확정하면 그날 그 카테고리에 덧붙입니다(이미 있는 행은 그대로)
+            </span>
+            <div style={{ flex: 1 }} />
+            <PrimaryButton onClick={() => void doCommit()} disabled={phase === "saving"} bg="#2f7f57" hoverBg="#26694a">
+              {phase === "saving" ? "저장하는 중…" : "최종 확정"}
+            </PrimaryButton>
+          </>
+        )}
+        {(phase === "done" || phase === "undoing") && (
+          <>
+            {!undone?.verified && (
+              <GhostButton onClick={() => phase === "done" && void doUndo()}>
+                {phase === "undoing" ? "되돌리는 중…" : "되돌리기"}
+              </GhostButton>
+            )}
+            <div style={{ flex: 1 }} />
+            <GhostButton onClick={() => phase === "done" && iw.closePush(false)}>닫기</GhostButton>
+            <PrimaryButton onClick={back} disabled={phase === "undoing"}>
+              오늘의 한일로
+            </PrimaryButton>
+          </>
+        )}
       </ModalFooter>
     </Modal>
   );
@@ -361,6 +462,104 @@ function DayBar({
           {fallback.join(" · ")}: 지정한 카테고리가 없어 그날 전체에서 고릅니다
         </span>
       )}
+    </div>
+  );
+}
+
+const rowLine = { display: "flex", gap: 8, fontSize: 12, lineHeight: 1.6, padding: "1px 0" } as const;
+
+function NoteText({ text }: { text: string }) {
+  return <span style={{ whiteSpace: "pre-wrap", minWidth: 0, flex: 1 }}>{text}</span>;
+}
+
+/** 저장 전 미리보기 — 카테고리별로 남는 행과 덧붙는 행. i-WMS 에 아직 쓰지 않았다. */
+function PreviewPane({ p }: { p: IwmsPreview }) {
+  const diff = p.afterMinutes - p.standardMinutes;
+  return (
+    <div style={{ padding: "10px 14px", display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ fontSize: 12.5, color: "#3a3630" }}>
+        저장 뒤 하루 합계 <b>{p.afterMinutes}분</b>
+        <span style={{ color: "#8a857c" }}>
+          {" "}
+          (지금 {p.beforeMinutes}분 · 기준 {p.standardMinutes}분
+          {diff === 0 ? " ✓" : diff > 0 ? ` · ${diff}분 많음` : ` · ${-diff}분 적음`})
+        </span>
+      </div>
+      {p.warnings.map((w) => (
+        <div key={w} style={{ fontSize: 11.5, color: "#b07520" }}>
+          {w}
+        </div>
+      ))}
+      {p.diffs.map((d) => {
+        const kept = d.before;
+        const added = d.after.slice(d.before.length);
+        return (
+          <div key={`${d.ciKey}|${d.wbsid}`} style={{ border: "1px solid #ece8e0", borderRadius: 6, padding: "8px 10px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+              {(d.priceType === "O" || d.priceType === "N") && <PriceTag price={d.priceType} />}
+              <span style={{ fontSize: 12.5, fontWeight: 600 }}>
+                {d.ciName} › {d.task}
+              </span>
+            </div>
+            {kept.map((r) => (
+              <div key={`k${r.rowSeq}`} style={{ ...rowLine, color: "#a09a8f" }}>
+                <span style={{ flex: "0 0 34px" }}>유지</span>
+                <span style={{ flex: "0 0 44px", fontFamily: "'Roboto Mono',monospace" }}>{r.minutes}분</span>
+                <NoteText text={r.note} />
+              </div>
+            ))}
+            {added.map((r) => (
+              <div key={`a${r.rowSeq}`} style={{ ...rowLine, color: "#2f7f57" }}>
+                <span style={{ flex: "0 0 34px", fontWeight: 600 }}>＋</span>
+                <span style={{ flex: "0 0 44px", fontFamily: "'Roboto Mono',monospace" }}>{r.minutes}분</span>
+                <NoteText text={r.note} />
+              </div>
+            ))}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** 확정 결과 — 다시 조회한 대조와 되돌리기. */
+function ResultPane({ r, undone }: { r: CommitOut; undone: UndoOut | null }) {
+  return (
+    <div style={{ padding: "10px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
+      {undone ? (
+        undone.verified ? (
+          <Notice tone="muted">되돌렸습니다 — 이번에 넣은 행만 i-WMS 에서 지웠고, 다시 조회해 확인했습니다 ✓</Notice>
+        ) : (
+          <Notice tone="warn">
+            되돌린 뒤 대조가 어긋났습니다 — i-WMS 화면에서 확인하세요
+            {undone.mismatches.map((m) => (
+              <div key={m}>· {m}</div>
+            ))}
+          </Notice>
+        )
+      ) : r.verified ? (
+        <Notice tone="muted">
+          i-WMS 에 저장하고 다시 조회해 확인했습니다 ✓ · 하루 합계 {r.preview.afterMinutes}분
+        </Notice>
+      ) : (
+        <Notice tone="warn">
+          저장은 됐지만 다시 조회한 값이 기대와 다릅니다 — i-WMS 화면에서 확인하세요. 이력은 남겼으므로 되돌릴 수 있습니다.
+          {r.mismatches.map((m) => (
+            <div key={m}>· {m}</div>
+          ))}
+        </Notice>
+      )}
+      {r.pushes.map((p) => (
+        <div key={p.id} style={{ display: "flex", gap: 10, fontSize: 12, borderBottom: "1px solid #f4f1ec", padding: "5px 0" }}>
+          <PriceTag price={p.price} />
+          <span style={{ flex: "0 0 200px", color: "#3a3630" }}>{p.title}</span>
+          <span style={{ flex: "0 0 220px", color: "#6a665e" }}>
+            {p.ciName} › {p.task}
+          </span>
+          <span style={{ flex: "0 0 44px", fontFamily: "'Roboto Mono',monospace" }}>{p.minutes}분</span>
+          <NoteText text={p.note} />
+        </div>
+      ))}
     </div>
   );
 }

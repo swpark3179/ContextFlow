@@ -4,16 +4,22 @@
 //! 인증은 `SESSION` 쿠키 하나이고 CSRF 토큰은 없다. 이 앱의 다른 원격 호출(`fabrix.rs`)처럼
 //! `reqwest::blocking` 이라 **IPC 스레드에서 부르지 않는다** — 커맨드가 `spawn_blocking` 안에서 쓴다.
 
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use serde::Serialize;
 use serde_json::Value;
 
-/// 호출이 실패한 까닭. 세션 만료만 따로 두는 이유는 그때만 프런트가 할 일(다시 연결)이 있어서다.
+/// 호출이 실패한 까닭. 프런트가 할 일이 다른 것만 따로 둔다 — 만료면 다시 연결, 낡았으면 다시 미리보기,
+/// 입력이 틀렸으면 고치기.
 #[derive(Debug, Clone, PartialEq)]
 pub enum CallError {
     /// 401 · 403, 또는 200 인데 본문이 로그인 화면 HTML 이다.
     Expired,
+    /// 미리보기 뒤에 i-WMS 쪽 값이 바뀌었다.
+    Stale(String),
+    /// 저장하기 전에 앱이 막은 입력(분 · 상세내용 · 마감 · 결재 …).
+    Invalid(String),
     Other(String),
 }
 
@@ -21,7 +27,7 @@ impl std::fmt::Display for CallError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             CallError::Expired => write!(f, "i-WMS 세션이 만료되었습니다"),
-            CallError::Other(m) => write!(f, "{m}"),
+            CallError::Stale(m) | CallError::Invalid(m) | CallError::Other(m) => write!(f, "{m}"),
         }
     }
 }
@@ -37,10 +43,17 @@ pub struct User {
     pub dept: String,
 }
 
+/// 쿠키를 다시 읽는 길 — 지금 쓰던 값을 받아, 브라우저(WebView2 · CDP)에 **다른** 값이 있으면 돌려준다.
+///
+/// i-WMS 는 SSO 화면이 뜬 직후 세션 id 를 한 번 바꾼다(2026-10-04 실측: 연결 0.6초 뒤 회전, 옛 값은 그때부터
+/// 403 `LOGIN-108`). 바뀌기 전 값을 집으면 몇 번 부르다 막힌다 — 그때 새 값을 다시 읽어 한 번 더 시도한다.
+pub type Refresh = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
+
 pub struct Client {
     http: reqwest::blocking::Client,
     base: String,
-    cookie: String,
+    cookie: Mutex<String>,
+    refresh: Option<Refresh>,
 }
 
 impl Client {
@@ -56,28 +69,56 @@ impl Client {
             .timeout(Duration::from_secs(60))
             .build()
             .map_err(|e| CallError::Other(format!("HTTP 클라이언트를 만들지 못했습니다: {e}")))?;
-        Ok(Client { http, base: base.trim_end_matches('/').to_string(), cookie: cookie.to_string() })
+        Ok(Client {
+            http,
+            base: base.trim_end_matches('/').to_string(),
+            cookie: Mutex::new(cookie.to_string()),
+            refresh: None,
+        })
+    }
+
+    /// 만료로 막히면 쿠키를 다시 읽어 **한 번** 더 시도한다.
+    pub fn with_refresh(mut self, refresh: Refresh) -> Client {
+        self.refresh = Some(refresh);
+        self
+    }
+
+    /// 지금 쓰는 쿠키(다시 읽어 바뀌었을 수 있다).
+    pub fn cookie(&self) -> String {
+        self.cookie.lock().unwrap_or_else(PoisonError::into_inner).clone()
+    }
+
+    fn once(&self, method: &str, path: &str, body: Option<&Value>, cookie: &str) -> CallResult<Value> {
+        let url = format!("{}{path}", self.base);
+        let req = match body {
+            None => self.http.get(url),
+            Some(b) => self.http.post(url).json(b),
+        };
+        finish(method, path, req.header("cookie", cookie).header("accept", "application/json").send())
+    }
+
+    /// 401 · 403 · 로그인 화면은 **서버가 요청을 처리하기 전**에 인증 필터가 돌려준 것이라, 같은 요청을 새 쿠키로
+    /// 다시 보내도 두 번 들어가지 않는다(저장 POST 포함).
+    fn send(&self, method: &str, path: &str, body: Option<&Value>) -> CallResult<Value> {
+        let cookie = self.cookie();
+        match self.once(method, path, body, &cookie) {
+            Err(CallError::Expired) => {
+                let Some(refresh) = &self.refresh else { return Err(CallError::Expired) };
+                std::thread::sleep(Duration::from_millis(300));
+                let Some(fresh) = refresh(&cookie) else { return Err(CallError::Expired) };
+                *self.cookie.lock().unwrap_or_else(PoisonError::into_inner) = fresh.clone();
+                self.once(method, path, body, &fresh)
+            }
+            other => other,
+        }
     }
 
     fn get(&self, path: &str) -> CallResult<Value> {
-        let res = self
-            .http
-            .get(format!("{}{path}", self.base))
-            .header("cookie", &self.cookie)
-            .header("accept", "application/json")
-            .send();
-        finish("GET", path, res)
+        self.send("GET", path, None)
     }
 
     fn post(&self, path: &str, body: &Value) -> CallResult<Value> {
-        let res = self
-            .http
-            .post(format!("{}{path}", self.base))
-            .header("cookie", &self.cookie)
-            .header("accept", "application/json")
-            .json(body)
-            .send();
-        finish("POST", path, res)
+        self.send("POST", path, Some(body))
     }
 
     pub fn profile(&self) -> CallResult<User> {
@@ -116,9 +157,24 @@ impl Client {
 fn finish(method: &str, path: &str, res: reqwest::Result<reqwest::blocking::Response>) -> CallResult<Value> {
     let res = res.map_err(|e| CallError::Other(format!("{method} {} 전송 실패: {e}", short(path))))?;
     let status = res.status().as_u16();
+    let final_url = res.url().path().to_string();
+    let kind = res
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
     let text = res
         .text()
         .map_err(|e| CallError::Other(format!("{method} {} 응답을 읽지 못했습니다: {e}", short(path))))?;
+    // 진단용(쿠키는 찍지 않는다): `IWMS_DEBUG=1` 이면 응답의 상태 · 종류 · 앞부분을 stderr 로.
+    if std::env::var_os("IWMS_DEBUG").is_some() {
+        eprintln!(
+            "[iwms] {method} {} → HTTP {status} {kind} (최종 {final_url}) {}",
+            short(path),
+            trunc(&text.replace('\n', " "), 300)
+        );
+    }
     read_body(status, &text).map_err(|e| match e {
         CallError::Other(m) => CallError::Other(format!("{method} {}: {m}", short(path))),
         expired => expired,

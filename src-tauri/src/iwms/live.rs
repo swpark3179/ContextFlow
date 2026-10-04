@@ -160,23 +160,29 @@ pub(super) fn connect_via_browser(base: &str) -> (TestBrowser, String, User) {
     let mut last_report = Instant::now();
     let mut rejected: Option<String> = None;
     loop {
-        let cookies = cdp.call("Storage.getCookies", json!({})).unwrap_or(Value::Null);
-        let found = cookies
-            .get("cookies")
-            .and_then(Value::as_array)
-            .and_then(|cs| {
-                cs.iter().find(|c| {
-                    c.get("name").and_then(Value::as_str) == Some("SESSION")
-                        && host.ends_with(c.get("domain").and_then(Value::as_str).unwrap_or("-").trim_start_matches('.'))
-                })
-            })
-            .and_then(|c| c.get("value").and_then(Value::as_str))
-            .map(|v| format!("SESSION={v}"));
+        let found = cdp_session(&mut cdp, &host);
         if let Some(header) = found.filter(|h| rejected.as_deref() != Some(h.as_str())) {
             match Client::new(base, &header).and_then(|c| c.profile()) {
-                Ok(user) => return (browser, header, user),
+                Ok(user) => {
+                    // 앱의 `session::settle` 과 같다 — SSO 화면이 뜬 직후의 세션 회전을 기다린다.
+                    let (mut header, mut user, mut stable) = (header, user, Instant::now());
+                    let until = Instant::now() + Duration::from_secs(10);
+                    while Instant::now() < until && stable.elapsed() < Duration::from_secs(2) {
+                        std::thread::sleep(Duration::from_millis(400));
+                        if let Some(now) = cdp_session(&mut cdp, &host).filter(|v| *v != header) {
+                            if let Ok(u) = Client::new(base, &now).and_then(|c| c.profile()) {
+                                println!("  세션이 바뀌어 새 값을 씁니다");
+                                (header, user, stable) = (now, u, Instant::now());
+                            }
+                        }
+                    }
+                    // i-WMS 화면을 닫는다 — 열려 있으면 그 화면이 뒤에서 세션을 또 바꾼다(2026-10-04 실측:
+                    // 확정 직후 회전). 앱도 연결이 끝나면 세션 창을 닫는다.
+                    close_iwms_pages(&mut cdp, &host);
+                    return (browser, header, user);
+                }
                 Err(CallError::Expired) => rejected = Some(header),
-                Err(CallError::Other(m)) => panic!("프로필 확인 실패: {m}"),
+                Err(e) => panic!("프로필 확인 실패: {e}"),
             }
         }
         if last_report.elapsed() >= Duration::from_secs(10) {
@@ -190,6 +196,50 @@ pub(super) fn connect_via_browser(base: &str) -> (TestBrowser, String, User) {
         }
         std::thread::sleep(Duration::from_millis(700));
     }
+}
+
+fn close_iwms_pages(cdp: &mut Cdp, host: &str) {
+    let Ok(targets) = cdp.call("Target.getTargets", json!({})) else { return };
+    let ids: Vec<String> = targets["targetInfos"]
+        .as_array()
+        .map(|ts| {
+            ts.iter()
+                .filter(|t| t["type"] == "page" && t["url"].as_str().is_some_and(|u| u.contains(host)))
+                .filter_map(|t| t["targetId"].as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    // 브라우저에 탭이 하나도 안 남으면 닫히므로 빈 탭을 먼저 하나 둔다.
+    let _ = cdp.call("Target.createTarget", json!({ "url": "about:blank" }));
+    for id in ids {
+        let _ = cdp.call("Target.closeTarget", json!({ "targetId": id }));
+    }
+}
+
+fn cdp_session(cdp: &mut Cdp, host: &str) -> Option<String> {
+    let cookies = cdp.call("Storage.getCookies", json!({})).ok()?;
+    cookies
+        .get("cookies")?
+        .as_array()?
+        .iter()
+        .find(|c| {
+            c.get("name").and_then(Value::as_str) == Some("SESSION")
+                && host.ends_with(c.get("domain").and_then(Value::as_str).unwrap_or("-").trim_start_matches('.'))
+        })
+        .and_then(|c| c.get("value").and_then(Value::as_str))
+        .map(|v| format!("SESSION={v}"))
+}
+
+/// 테스트 브라우저에서 쿠키를 다시 읽는 길 — 앱의 `session::refresher` 와 같은 일을 CDP 로.
+pub(super) fn refresher(browser: &TestBrowser, base: &str) -> super::client::Refresh {
+    let ws = browser.ws_url.clone();
+    let host = tauri::Url::parse(base).unwrap().host_str().unwrap_or_default().to_string();
+    std::sync::Arc::new(move |old: &str| {
+        let mut cdp = Cdp::connect(&ws).ok()?;
+        let now = cdp_session(&mut cdp, &host).filter(|v| v != old)?;
+        println!("  쿠키를 다시 읽었습니다(세션 회전)");
+        Some(now)
+    })
 }
 
 /// 열린 탭의 호스트 · 경로(쿼리 제외) — 로그인 화면에 멈춰 있는지 볼 수 있게.
@@ -224,10 +274,10 @@ fn dump(name: &str, v: &Value) {
 fn live_read() {
     let base = env_base();
     let (iso, ymd) = day::normalize_date(&env_date()).unwrap();
-    let (_browser, cookie, user) = connect_via_browser(&base);
+    let (browser, cookie, user) = connect_via_browser(&base);
     println!("연결: {} ({}) · {base}", user.user_id, user.user_name);
 
-    let c = Client::new(&base, &cookie).unwrap();
+    let c = Client::new(&base, &cookie).unwrap().with_refresh(refresher(&browser, &base));
     let mh = c.mh_list(&user.user_id, &ymd).expect("mhList");
     let init = c.init_mh_info(&user.user_id, &ymd).expect("initMHInfo");
     dump(&format!("mhlist-{ymd}.json"), &mh);
@@ -312,4 +362,187 @@ fn live_refine_run() {
     println!("상태 {status} · {:.1}초 · {}자 · 잘림 {truncated}", started.elapsed().as_secs_f32(), text.chars().count());
     std::fs::write(dir.join("response.txt"), &text).unwrap();
     assert!(!text.trim().is_empty(), "응답이 비었습니다");
+}
+
+/// 실서비스 쓰기 · 원복 — 지정한 카테고리에 1분짜리 행을 **덧붙이고**, 재조회로 확인한 뒤, 앱의 되돌리기와
+/// 같은 길(`write::undo`)로 지우고, 그 카테고리가 처음과 같은지 확인한다.
+///
+/// 운영 데이터를 잠시 바꾸므로 확인 문구가 정확해야만 쓴다(`mcp-wms` 의 `live_test --write` 와 같은 규칙):
+///
+/// ```powershell
+/// $env:IWMS_DATE = "2026-10-02"; $env:IWMS_CI_KEY = "MSPCMDBCHG-…"; $env:IWMS_WBSID = "nb…"
+/// $env:IWMS_WRITE_CONFIRM = "2026-10-02/MSPCMDBCHG-…/nb…"
+/// cargo test --manifest-path src-tauri/Cargo.toml live_write_restore -- --ignored --nocapture
+/// ```
+///
+/// 쓰기 전에 그 카테고리의 원형 행을 `IWMS_DUMP`(있으면)에 남긴다 — 중간에 끊기면 그것으로 되살린다.
+#[test]
+#[ignore = "사내망 · i-WMS 운영 데이터를 잠시 바꾼다"]
+fn live_write_restore() {
+    use super::day::{NewRow, Removal};
+    use super::write;
+
+    let base = env_base();
+    let (iso, ymd) = day::normalize_date(&env_date()).unwrap();
+    let ci = std::env::var("IWMS_CI_KEY").expect("IWMS_CI_KEY");
+    let wbs = std::env::var("IWMS_WBSID").expect("IWMS_WBSID");
+    let phrase = format!("{iso}/{ci}/{wbs}");
+    assert_eq!(std::env::var("IWMS_WRITE_CONFIRM").unwrap_or_default(), phrase, "확인 문구가 다릅니다 — 아무것도 쓰지 않았습니다");
+
+    let (browser, cookie, user) = connect_via_browser(&base);
+    let c = Client::new(&base, &cookie).unwrap().with_refresh(refresher(&browser, &base));
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let snapshot = |label: &str| {
+        let mh = c.mh_list(&user.user_id, &ymd).unwrap();
+        let init = c.init_mh_info(&user.user_id, &ymd).unwrap();
+        let d = day::summarize(&mh, &init, &iso, &user.user_id, &today).unwrap();
+        let cat = d.categories.iter().find(|x| x.ci_key == ci && x.wbsid == wbs).cloned().expect("그날 그 카테고리가 없습니다");
+        println!("[{label}] {} › {} · {}분 · {}행 · 하루 {}분", cat.ci_name, cat.task, cat.minutes, cat.rows.len(), d.total_minutes);
+        for r in &cat.rows {
+            println!("    {}. {}분 · {}", r.row_seq, r.minutes, r.note.replace('\n', " / "));
+        }
+        (mh, d, cat)
+    };
+
+    let (mh, before_day, before) = snapshot("처음");
+    assert!(before.blocked.is_none(), "쓸 수 없는 카테고리입니다: {:?}", before.blocked);
+    let raw: Vec<Value> = day::tabs(&mh).unwrap().iter()
+        .filter(|t| day::tab_key(t) == ci)
+        .flat_map(|t| day::tab_rows(t).iter().filter(|r| super::client::s(r, "wbsid") == wbs).cloned())
+        .collect();
+    dump(&format!("before-{ymd}-{wbs}.json"), &Value::Array(raw));
+
+    let note = "ContextFlow 왕복 검증".to_string();
+    let rows = vec![NewRow {
+        entry_id: None,
+        title: "live_write_restore".into(),
+        ci_key: ci.clone(),
+        wbsid: wbs.clone(),
+        minutes: 1,
+        note: note.clone(),
+        req_date: String::new(),
+        price: before.price_type.clone(),
+    }];
+    let (preview, state) = write::preview(&c, &user.user_id, &ymd, &iso, &today, &rows).expect("미리보기");
+    println!("미리보기: 하루 {}분 → {}분 · {:?}", preview.before_minutes, preview.after_minutes, preview.warnings);
+
+    let saved = write::commit(&c, &user.user_id, &ymd, &iso, &today, &rows, &state).expect("확정");
+    println!("확정: 검증 {} {:?}", saved.verified, saved.mismatches);
+    let (_, mid_day, mid) = snapshot("넣은 뒤");
+
+    let undone = write::undo(&c, &user.user_id, &ymd, &iso, &today, &[Removal { ci_key: ci.clone(), wbsid: wbs.clone(), minutes: 1, note }])
+        .expect("되돌리기");
+    println!("되돌리기: 검증 {} {:?}", undone.verified, undone.mismatches);
+    let (_, after_day, after) = snapshot("되돌린 뒤");
+
+    assert!(saved.verified, "넣은 뒤 대조가 어긋났습니다");
+    assert_eq!(mid.rows.len(), before.rows.len() + 1);
+    assert_eq!(mid_day.total_minutes, before_day.total_minutes + 1);
+    assert!(undone.verified, "되돌린 뒤 대조가 어긋났습니다");
+    let key = |r: &day::Row| (r.minutes, r.note.clone(), r.req_date.clone(), r.except_time, r.except_day);
+    assert_eq!(after.rows.iter().map(key).collect::<Vec<_>>(), before.rows.iter().map(key).collect::<Vec<_>>(), "처음과 같아야 합니다");
+    assert_eq!(after_day.total_minutes, before_day.total_minutes);
+}
+
+/// 정리 — `live_write_restore` 가 중간에 끊겨 남은 `ContextFlow 왕복 검증` 행만 지운다(같은 확인 문구).
+/// 저장 응답을 어떻게 판정하든 다시 조회해 그 행이 없어졌는지로 끝을 본다.
+#[test]
+#[ignore = "사내망 · i-WMS 운영 데이터를 바꾼다"]
+fn live_cleanup() {
+    use super::day::Removal;
+
+    let base = env_base();
+    let (iso, ymd) = day::normalize_date(&env_date()).unwrap();
+    let ci = std::env::var("IWMS_CI_KEY").expect("IWMS_CI_KEY");
+    let wbs = std::env::var("IWMS_WBSID").expect("IWMS_WBSID");
+    assert_eq!(std::env::var("IWMS_WRITE_CONFIRM").unwrap_or_default(), format!("{iso}/{ci}/{wbs}"), "확인 문구가 다릅니다");
+    let note = "ContextFlow 왕복 검증";
+
+    let (browser, cookie, user) = connect_via_browser(&base);
+    let c = Client::new(&base, &cookie).unwrap().with_refresh(refresher(&browser, &base));
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let leftovers = |c: &Client| -> Vec<day::Row> {
+        let mh = c.mh_list(&user.user_id, &ymd).unwrap();
+        let init = c.init_mh_info(&user.user_id, &ymd).unwrap();
+        let d = day::summarize(&mh, &init, &iso, &user.user_id, &today).unwrap();
+        d.categories.iter().filter(|x| x.ci_key == ci && x.wbsid == wbs).flat_map(|x| x.rows.clone()).filter(|r| r.note == note).collect()
+    };
+    let left = leftovers(&c);
+    println!("남은 검증 행 {}개", left.len());
+    if left.is_empty() {
+        return;
+    }
+    let mh = c.mh_list(&user.user_id, &ymd).unwrap();
+    let init = c.init_mh_info(&user.user_id, &ymd).unwrap();
+    let removals: Vec<Removal> = left.iter().map(|r| Removal { ci_key: ci.clone(), wbsid: wbs.clone(), minutes: r.minutes, note: note.into() }).collect();
+    let plan = day::plan_remove(&mh, &init, &removals, &iso, &today).expect("계획");
+    let res = c.save(&day::payload(&plan, &init, &user.user_id, &ymd));
+    println!("저장 응답 판정: {:?}", res.as_ref().map(|_| "ok").map_err(|e| e.to_string()));
+    assert!(leftovers(&c).is_empty(), "검증 행이 아직 남아 있습니다");
+    println!("정리 끝 — 검증 행이 없습니다");
+}
+
+/// 진단 — 같은 세션으로 연달아 부를 때 403(LOGIN-108)이 섞이는지, 그 호스트의 다른 쿠키를 함께 보내면
+/// 사라지는지 본다. 쿠키는 **이름만** 찍는다.
+#[test]
+#[ignore = "사내망 · i-WMS 접속이 필요하다"]
+fn live_session_probe() {
+    let base = env_base();
+    let (browser, session, _user) = connect_via_browser(&base);
+    let host = tauri::Url::parse(&base).unwrap().host_str().unwrap_or_default().to_string();
+    let mut cdp = Cdp::connect(&browser.ws_url).unwrap();
+    let cookies = cdp.call("Storage.getCookies", json!({})).unwrap();
+    let mine: Vec<(String, String)> = cookies["cookies"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|c| host.ends_with(c["domain"].as_str().unwrap_or("-").trim_start_matches('.')))
+        .map(|c| (c["name"].as_str().unwrap_or("").to_string(), c["value"].as_str().unwrap_or("").to_string()))
+        .collect();
+    println!("{host} 쿠키: {:?}", mine.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>());
+    let all = mine.iter().map(|(n, v)| format!("{n}={v}")).collect::<Vec<_>>().join("; ");
+
+    for (label, cookie) in [("SESSION 만", session.as_str()), ("모든 쿠키", all.as_str())] {
+        let c = Client::new(&base, cookie).unwrap();
+        let mut fail = 0;
+        for _ in 0..20 {
+            if c.profile().is_err() {
+                fail += 1;
+            }
+        }
+        println!("{label}: 20회 중 실패 {fail}");
+    }
+}
+
+/// 진단 — 연결한 뒤 SESSION 값이 바뀌는지(세션 회전) 15초 동안 본다. 값은 찍지 않고 짧은 해시만.
+#[test]
+#[ignore = "사내망 · i-WMS 접속이 필요하다"]
+fn live_session_rotation() {
+    let base = env_base();
+    let (browser, first, _user) = connect_via_browser(&base);
+    let host = tauri::Url::parse(&base).unwrap().host_str().unwrap_or_default().to_string();
+    let mut cdp = Cdp::connect(&browser.ws_url).unwrap();
+    let h = |v: &str| v.bytes().fold(0xcbf29ce484222325u64, |a, b| (a ^ b as u64).wrapping_mul(0x100000001b3)) & 0xffff;
+    let started = Instant::now();
+    let mut last = first.clone();
+    println!("0.0s 처음 {:04x}", h(&first));
+    let old = Client::new(&base, &first).unwrap();
+    while started.elapsed() < Duration::from_secs(15) {
+        let now = cdp.call("Storage.getCookies", json!({})).unwrap()["cookies"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["name"] == "SESSION" && host.ends_with(c["domain"].as_str().unwrap_or("-").trim_start_matches('.')))
+            .map(|c| format!("SESSION={}", c["value"].as_str().unwrap_or("")))
+            .unwrap_or_default();
+        if now != last {
+            println!("{:.1}s 바뀜 {:04x} → {:04x}", started.elapsed().as_secs_f32(), h(&last), h(&now));
+            last = now;
+        }
+        let ok = old.profile().is_ok();
+        if !ok {
+            println!("{:.1}s 처음 쿠키로 profile 실패", started.elapsed().as_secs_f32());
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    }
 }

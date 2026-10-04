@@ -13,10 +13,12 @@ mod day;
 mod marks;
 mod session;
 mod settings;
+mod write;
 
 #[cfg(test)]
 mod live;
 
+use serde::Serialize;
 use tauri::{AppHandle, State};
 
 use crate::daylog::DayLog;
@@ -38,18 +40,23 @@ fn today() -> String {
 fn call_err(e: CallError) -> AppError {
     match e {
         CallError::Expired => AppError::new("iwms_session", "i-WMS 세션이 없거나 만료되었습니다. 다시 연결하세요."),
+        CallError::Stale(m) => AppError::new("iwms_stale", m),
+        CallError::Invalid(m) => AppError::new("invalid", m),
         CallError::Other(m) => AppError::new("iwms", m),
     }
 }
 
-/// 연결된 세션으로 블로킹 호출을 한다. 만료면 세션을 버린다 — 다음 호출이 다시 연결하게.
+/// 연결된 세션으로 블로킹 호출을 한다. 막히면 쿠키를 한 번 다시 읽어 시도하고(`session::refresher` — 세션
+/// 회전), 그래도 만료면 세션을 버린다 — 다음 호출이 다시 연결하게.
 async fn with_session<T: Send + 'static>(
+    app: &AppHandle,
     state: &IwmsState,
     f: impl FnOnce(Client, Session) -> CallResult<T> + Send + 'static,
 ) -> Result<T> {
     let sess = state.get().ok_or_else(|| call_err(CallError::Expired))?;
+    let refresh = session::refresher(app.clone(), sess.base.clone());
     let out = tauri::async_runtime::spawn_blocking(move || {
-        let c = Client::new(&sess.base, &sess.cookie)?;
+        let c = Client::new(&sess.base, &sess.cookie)?.with_refresh(refresh);
         f(c, sess)
     })
     .await
@@ -86,9 +93,9 @@ pub fn iwms_disconnect(app: AppHandle, state: State<'_, IwmsState>) {
 
 /// 그날의 탭 · 카테고리 · 이미 들어 있는 행 · 기준시간 · 쓸 수 없는 까닭.
 #[tauri::command]
-pub async fn iwms_day(state: State<'_, IwmsState>, date: String) -> Result<day::Day> {
+pub async fn iwms_day(app: AppHandle, state: State<'_, IwmsState>, date: String) -> Result<day::Day> {
     let (iso, ymd) = day::normalize_date(&date).map_err(|m| AppError::new("invalid", m))?;
-    with_session(&state, move |c, s| {
+    with_session(&app, &state, move |c, s| {
         let mh = c.mh_list(&s.user.user_id, &ymd)?;
         let init = c.init_mh_info(&s.user.user_id, &ymd)?;
         day::summarize(&mh, &init, &iso, &s.user.user_id, &today()).map_err(CallError::Other)
@@ -118,6 +125,132 @@ pub fn iwms_pushes(log: State<'_, DayLog>, day: String) -> Result<Vec<marks::Pus
 #[tauri::command]
 pub fn iwms_recent_pushes(log: State<'_, DayLog>, limit: i64) -> Result<Vec<marks::Push>> {
     log.with(|conn| marks::recent_pushes(conn, limit.clamp(1, 100)))
+}
+
+// -- 쓰기 ------------------------------------------------------------------
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviewOut {
+    /// 확정할 때 돌려줄 일회용 토큰(10분).
+    pub token: String,
+    pub preview: day::Preview,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitOut {
+    pub commit_id: String,
+    pub preview: day::Preview,
+    /// 저장 뒤 다시 조회해 기대한 행과 같았다.
+    pub verified: bool,
+    pub mismatches: Vec<String>,
+    pub pushes: Vec<marks::Push>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UndoOut {
+    pub preview: day::Preview,
+    pub verified: bool,
+    pub mismatches: Vec<String>,
+}
+
+/// 저장 전 미리보기 — i-WMS 에 쓰지 않는다. 카테고리별 전/후, 저장 뒤 합계, 경고와 토큰.
+#[tauri::command]
+pub async fn iwms_preview(app: AppHandle, state: State<'_, IwmsState>, date: String, rows: Vec<day::NewRow>) -> Result<PreviewOut> {
+    let (iso, ymd) = day::normalize_date(&date).map_err(|m| AppError::new("invalid", m))?;
+    let today = today();
+    let sent = rows.clone();
+    let date = iso.clone();
+    let (preview, st, user_id) = with_session(&app, &state, move |c, s| {
+        let (p, st) = write::preview(&c, &s.user.user_id, &ymd, &iso, &today, &sent)?;
+        Ok((p, st, s.user.user_id))
+    })
+    .await?;
+    let token = state.put_preview(session::PreviewRecord::new(user_id, date, rows, st));
+    Ok(PreviewOut { token, preview })
+}
+
+/// 최종 확정 — 미리보기 뒤 i-WMS 쪽이 그대로일 때만 저장하고, 다시 조회해 대조하고, 입력 이력을 남긴다.
+#[tauri::command]
+pub async fn iwms_commit(app: AppHandle, state: State<'_, IwmsState>, log: State<'_, DayLog>, token: String) -> Result<CommitOut> {
+    let rec = state
+        .take_preview(&token)
+        .ok_or_else(|| AppError::new("iwms_stale", "미리보기가 지났거나 이미 썼습니다 — 다시 미리보세요"))?;
+    if state.get().map(|s| s.user.user_id) != Some(rec.user_id.clone()) {
+        return Err(AppError::new("iwms_stale", "미리보기 뒤에 i-WMS 연결이 바뀌었습니다 — 다시 미리보세요"));
+    }
+    let (iso, ymd) = day::normalize_date(&rec.date).map_err(|m| AppError::new("invalid", m))?;
+    let rows = rec.rows.clone();
+    let expected = rec.state.clone();
+    let (today, day_iso) = (today(), iso.clone());
+    let outcome =
+        with_session(&app, &state, move |c, s| write::commit(&c, &s.user.user_id, &ymd, &day_iso, &today, &rows, &expected))
+            .await?;
+
+    // 이력: 줄마다 한 행. 카테고리 이름 · 태스크 · 대가 구분은 미리보기(=조회한 i-WMS 값)에서 온다.
+    let commit_id = format!("{}-{}", iso.replace('-', ""), chrono::Local::now().format("%H%M%S%3f"));
+    let diffs = &outcome.plan.preview.diffs;
+    let new_pushes: Vec<marks::NewPush> = rec
+        .rows
+        .iter()
+        .map(|r| {
+            let d = diffs.iter().find(|d| d.ci_key == r.ci_key && d.wbsid == r.wbsid);
+            marks::NewPush {
+                entry_id: r.entry_id,
+                title: r.title.clone(),
+                ci_key: r.ci_key.clone(),
+                ci_name: d.map(|d| d.ci_name.clone()).unwrap_or_default(),
+                wbsid: r.wbsid.clone(),
+                task: d.map(|d| d.task.clone()).unwrap_or_default(),
+                price: d.map(|d| d.price_type.clone()).filter(|p| p == "O" || p == "N").unwrap_or_else(|| r.price.clone()),
+                minutes: r.minutes,
+                note: r.note.trim().to_string(),
+            }
+        })
+        .collect();
+    let before = &outcome.plan.before;
+    let before_json = |p: &marks::NewPush| {
+        before
+            .iter()
+            .find(|(c, w, _)| *c == p.ci_key && *w == p.wbsid)
+            .map(|(_, _, rows)| serde_json::Value::Array(rows.clone()).to_string())
+            .unwrap_or_else(|| "[]".into())
+    };
+    let pushes = log
+        .with(|conn| marks::record(conn, &commit_id, &iso, &new_pushes, &before_json))
+        .map_err(|e| AppError::new("db", format!("i-WMS 에는 저장했지만 입력 이력을 남기지 못했습니다: {}", e.message)))?;
+
+    Ok(CommitOut {
+        commit_id,
+        preview: outcome.plan.preview,
+        verified: outcome.verified,
+        mismatches: outcome.mismatches,
+        pushes,
+    })
+}
+
+/// 되돌리기 — 그 확정이 넣은 행만 i-WMS 에서 지운다. 대조가 맞을 때만 이력에 되돌림을 적는다.
+#[tauri::command]
+pub async fn iwms_undo(app: AppHandle, state: State<'_, IwmsState>, log: State<'_, DayLog>, commit_id: String) -> Result<UndoOut> {
+    let (rows, _) = log.with(|conn| marks::commit_rows(conn, &commit_id))?;
+    let first = rows.first().ok_or_else(|| AppError::new("not_found", "그 입력 이력이 없습니다"))?;
+    if rows.iter().any(|p| p.undone_at.is_some()) {
+        return Err(AppError::new("invalid", "이미 되돌린 입력입니다"));
+    }
+    let (iso, ymd) = day::normalize_date(&first.day).map_err(|m| AppError::new("invalid", m))?;
+    let removals: Vec<day::Removal> = rows
+        .iter()
+        .map(|p| day::Removal { ci_key: p.ci_key.clone(), wbsid: p.wbsid.clone(), minutes: p.minutes, note: p.note.clone() })
+        .collect();
+    let today = today();
+    let outcome =
+        with_session(&app, &state, move |c, s| write::undo(&c, &s.user.user_id, &ymd, &iso, &today, &removals)).await?;
+    if outcome.verified {
+        log.with(|conn| marks::mark_undone(conn, &commit_id))?;
+    }
+    Ok(UndoOut { preview: outcome.plan.preview, verified: outcome.verified, mismatches: outcome.mismatches })
 }
 
 #[tauri::command]

@@ -870,6 +870,9 @@ pub fn run() {
             iwms::set_iwms_mark,
             iwms::iwms_pushes,
             iwms::iwms_recent_pushes,
+            iwms::iwms_preview,
+            iwms::iwms_commit,
+            iwms::iwms_undo,
             iwms::get_iwms_settings,
             iwms::save_iwms_settings,
         ])
