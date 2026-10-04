@@ -192,7 +192,7 @@ export function OptionCard({
       </div>
       <div style={{ minWidth: 0 }}>
         <div style={{ fontSize: 12.5, fontWeight: on ? 600 : 500, color: "#23211e" }}>{label}</div>
-        <div style={{ fontSize: 11, color: "#8a857c", marginTop: 2, lineHeight: 1.5 }}>{desc}</div>
+        <div style={{ fontSize: 11, color: "#6a665e", marginTop: 2, lineHeight: 1.5 }}>{desc}</div>
       </div>
     </Box>
   );
@@ -202,7 +202,7 @@ export const labelStyle: CSSProperties = {
   fontSize: 11,
   fontWeight: 600,
   letterSpacing: ".4px",
-  color: "#a09a8f",
+  color: "#6a665e",
   marginBottom: 5,
 };
 

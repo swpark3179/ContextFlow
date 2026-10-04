@@ -51,7 +51,7 @@ function PaneHeader({
       <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: ".4px", color: "#6a665e" }}>
         {label}
       </span>
-      <span style={{ fontSize: 11, color: "#a09a8f" }}>{hint}</span>
+      <span style={{ fontSize: 11, color: "#6a665e" }}>{hint}</span>
       <div style={{ flex: 1 }} />
       {children}
       {action && onAction && (
@@ -284,7 +284,7 @@ export default function EditorPane() {
                   minWidth: 0,
                   maxWidth: 180,
                   background: on ? "#fff" : "transparent",
-                  color: on ? "#23211e" : "#8a857c",
+                  color: on ? "#23211e" : "#6a665e",
                   boxShadow: on ? `inset 0 -2px 0 ${badge.bar}` : "none",
                 }}
               >
@@ -337,8 +337,8 @@ export default function EditorPane() {
                     alignItems: "center",
                     justifyContent: "center",
                     borderRadius: 3,
-                    fontSize: 10,
-                    color: "#a09a8f",
+                    fontSize: 11,
+                    color: "#6a665e",
                   }}
                   hover={{ background: "#e0dcd4", color: "#4e4a43" }}
                 >
@@ -365,7 +365,7 @@ export default function EditorPane() {
         >
           <div style={{ fontSize: 13, color: "#8a857c" }}>열려 있는 파일이 없습니다</div>
           <div
-            style={{ fontSize: 11.5, color: "#a09a8f", textAlign: "center", lineHeight: 1.7 }}
+            style={{ fontSize: 11.5, color: "#6a665e", textAlign: "center", lineHeight: 1.7 }}
           >
             오른쪽 탐색기에서 파일을 더블클릭하거나,
             <br />
@@ -400,14 +400,14 @@ export default function EditorPane() {
               justifyContent: "center",
               fontFamily: "'Roboto Mono',monospace",
               fontSize: 11,
-              color: "#8a857c",
+              color: "#6a665e",
             }}
           >
             {ext.toUpperCase()}
           </div>
           <div style={{ fontSize: 13, fontWeight: 500 }}>{basename(tab.path)}</div>
           <div
-            style={{ fontSize: 11.5, color: "#a09a8f", textAlign: "center", lineHeight: 1.7 }}
+            style={{ fontSize: 11.5, color: "#6a665e", textAlign: "center", lineHeight: 1.7 }}
           >
             텍스트로 표시할 수 없는 형식입니다 · {meta?.size ?? ""}
             <br />
@@ -479,7 +479,7 @@ export default function EditorPane() {
               }
               style={{
                 fontSize: 11,
-                color: scripts ? "#8f5d17" : "#a09a8f",
+                color: scripts ? "#8f5d17" : "#6a665e",
                 cursor: "pointer",
                 marginRight: 4,
               }}
@@ -588,8 +588,8 @@ export default function EditorPane() {
               background: "#f7f5f1",
               borderTop: "1px solid #e6e2da",
               fontFamily: "'Roboto Mono',monospace",
-              fontSize: 10.5,
-              color: "#8a857c",
+              fontSize: 11.5,
+              color: "#6a665e",
             }}
           >
             <span>

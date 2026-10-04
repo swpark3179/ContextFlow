@@ -112,7 +112,7 @@ export default function NewTaskModal() {
           }}
         >
           <span style={{ fontSize: 14, fontWeight: 600 }}>새 업무 추가</span>
-          <span style={{ fontSize: 11.5, color: "#8a857c" }}>
+          <span style={{ fontSize: 11.5, color: "#6a665e" }}>
             제목을 입력하면 과거 Vault 노드와의 유사도를 계산합니다
           </span>
           <div style={{ flex: 1 }} />
@@ -295,7 +295,7 @@ export default function NewTaskModal() {
                   fontFamily: "'Roboto Mono',monospace",
                   fontSize: 11,
                   lineHeight: 1.75,
-                  color: "#8a857c",
+                  color: "#6a665e",
                   wordBreak: "break-all",
                 }}
               >
@@ -319,7 +319,7 @@ export default function NewTaskModal() {
                 ))}
               </div>
               {category && (
-                <div style={{ fontSize: 11, color: "#a09a8f", marginTop: 5, lineHeight: 1.5 }}>
+                <div style={{ fontSize: 11, color: "#6a665e", marginTop: 5, lineHeight: 1.5 }}>
                   카테고리는 index.md 에만 적힙니다 — 폴더는 그대로 Tasks/ 바로 아래에 생깁니다.
                 </div>
               )}
@@ -757,7 +757,7 @@ export default function NewTaskModal() {
           <span
             style={{
               fontSize: 11.5,
-              color: "#8a857c",
+              color: "#6a665e",
               flex: 1,
               minWidth: 0,
               overflow: "hidden",

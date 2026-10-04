@@ -215,8 +215,8 @@ export default function MenuBar() {
                     <span
                       style={{
                         fontFamily: "'Roboto Mono',monospace",
-                        fontSize: 10.5,
-                        color: "#b5afa2",
+                        fontSize: 11.5,
+                        color: "#6a665e",
                       }}
                     >
                       {item.hint}
@@ -239,7 +239,7 @@ export default function MenuBar() {
           }}
         />
         <span
-          style={{ fontFamily: "'Roboto Mono',monospace", fontSize: 11.5, color: "#8a857c" }}
+          style={{ fontFamily: "'Roboto Mono',monospace", fontSize: 11.5, color: "#6a665e" }}
         >
           {s.settings.vault}
         </span>

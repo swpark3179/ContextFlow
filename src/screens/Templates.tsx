@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Box } from "../lib/ui";
-import { GREEN, VIOLET } from "../lib/design";
+import { GREEN } from "../lib/design";
 import CategoryPicker, { CategoryChip } from "../components/CategoryPicker";
 import { useStore } from "../store/useStore";
 
@@ -19,7 +19,7 @@ export default function Templates() {
       label: "총 실행 회차",
       color: "#3a3630",
     },
-    { key: "b", value: templates.length, label: "등록된 표준 패턴", color: VIOLET },
+    { key: "b", value: templates.length, label: "등록된 표준 패턴", color: "#2f6f80" },
     {
       key: "c",
       value: templates.reduce((n, t) => n + t.saved, 0),
@@ -106,7 +106,7 @@ export default function Templates() {
             >
               {st.value}
             </div>
-            <div style={{ fontSize: 11.5, color: "#8a857c", marginTop: 3 }}>{st.label}</div>
+            <div style={{ fontSize: 11.5, color: "#6a665e", marginTop: 3 }}>{st.label}</div>
           </div>
         ))}
       </div>
@@ -122,7 +122,7 @@ export default function Templates() {
             borderBottom: "1px solid #e6e2da",
             fontSize: 11.5,
             fontWeight: 600,
-            color: "#8a857c",
+            color: "#6a665e",
           }}
         >
           <div style={{ padding: "7px 12px" }}>템플릿 / 대표 노드</div>
@@ -137,7 +137,7 @@ export default function Templates() {
               padding: "36px 16px",
               textAlign: "center",
               fontSize: 12.5,
-              color: "#a09a8f",
+              color: "#8a857c",
               lineHeight: 1.8,
             }}
           >
@@ -170,7 +170,7 @@ export default function Templates() {
                     minWidth: 0,
                   }}
                 >
-                  <span style={{ fontSize: 9, color: "#a09a8f" }}>{open ? "▼" : "▶"}</span>
+                  <span style={{ fontSize: 9, color: "#6a665e" }}>{open ? "▼" : "▶"}</span>
                   <div style={{ minWidth: 0 }}>
                     <div
                       style={{
@@ -195,7 +195,7 @@ export default function Templates() {
                         <span
                           style={{
                             flex: "0 0 auto",
-                            fontSize: 10,
+                            fontSize: 11,
                             fontWeight: 600,
                             color: "#5a44b4",
                             background: "#f4f0fd",
@@ -211,8 +211,8 @@ export default function Templates() {
                     <div
                       style={{
                         fontFamily: "'Roboto Mono',monospace",
-                        fontSize: 10.5,
-                        color: "#a09a8f",
+                        fontSize: 11.5,
+                        color: "#6a665e",
                         marginTop: 2,
                       }}
                     >
@@ -269,7 +269,7 @@ export default function Templates() {
                         flex: "0 0 auto",
                         fontSize: 11,
                         fontWeight: 600,
-                        color: "#8a857c",
+                        color: "#6a665e",
                         letterSpacing: ".4px",
                       }}
                     >
@@ -282,7 +282,7 @@ export default function Templates() {
                     <span
                       style={{
                         fontSize: 11,
-                        color: "#a09a8f",
+                        color: "#6a665e",
                         overflow: "hidden",
                         textOverflow: "ellipsis",
                         whiteSpace: "nowrap",
@@ -327,7 +327,7 @@ export default function Templates() {
                     style={{
                       fontSize: 11,
                       fontWeight: 600,
-                      color: "#8a857c",
+                      color: "#6a665e",
                       letterSpacing: ".4px",
                       marginBottom: 5,
                     }}
@@ -335,7 +335,7 @@ export default function Templates() {
                     RUN LOG
                   </div>
                   {tp.runs.length === 0 && (
-                    <div style={{ fontSize: 12, color: "#a09a8f" }}>
+                    <div style={{ fontSize: 12, color: "#8a857c" }}>
                       아직 이 템플릿을 사용한 업무가 없습니다.
                     </div>
                   )}
@@ -353,7 +353,7 @@ export default function Templates() {
                         style={{
                           fontFamily: "'Roboto Mono',monospace",
                           fontSize: 11,
-                          color: "#a09a8f",
+                          color: "#6a665e",
                           flex: "0 0 108px",
                         }}
                       >

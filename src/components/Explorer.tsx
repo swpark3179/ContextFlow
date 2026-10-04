@@ -136,7 +136,7 @@ function RenameRow({ pad }: { pad: number }) {
         style={{
           flex: "0 0 auto",
           fontSize: 11,
-          color: "#a09a8f",
+          color: "#6a665e",
           cursor: "pointer",
           padding: "2px 4px",
         }}
@@ -296,7 +296,7 @@ export default function Explorer() {
           }}
           hover={{ background: "#efece6" }}
         >
-          <span style={{ fontSize: 9, color: "#8a857c" }}>◀</span>
+          <span style={{ fontSize: 9, color: "#6a665e" }}>◀</span>
           <span
             style={{
               writingMode: "vertical-rl",
@@ -312,8 +312,8 @@ export default function Explorer() {
             style={{
               writingMode: "vertical-rl",
               fontFamily: "'Roboto Mono',monospace",
-              fontSize: 10.5,
-              color: "#b5afa2",
+              fontSize: 11.5,
+              color: "#6a665e",
             }}
           >
             {files.length}개 파일
@@ -388,7 +388,7 @@ export default function Explorer() {
           onClick={collapseAll}
           style={{
             fontSize: 11,
-            color: "#8a857c",
+            color: "#6a665e",
             cursor: "pointer",
             padding: "2px 4px",
             borderRadius: 3,
@@ -459,8 +459,8 @@ export default function Explorer() {
         <span
           style={{
             fontFamily: "'Roboto Mono',monospace",
-            fontSize: 10.5,
-            color: "#b5afa2",
+            fontSize: 11.5,
+            color: "#6a665e",
             flex: "0 0 auto",
           }}
         >
@@ -582,7 +582,7 @@ export default function Explorer() {
                 style={{
                   flex: "0 0 auto",
                   fontSize: 11,
-                  color: "#a09a8f",
+                  color: "#6a665e",
                   cursor: "pointer",
                   padding: "2px 4px",
                 }}
@@ -590,7 +590,7 @@ export default function Explorer() {
                 취소
               </div>
             </div>
-            <div style={{ fontSize: 10.5, color: "#a09a8f", margin: "-1px 0 6px 6px" }}>
+            <div style={{ fontSize: 11, color: "#6a665e", margin: "-1px 0 6px 6px" }}>
               위치 · {task?.relFolder ?? ""}
               {s.mk.parent}
             </div>
@@ -649,7 +649,7 @@ export default function Explorer() {
                 }}
                 hover={{ background: "#efece6" }}
               >
-                <span style={{ flex: "0 0 9px", fontSize: 8, color: "#a09a8f", textAlign: "center" }}>
+                <span style={{ flex: "0 0 9px", fontSize: 8, color: "#6a665e", textAlign: "center" }}>
                   {r.open ? "▼" : "▶"}
                 </span>
                 <div
@@ -679,8 +679,8 @@ export default function Explorer() {
                 <span
                   style={{
                     fontFamily: "'Roboto Mono',monospace",
-                    fontSize: 10,
-                    color: "#b5afa2",
+                    fontSize: 11.5,
+                    color: "#6a665e",
                     flex: "0 0 auto",
                   }}
                 >
@@ -832,7 +832,7 @@ export default function Explorer() {
                     flex: "0 0 auto",
                     fontFamily: "'Roboto Mono',monospace",
                     fontSize: 9,
-                    color: "#8a857c",
+                    color: "#6a665e",
                     background: "#efece6",
                     borderRadius: 2,
                     padding: "1px 3px",
@@ -873,13 +873,13 @@ export default function Explorer() {
           }}
         >
           <div
-            style={{ fontSize: 11.5, color: s.dragOver ? "#2f5cbb" : "#a09a8f", lineHeight: 1.6 }}
+            style={{ fontSize: 11.5, color: s.dragOver ? "#2f5cbb" : "#6a665e", lineHeight: 1.6 }}
           >
             {s.dragOver
               ? "놓으면 이 업무 폴더로 가져옵니다"
               : "바탕화면에서 파일을 끌어다 놓기"}
           </div>
-          <div style={{ fontSize: 10.5, color: "#b5afa2", marginTop: 2 }}>
+          <div style={{ fontSize: 11, color: "#6a665e", marginTop: 2 }}>
             복사 또는 심볼릭 링크를 선택할 수 있습니다
           </div>
         </div>
@@ -933,15 +933,15 @@ export default function Explorer() {
             <span
               style={{
                 fontFamily: "'Roboto Mono',monospace",
-                fontSize: 10.5,
-                color: "#a09a8f",
+                fontSize: 11.5,
+                color: "#6a665e",
                 flex: "0 0 auto",
               }}
             >
               {selMeta?.size ?? "—"}
             </span>
           </div>
-          <div style={{ fontSize: 10.5, color: "#b5afa2", marginTop: -1, lineHeight: 1.6 }}>
+          <div style={{ fontSize: 11, color: "#6a665e", marginTop: -1, lineHeight: 1.6 }}>
             더블클릭 = 기본 열기 · 우클릭 = 열기 방식 · 이름 바꾸기
             <br />
             길게 누르면 = 옮기기 · 창 밖으로 = 바탕화면 (Alt = 링크)
@@ -1008,7 +1008,7 @@ export default function Explorer() {
           >
             {drag.name}
           </span>
-          <span style={{ fontSize: 10.5, color: "#8a857c", flex: "0 0 auto" }}>
+          <span style={{ fontSize: 11, color: "#6a665e", flex: "0 0 auto" }}>
             {drag.outside
               ? drag.alt
                 ? "바탕화면에 링크"

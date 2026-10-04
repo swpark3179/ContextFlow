@@ -99,7 +99,7 @@ export default function TemplateModal() {
         }}
       >
         <span style={{ fontSize: 14, fontWeight: 600 }}>표준 패턴 추가</span>
-        <span style={{ fontSize: 11.5, color: "#8a857c" }}>
+        <span style={{ fontSize: 11.5, color: "#6a665e" }}>
           {folderMode
             ? "폴더를 통째로 등록하면 새 업무에 그 파일들이 그대로 복사됩니다"
             : "반복되는 업무의 골격을 템플릿으로 등록해 회차 로그로 누적합니다"}
@@ -207,7 +207,7 @@ export default function TemplateModal() {
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5 }}>
               <span style={{ fontSize: 12, fontWeight: 600, color: "#6a665e" }}>기본 카테고리</span>
-              <span style={{ fontSize: 11, color: "#a09a8f" }}>이 템플릿으로 만든 새 업무에 미리 채워집니다</span>
+              <span style={{ fontSize: 11, color: "#6a665e" }}>이 템플릿으로 만든 새 업무에 미리 채워집니다</span>
             </div>
             <CategoryPicker
               value={tp.category}
@@ -219,7 +219,7 @@ export default function TemplateModal() {
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5 }}>
               <span style={{ fontSize: 12, fontWeight: 600, color: "#6a665e" }}>섹션 구성</span>
-              <span style={{ fontSize: 11, color: "#a09a8f" }}>한 줄에 하나씩</span>
+              <span style={{ fontSize: 11, color: "#6a665e" }}>한 줄에 하나씩</span>
             </div>
             <TextArea
               value={tp.sections}
@@ -322,8 +322,8 @@ export default function TemplateModal() {
         <span
           style={{
             fontFamily: "'Roboto Mono',monospace",
-            fontSize: 10.5,
-            color: "#a09a8f",
+            fontSize: 11.5,
+            color: "#6a665e",
             flex: 1,
             minWidth: 0,
             overflow: "hidden",

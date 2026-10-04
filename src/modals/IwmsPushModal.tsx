@@ -295,7 +295,7 @@ function PushView({ day }: { day: string }) {
           ← 오늘의 한일
         </Box>
         <span style={{ fontSize: 14, fontWeight: 600 }}>i-WMS 업무량 입력</span>
-        <span style={{ fontFamily: "'Roboto Mono',monospace", fontSize: 11.5, color: "#8a857c" }}>
+        <span style={{ fontFamily: "'Roboto Mono',monospace", fontSize: 11.5, color: "#6a665e" }}>
           {day} ({wd})
         </span>
         <div style={{ flex: 1 }} />
@@ -529,13 +529,13 @@ function DayBar({
       <span>이미 입력 {day.totalMinutes}분</span>
       <span>남은 시간 {remaining}분</span>
       <span style={{ fontWeight: 600, color: "#3a3630" }}>이번 입력 {thisRun}분</span>
-      <span style={{ color: diff === 0 ? "#2f7f57" : "#b07520" }}>
+      <span style={{ color: diff === 0 ? "#2f7f57" : "#8f5d17" }}>
         합계 {after}분{diff === 0 ? " ✓" : diff > 0 ? ` (기준보다 ${diff}분 많음)` : ` (기준보다 ${-diff}분 적음)`}
       </span>
-      {!settings.fillToStandard && <span style={{ color: "#a09a8f" }}>남은 시간을 채우지 않는 설정</span>}
+      {!settings.fillToStandard && <span style={{ color: "#6a665e" }}>남은 시간을 채우지 않는 설정</span>}
       {day.approved && <span style={{ color: "#9b4b42" }}>결재가 끝난 날이라 입력할 수 없습니다</span>}
       {blockedTabs.map((t) => (
-        <span key={t.ciKey} style={{ color: "#b07520" }}>
+        <span key={t.ciKey} style={{ color: "#8f5d17" }}>
           {t.ciName}: {t.blocked}
         </span>
       ))}
@@ -568,7 +568,7 @@ function PreviewPane({ p }: { p: IwmsPreview }) {
         </span>
       </div>
       {p.warnings.map((w) => (
-        <div key={w} style={{ fontSize: 11.5, color: "#b07520" }}>
+        <div key={w} style={{ fontSize: 11.5, color: "#8f5d17" }}>
           {w}
         </div>
       ))}
@@ -584,7 +584,7 @@ function PreviewPane({ p }: { p: IwmsPreview }) {
               </span>
             </div>
             {kept.map((r) => (
-              <div key={`k${r.rowSeq}`} style={{ ...rowLine, color: "#a09a8f" }}>
+              <div key={`k${r.rowSeq}`} style={{ ...rowLine, color: "#6a665e" }}>
                 <span style={{ flex: "0 0 34px" }}>유지</span>
                 <span style={{ flex: "0 0 44px", fontFamily: "'Roboto Mono',monospace" }}>{r.minutes}분</span>
                 <NoteText text={r.note} />
@@ -697,7 +697,7 @@ function WarnLine({ children, action }: { children: ReactNode; action?: { label:
           borderRadius: "50%",
           background: "#b07520",
           color: "#fff",
-          fontSize: 10.5,
+          fontSize: 11,
           fontWeight: 700,
           display: "flex",
           alignItems: "center",
@@ -756,7 +756,7 @@ function AiMark() {
         position: "absolute",
         right: 22,
         top: 6,
-        fontSize: 10.5,
+        fontSize: 11,
         fontWeight: 700,
         color: AI.fg,
         background: AI.bg,

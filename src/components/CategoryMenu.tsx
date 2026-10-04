@@ -132,7 +132,7 @@ export default function CategoryMenu() {
             style={{
               fontSize: 11.5,
               fontWeight: 600,
-              color: uncat ? "#8a857c" : "#3a3630",
+              color: uncat ? "#6a665e" : "#3a3630",
               overflow: "hidden",
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",

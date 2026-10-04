@@ -32,9 +32,9 @@ function EvidenceRow({ node }: { node: BsNode }) {
           <span
             style={{
               flex: "0 0 auto",
-              fontSize: 9,
+              fontSize: 11,
               fontWeight: 600,
-              padding: "1px 4px",
+              padding: "0 4px",
               borderRadius: 3,
               marginTop: 1,
               color: BS_EVIDENCE[e.kind].fg,
@@ -86,7 +86,7 @@ export function Outline({
   if (!rows.length) {
     return (
       <div style={{ flex: 1, minWidth: 0, display: "grid", placeItems: "center", background: "#fff" }}>
-        <span style={{ fontSize: 12, color: "#a09a8f" }}>아직 생각이 없습니다.</span>
+        <span style={{ fontSize: 12, color: "#8a857c" }}>아직 생각이 없습니다.</span>
       </div>
     );
   }
@@ -136,15 +136,15 @@ export function Outline({
                   overflowWrap: "anywhere",
                 }}
               >
-                {r.node.title || <span style={{ color: "#b5afa2" }}>이름 없는 생각</span>}
+                {r.node.title || <span style={{ color: "#8a857c" }}>이름 없는 생각</span>}
               </span>
               {!!r.node.images.length && (
                 <span
                   style={{
                     flex: "0 0 auto",
                     fontFamily: "'Roboto Mono',monospace",
-                    fontSize: 9,
-                    color: "#8a857c",
+                    fontSize: 11,
+                    color: "#6a665e",
                   }}
                 >
                   🖼 {r.node.images.length}
@@ -157,8 +157,8 @@ export function Outline({
                 }}
                 style={{
                   flex: "0 0 auto",
-                  fontSize: 10.5,
-                  color: "#a09a8f",
+                  fontSize: 11,
+                  color: "#6a665e",
                   padding: "1px 5px",
                   borderRadius: 3,
                   cursor: "pointer",
@@ -197,9 +197,9 @@ export function DecisionLog({
   return (
     <div style={{ flex: 1, minWidth: 0, overflow: "auto", background: "#fdfcfa", padding: "12px 16px 24px 16px" }}>
       {!decided && (
-        <div style={{ padding: "28px 0", textAlign: "center", fontSize: 12, color: "#a09a8f", lineHeight: 1.8 }}>
+        <div style={{ padding: "28px 0", textAlign: "center", fontSize: 12, color: "#8a857c", lineHeight: 1.8 }}>
           아직 정해진 것이 없습니다.
-          <div style={{ fontSize: 11, color: "#b5afa2" }}>
+          <div style={{ fontSize: 11, color: "#6a665e" }}>
             생각에 채택 · 유력 · 보류 · 폐기를 달면 여기에 모입니다.
           </div>
         </div>
@@ -225,7 +225,7 @@ export function DecisionLog({
               <span
                 style={{
                   fontFamily: "'Roboto Mono',monospace",
-                  fontSize: 10,
+                  fontSize: 11.5,
                   fontWeight: 700,
                   padding: "0 5px",
                   borderRadius: 8,
@@ -236,7 +236,7 @@ export function DecisionLog({
               >
                 {g.rows.length}
               </span>
-              <span style={{ fontSize: 11, color: "#b5afa2" }}>{g.note}</span>
+              <span style={{ fontSize: 11, color: "#6a665e" }}>{g.note}</span>
             </div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -266,8 +266,8 @@ export function DecisionLog({
                           style={{
                             flex: 1,
                             minWidth: 0,
-                            fontSize: 10,
-                            color: "#a09a8f",
+                            fontSize: 11,
+                            color: "#6a665e",
                             overflowWrap: "anywhere",
                           }}
                         >

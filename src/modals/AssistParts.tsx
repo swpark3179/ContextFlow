@@ -41,7 +41,7 @@ export function AssistHead({ title, task, children }: { title: string; task: str
 /** 이 기능이 쓰는 AI 연결 한 줄 — 어느 서비스로 업무 내용이 나가는지 늘 보인다. */
 export function RouteLabel({ info }: { info: RouteInfo }) {
   return (
-    <span style={{ fontSize: 11, color: "#a09a8f", whiteSpace: "nowrap" }}>
+    <span style={{ fontSize: 11, color: "#6a665e", whiteSpace: "nowrap" }}>
       {info.run ? `${info.name} · ${info.modelLabel ?? "기본 모델"}` : "AI 연결 없음"}
       {info.via === "default" ? " (기본 연결)" : ""}
     </span>
@@ -54,7 +54,7 @@ export function Notice({ tone, children }: { tone: "error" | "warn" | "muted"; c
       ? { bg: "#fdf3f2", bd: "#f2d6d2", fg: "#9b4b42" }
       : tone === "warn"
         ? { bg: "#fdf8ee", bd: "#f1e2c2", fg: "#8a6420" }
-        : { bg: "transparent", bd: "transparent", fg: "#8a857c" };
+        : { bg: "transparent", bd: "transparent", fg: "#6a665e" };
   return (
     <div
       style={{
@@ -63,7 +63,7 @@ export function Notice({ tone, children }: { tone: "error" | "warn" | "muted"; c
         borderRadius: 5,
         background: c.bg,
         border: `1px solid ${c.bd}`,
-        fontSize: 11.5,
+        fontSize: 12,
         color: c.fg,
         lineHeight: 1.6,
         whiteSpace: "pre-wrap",

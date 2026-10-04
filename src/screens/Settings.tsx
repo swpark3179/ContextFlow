@@ -179,7 +179,7 @@ export default function Settings() {
               style={{
                 fontFamily: "'Roboto Mono',monospace",
                 fontSize: 11,
-                color: "#a09a8f",
+                color: "#6a665e",
                 marginTop: 7,
                 lineHeight: 1.7,
                 wordBreak: "break-all",
@@ -199,7 +199,7 @@ export default function Settings() {
           <div style={{ ...rowStyle, borderBottom: "none" }}>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 12.5, fontWeight: 500 }}>.md 파일 더블클릭</div>
-              <div style={{ fontSize: 11.5, color: "#8a857c", marginTop: 2 }}>
+              <div style={{ fontSize: 11.5, color: "#6a665e", marginTop: 2 }}>
                 탐색기에서 마크다운 파일을 더블클릭했을 때의 기본 동작
               </div>
             </div>
@@ -241,7 +241,10 @@ export default function Settings() {
                       width: 74,
                       height: 58,
                       borderRadius: 7,
-                      border: `1px solid ${on ? "#bda9f0" : "#e6e2da"}`,
+                      // hover 가 borderColor 만 바꾸므로 축약형(border)과 섞지 않는다.
+                      borderWidth: 1,
+                      borderStyle: "solid",
+                      borderColor: on ? "#bda9f0" : "#e6e2da",
                       background: on ? "#faf7ff" : "#fff",
                       display: "flex",
                       flexDirection: "column",
@@ -319,7 +322,7 @@ export default function Settings() {
                 frontmatter 를 직접 고친 경우가 그렇고, 그때는 `archived` 키가 없어서
                 `isArchived` 가 이 기간으로 판단한다. 설정이 무엇을 정하는지 그대로 적는다.
               */}
-              <div style={{ fontSize: 11.5, color: "#8a857c", marginTop: 2, lineHeight: 1.5 }}>
+              <div style={{ fontSize: 11.5, color: "#6a665e", marginTop: 2, lineHeight: 1.5 }}>
                 Obsidian 등 앱 밖에서 완료로 바꾼 업무는 이 기간이 지나면 업무 리스트에서
                 접힙니다. 앱에서 [완료]를 누르면 기다리지 않고 그 즉시 보관됩니다.
               </div>
@@ -352,7 +355,7 @@ export default function Settings() {
             <div
               style={{
                 fontSize: 11.5,
-                color: "#a09a8f",
+                color: "#6a665e",
                 lineHeight: 1.7,
                 paddingTop: 6,
                 borderTop: "1px dashed #eae6de",
@@ -367,7 +370,7 @@ export default function Settings() {
         {/* AI 연결 ------------------------------------------------------- */}
         <div style={{ fontSize: 13, fontWeight: 600, color: "#6a665e", marginTop: 4 }}>
           AI 연결
-          <span style={{ fontSize: 11.5, fontWeight: 400, color: "#a09a8f", marginLeft: 8 }}>
+          <span style={{ fontSize: 11.5, fontWeight: 400, color: "#6a665e", marginLeft: 8 }}>
             세 가지 중 원하는 것만 설정하면 됩니다. 하나도 없어도 로컬 유사도로 추천합니다.
           </span>
         </div>
@@ -393,7 +396,7 @@ export default function Settings() {
               >
                 {threshold}%
               </span>
-              <span style={{ fontSize: 11.5, color: "#a09a8f" }}>
+              <span style={{ fontSize: 11.5, color: "#6a665e" }}>
                 새 업무 추가 시 추천 클러스터를 접는 기준
               </span>
             </div>
@@ -412,7 +415,7 @@ export default function Settings() {
             <div
               style={{
                 fontSize: 11.5,
-                color: "#a09a8f",
+                color: "#6a665e",
                 lineHeight: 1.7,
                 marginTop: 7,
                 paddingTop: 6,
@@ -435,7 +438,7 @@ export default function Settings() {
             >
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 12.5, fontWeight: 500 }}>{label}</div>
-                <div style={{ fontSize: 11.5, color: "#8a857c", marginTop: 2 }}>{desc}</div>
+                <div style={{ fontSize: 11.5, color: "#6a665e", marginTop: 2 }}>{desc}</div>
               </div>
               <Toggle
                 on={!!settings[k]}

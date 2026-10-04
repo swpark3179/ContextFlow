@@ -291,7 +291,7 @@ export function extStyle(ext: string): { fg: string; bg: string } {
   if (["json", "ts", "tsx", "js", "sql", "ps1", "rs", "py"].includes(ext))
     return { fg: "#2f5cbb", bg: "#eef3fd" };
   if (["csv", "xlsx", "tsv"].includes(ext)) return { fg: "#256b47", bg: "#e9f4ee" };
-  return { fg: "#8a857c", bg: "#f0ede7" };
+  return { fg: "#6a665e", bg: "#f0ede7" };
 }
 
 /** Toast accents used across the design's `toast(...)` calls. */

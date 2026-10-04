@@ -40,8 +40,8 @@ export default function TitleBar({ title }: { title: string }) {
         <span
           style={{
             fontFamily: "'Roboto Mono',monospace",
-            fontSize: 10.5,
-            color: "#9b968c",
+            fontSize: 11.5,
+            color: "#6a665e",
             border: "1px solid #ded9d0",
             borderRadius: 3,
             padding: "0 4px",

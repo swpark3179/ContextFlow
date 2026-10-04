@@ -269,7 +269,7 @@ function BriefView({ folder }: { folder: string }) {
             }}
             focusStyle={inputFocus}
           />
-          <div style={{ fontSize: 11, color: "#8a857c", lineHeight: 1.7, marginTop: 6 }}>
+          <div style={{ fontSize: 11, color: "#6a665e", lineHeight: 1.7, marginTop: 6 }}>
             적은 것과 업무 제목 · 카테고리 · 태그 · 지금 개요가 AI 연결로 나갑니다. 적힌 사실만 정리하고, 빠진 것은
             선택지나 입력으로 되묻습니다(최대 {BRIEF_ROUNDS}바퀴). Ctrl+Enter 로 시작합니다.
           </div>
@@ -330,8 +330,8 @@ function BriefView({ folder }: { folder: string }) {
               <div style={{ marginTop: 12 }}>
                 <div style={labelStyle}>앞서 답한 것</div>
                 {qa.map((q) => (
-                  <div key={q.id} style={{ fontSize: 11.5, lineHeight: 1.6, color: "#6a665e", marginBottom: 3 }}>
-                    <span style={{ color: "#a09a8f" }}>{q.ask}</span> → {q.unknown ? "모름" : q.answer}
+                  <div key={q.id} style={{ fontSize: 11.5, lineHeight: 1.6, color: "#3a3630", marginBottom: 3 }}>
+                    <span style={{ color: "#6a665e" }}>{q.ask}</span> → {q.unknown ? "모름" : q.answer}
                   </div>
                 ))}
               </div>
@@ -355,7 +355,7 @@ function BriefView({ folder }: { folder: string }) {
               </div>
             )}
             {draft && !questions.length && (
-              <div style={{ fontSize: 11.5, color: "#8a857c", lineHeight: 1.7, marginTop: 12 }}>
+              <div style={{ fontSize: 11.5, color: "#6a665e", lineHeight: 1.7, marginTop: 12 }}>
                 {round >= BRIEF_ROUNDS
                   ? "보완은 여기까지입니다. 정해지지 않은 것은 “확인 필요” 에 남깁니다."
                   : "더 물을 것이 없습니다."}
@@ -513,11 +513,11 @@ function QuestionCard({
       }}
     >
       <div style={{ fontSize: 12.5, fontWeight: 600, color: "#23211e", lineHeight: 1.5 }}>
-        <span style={{ color: "#a09a8f", marginRight: 5 }}>Q{n}</span>
+        <span style={{ color: "#8a857c", marginRight: 5 }}>Q{n}</span>
         {q.ask}
-        {q.kind === "multi" && <span style={{ fontWeight: 400, color: "#a09a8f" }}> (여러 개)</span>}
+        {q.kind === "multi" && <span style={{ fontWeight: 400, color: "#8a857c" }}> (여러 개)</span>}
       </div>
-      {q.why && <div style={{ fontSize: 11, color: "#8a857c", marginTop: 2, lineHeight: 1.5 }}>{q.why}</div>}
+      {q.why && <div style={{ fontSize: 11, color: "#6a665e", marginTop: 2, lineHeight: 1.5 }}>{q.why}</div>}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 7 }}>
         {q.options.map((opt) => (
           <Box key={opt} title={opt} onClick={() => pick(opt)} style={chipStyle(a.picks.includes(opt))}>

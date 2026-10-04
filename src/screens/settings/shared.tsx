@@ -55,7 +55,7 @@ export const inputFocus: CSSProperties = {
 /** 설명·경고 한 줄. 카드 전체가 공유한다. */
 export const hintStyle: CSSProperties = {
   fontSize: 11.5,
-  color: "#8a857c",
+  color: "#6a665e",
   lineHeight: 1.6,
 };
 
@@ -269,7 +269,7 @@ export function CustomModelsField({
 export function DirtyMark({ dirty }: { dirty: boolean }) {
   if (!dirty) return null;
   return (
-    <span style={{ ...HINT, color: "#b07520", alignSelf: "center" }}>● 저장되지 않은 변경</span>
+    <span style={{ ...HINT, color: "#8f5d17", alignSelf: "center" }}>● 저장되지 않은 변경</span>
   );
 }
 
@@ -335,8 +335,8 @@ export function ConnectionPanel({
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <span
           style={{
-            fontSize: 10.5,
-            color: "#8a857c",
+            fontSize: 11,
+            color: "#6a665e",
             background: "#ece8e0",
             borderRadius: 3,
             padding: "1px 5px",

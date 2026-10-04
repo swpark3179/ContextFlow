@@ -200,7 +200,7 @@ export default function WebSearchCard() {
             {probe.secs != null && ` · ${probe.secs.toFixed(1)}초`}
             {probe.results?.map((r) => (
               <div key={r.url} style={{ color: "#4e4a43" }}>
-                · {r.title} <span style={{ color: "#a09a8f" }}>{r.url}</span>
+                · {r.title} <span style={{ color: "#6a665e" }}>{r.url}</span>
               </div>
             ))}
           </div>
@@ -208,7 +208,7 @@ export default function WebSearchCard() {
         <div
           style={{
             ...hintStyle,
-            color: "#a09a8f",
+            color: "#6a665e",
             paddingTop: 6,
             borderTop: "1px dashed #eae6de",
           }}

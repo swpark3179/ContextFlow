@@ -577,7 +577,7 @@ function TurnView({
         {turn.scope !== null && (
           <span
             title="이 카테고리(하위 포함)의 위키 페이지만 근거로 찾았습니다"
-            style={{ flex: "0 1 auto", minWidth: 0, fontSize: 11, color: "#8a857c", whiteSpace: "nowrap" }}
+            style={{ flex: "0 1 auto", minWidth: 0, fontSize: 11, color: "#6a665e", whiteSpace: "nowrap" }}
           >
             ‘{turn.scope}’ 안에서
           </span>
@@ -833,7 +833,7 @@ function WarnIcon() {
         borderRadius: "50%",
         background: "#b07520",
         color: "#fff",
-        fontSize: 10.5,
+        fontSize: 11,
         fontWeight: 700,
         display: "flex",
         alignItems: "center",

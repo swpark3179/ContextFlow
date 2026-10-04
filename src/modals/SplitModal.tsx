@@ -87,7 +87,7 @@ export default function SplitModal() {
         }}
       >
         <span style={{ fontSize: 14, fontWeight: 600 }}>업무 분할</span>
-        <span style={{ fontSize: 11.5, color: "#8a857c" }}>
+        <span style={{ fontSize: 11.5, color: "#6a665e" }}>
           고른 최상위 항목을 새 업무로 옮깁니다 · 폴더는 하위 전체가 함께 갑니다
         </span>
         <div style={{ flex: 1 }} />
@@ -148,7 +148,7 @@ export default function SplitModal() {
                 style={{
                   padding: "20px 12px",
                   fontSize: 12,
-                  color: "#a09a8f",
+                  color: "#8a857c",
                   textAlign: "center",
                   lineHeight: 1.7,
                 }}
@@ -225,8 +225,8 @@ export default function SplitModal() {
                   <span
                     style={{
                       fontFamily: "'Roboto Mono',monospace",
-                      fontSize: 10.5,
-                      color: "#a09a8f",
+                      fontSize: 11.5,
+                      color: "#6a665e",
                       flex: "0 0 auto",
                     }}
                   >
@@ -245,7 +245,7 @@ export default function SplitModal() {
                   marginTop: 3,
                   borderTop: "1px solid #f0ede7",
                   fontSize: 11.5,
-                  color: "#a09a8f",
+                  color: "#6a665e",
                 }}
               >
                 <span style={{ flex: 1, minWidth: 0 }}>index.md</span>
@@ -286,7 +286,7 @@ export default function SplitModal() {
               style={{
                 fontFamily: "'Roboto Mono',monospace",
                 fontSize: 11,
-                color: "#8a857c",
+                color: "#6a665e",
                 marginTop: 6,
                 wordBreak: "break-all",
               }}
@@ -334,7 +334,7 @@ export default function SplitModal() {
               onCommit={(v) => s.set({ split: { ...split, category: v ?? "", error: "" } })}
             />
           </div>
-          <div style={{ fontSize: 11.5, color: "#8a857c", lineHeight: 1.65 }}>
+          <div style={{ fontSize: 11.5, color: "#6a665e", lineHeight: 1.65 }}>
             원본 업무: {source?.title ?? ""} · 고른 항목은 <b>복사가 아니라 이동</b>이며,
             파일이 다른 프로그램에서 열려 있으면 아무것도 옮기지 않고 실패합니다.
           </div>
@@ -359,7 +359,7 @@ export default function SplitModal() {
       )}
 
       <ModalFooter>
-        <span style={{ fontSize: 11.5, color: "#8a857c", flex: 1, minWidth: 0 }}>
+        <span style={{ fontSize: 11.5, color: "#6a665e", flex: 1, minWidth: 0 }}>
           {picked.length
             ? `${picked.length}개 항목이 새 업무로 이동합니다`
             : "옮길 항목을 하나 이상 고르세요"}

@@ -29,7 +29,7 @@ export default function ImportModal() {
     <Modal width={460} zIndex={76} onClose={() => s.set({ drop: null })}>
       <div style={{ padding: "14px 16px 12px 16px", borderBottom: "1px solid #f0ede7" }}>
         <div style={{ fontSize: 14, fontWeight: 600 }}>외부 파일을 업무 폴더로 가져오기</div>
-        <div style={{ fontSize: 11.5, color: "#8a857c", marginTop: 4 }}>
+        <div style={{ fontSize: 11.5, color: "#6a665e", marginTop: 4 }}>
           {drop.names.length}개 항목 · 창 밖에서 끌어온 항목
         </div>
       </div>
@@ -83,8 +83,8 @@ export default function ImportModal() {
               <span
                 style={{
                   fontFamily: "'Roboto Mono',monospace",
-                  fontSize: 10.5,
-                  color: "#b5afa2",
+                  fontSize: 11.5,
+                  color: "#6a665e",
                   flex: "0 0 auto",
                 }}
               >
@@ -141,8 +141,8 @@ export default function ImportModal() {
         <span
           style={{
             fontFamily: "'Roboto Mono',monospace",
-            fontSize: 10.5,
-            color: "#a09a8f",
+            fontSize: 11.5,
+            color: "#6a665e",
             flex: 1,
             minWidth: 0,
             overflow: "hidden",

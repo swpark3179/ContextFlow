@@ -55,7 +55,7 @@ export default function Notepad() {
           <span
             style={{
               fontSize: 11,
-              color: "#a09a8f",
+              color: "#6a665e",
               whiteSpace: "nowrap",
               overflow: "hidden",
               textOverflow: "ellipsis",
@@ -70,8 +70,8 @@ export default function Notepad() {
         <span
           style={{
             fontFamily: "'Roboto Mono',monospace",
-            fontSize: 10.5,
-            color: "#a09a8f",
+            fontSize: 11.5,
+            color: "#6a665e",
             whiteSpace: "nowrap",
             flex: "0 0 auto",
             overflow: "hidden",

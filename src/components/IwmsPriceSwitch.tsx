@@ -4,7 +4,7 @@ import type { Price } from "../lib/iwms/types";
 const OPTIONS: { value: Price | null; label: string; title: string; fg: string; bg: string }[] = [
   { value: null, label: "–", title: "i-WMS 에 입력하지 않습니다", fg: "#6a665e", bg: "#ece8e0" },
   { value: "O", label: "포함", title: "대가포함(운영) 업무로 i-WMS 에 입력합니다", fg: "#2f5cbb", bg: "#e6eefc" },
-  { value: "N", label: "미포함", title: "대가미포함(비대상) 업무로 i-WMS 에 입력합니다", fg: "#6a54c6", bg: "#efebfb" },
+  { value: "N", label: "미포함", title: "대가미포함(비대상) 업무로 i-WMS 에 입력합니다", fg: "#4e4a43", bg: "#f0ede7" },
 ];
 
 /**
@@ -40,7 +40,7 @@ export default function IwmsPriceSwitch({
             onClick={() => !on && onChange(o.value)}
             style={{
               padding: o.value ? "0 6px" : "0 5px",
-              fontSize: 10,
+              fontSize: 11,
               lineHeight: "18px",
               cursor: on ? "default" : "pointer",
               color: on ? o.fg : "#b5afa2",

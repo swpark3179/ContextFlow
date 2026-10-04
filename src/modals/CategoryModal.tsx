@@ -245,7 +245,7 @@ function CategoryBody() {
         }}
       >
         <span style={{ fontSize: 14, fontWeight: 600 }}>카테고리 관리</span>
-        <span style={{ fontSize: 11.5, color: "#a09a8f" }}>업무에 붙은 카테고리를 한꺼번에 정리합니다</span>
+        <span style={{ fontSize: 11.5, color: "#6a665e" }}>업무에 붙은 카테고리를 한꺼번에 정리합니다</span>
         <div style={{ flex: 1 }} />
         <Box
           onClick={close}
@@ -286,7 +286,7 @@ function CategoryBody() {
         >
           <div style={{ display: "flex", alignItems: "center", padding: "9px 9px 5px 11px" }}>
             <span style={{ ...labelStyle, marginBottom: 0, flex: 1 }}>카테고리</span>
-            <span style={{ fontSize: 10, color: "#8a857c" }} title="줄마다 진행 중 · 보관 업무 수">
+            <span style={{ fontSize: 11, color: "#6a665e" }} title="줄마다 진행 중 · 보관 업무 수">
               진행 <span style={{ color: "#c5c0b6" }}>· 보관</span>
             </span>
           </div>
@@ -311,7 +311,7 @@ function CategoryBody() {
             />
           ))}
           {!nodes.length && (
-            <div style={{ padding: "6px 11px", fontSize: 11, color: "#a09a8f", lineHeight: 1.6 }}>
+            <div style={{ padding: "6px 11px", fontSize: 11, color: "#6a665e", lineHeight: 1.6 }}>
               아직 카테고리가 없습니다 · 업무를 골라 지정하면 여기에 생깁니다
             </div>
           )}
@@ -355,7 +355,7 @@ function CategoryBody() {
               >
                 {label(nodePath)}
               </div>
-              <div style={{ fontSize: 11, color: "#a09a8f", marginTop: 2 }}>
+              <div style={{ fontSize: 11, color: "#6a665e", marginTop: 2 }}>
                 진행 {nLive} · 보관 {nArch}
                 {/* 허브는 업무가 있는 노드에만 있다 — 미분류도 같다. 오른쪽 버튼 줄에 하나 더 두지 않는다. */}
                 {nLive + nArch > 0 && (
@@ -388,7 +388,7 @@ function CategoryBody() {
                   >
                     경로 바꾸기
                   </GhostButton>
-                  <span style={{ fontSize: 10.5, color: "#a09a8f", whiteSpace: "nowrap" }}>
+                  <span style={{ fontSize: 11, color: "#6a665e", whiteSpace: "nowrap" }}>
                     이름 바꾸기 · 다른 카테고리 아래로 · 합치기
                   </span>
                 </div>
@@ -438,7 +438,7 @@ function CategoryBody() {
                       바뀌는 업무 {n}건{nKept > 0 && ` (보관 ${nKept} 포함)`}
                       {plan.subcats > 0 && ` · 하위 카테고리 ${plan.subcats}개`}
                       {example && (
-                        <div style={{ color: "#8a857c", wordBreak: "break-all" }}>
+                        <div style={{ color: "#6a665e", wordBreak: "break-all" }}>
                           예: {quote(example.from)} → {quote(example.to)}
                         </div>
                       )}
@@ -596,7 +596,7 @@ function CategoryBody() {
               <div style={{ flex: "0 0 auto", paddingTop: 6, fontSize: 12, color: "#4e4a43", lineHeight: 1.4 }}>
                 · 선택한 {m.sel.length}건을
                 {hidden > 0 && (
-                  <div style={{ fontSize: 10.5, color: "#a09a8f" }}>({hidden}건은 검색에 가려짐)</div>
+                  <div style={{ fontSize: 11, color: "#6a665e" }}>({hidden}건은 검색에 가려짐)</div>
                 )}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
@@ -638,7 +638,7 @@ function CategoryBody() {
             }}
           >
             {empty && (
-              <div style={{ padding: "20px 12px", fontSize: 12, color: "#a09a8f", textAlign: "center", lineHeight: 1.7 }}>
+              <div style={{ padding: "20px 12px", fontSize: 12, color: "#8a857c", textAlign: "center", lineHeight: 1.7 }}>
                 <div style={{ color: "#8a857c" }}>{empty.main}</div>
                 {empty.sub && <div>{empty.sub}</div>}
                 {empty.more && (
@@ -760,7 +760,7 @@ function CategoryBody() {
       </div>
 
       <ModalFooter>
-        <span style={{ fontSize: 11, color: "#a09a8f", flex: 1, minWidth: 0 }}>
+        <span style={{ fontSize: 11, color: "#6a665e", flex: 1, minWidth: 0 }}>
           폴더는 그대로 두고 index.md 의 category 한 줄만 고칩니다 · updated 는 바뀌지 않습니다
         </span>
         <GhostButton onClick={close}>닫기</GhostButton>
@@ -822,8 +822,8 @@ function TreeRow({
         title={`진행 ${live} · 보관 ${kept}`}
         style={{
           fontFamily: "'Roboto Mono',monospace",
-          fontSize: 10,
-          color: live ? "#8a857c" : "#c5c0b6",
+          fontSize: 11.5,
+          color: live ? "#6a665e" : "#c5c0b6",
           flex: "0 0 auto",
         }}
       >
@@ -920,8 +920,8 @@ function TaskLine({
         {sub && (
           <div
             style={{
-              fontSize: 10.5,
-              color: "#a09a8f",
+              fontSize: 11,
+              color: "#6a665e",
               overflow: "hidden",
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",
@@ -937,7 +937,7 @@ function TaskLine({
             flex: "0 1 auto",
             maxWidth: "45%",
             fontSize: 11,
-            color: after ? "#2f5cbb" : "#8a857c",
+            color: after ? "#2f5cbb" : "#6a665e",
             overflow: "hidden",
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",

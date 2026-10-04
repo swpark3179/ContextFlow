@@ -41,7 +41,7 @@ function Arrow({
         justifyContent: "center",
         border: "1px solid #ddd8cf",
         borderRadius: 4,
-        fontSize: 10,
+        fontSize: 11,
         color: off ? "#cfcabf" : "#6a665e",
         background: "#fff",
         cursor: off ? "default" : "pointer",
@@ -208,7 +208,7 @@ export default function PromptPacksCard() {
                 {on && (
                   <span style={{ fontSize: 11, color: "#2f5cbb" }}>· 적용 {order + 1}번째</span>
                 )}
-                <span style={{ marginLeft: "auto", fontSize: 11, color: "#a09a8f" }}>
+                <span style={{ marginLeft: "auto", fontSize: 11, color: "#6a665e" }}>
                   {p.chars.toLocaleString()}자
                 </span>
                 {on && enabled.length > 1 && (
@@ -234,8 +234,8 @@ export default function PromptPacksCard() {
               <div
                 style={{
                   fontFamily: "'Roboto Mono',monospace",
-                  fontSize: 10.5,
-                  color: "#a09a8f",
+                  fontSize: 11.5,
+                  color: "#6a665e",
                   marginTop: 3,
                 }}
               >

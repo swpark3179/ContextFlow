@@ -1,5 +1,5 @@
 import { Box } from "../lib/ui";
-import { VIOLET } from "../lib/design";
+import { BLUE } from "../lib/design";
 import { useStore } from "../store/useStore";
 
 /**
@@ -83,7 +83,7 @@ export default function MergeModal() {
           }}
         >
           <span style={{ fontSize: 14, fontWeight: 600 }}>유사 노드 병합</span>
-          <span style={{ fontSize: 11.5, color: "#8a857c" }}>
+          <span style={{ fontSize: 11.5, color: "#6a665e" }}>
             파편화된 노드를 대표 업무 노드 1개로 통합하고 나머지는 Run Log로 접습니다
           </span>
           <div style={{ flex: 1 }} />
@@ -141,8 +141,8 @@ export default function MergeModal() {
                           height: 14,
                           borderRadius: 3,
                           flex: "0 0 14px",
-                          border: `1px solid ${on ? VIOLET : "#cfcabf"}`,
-                          background: on ? VIOLET : "#fff",
+                          border: `1px solid ${on ? BLUE : "#cfcabf"}`,
+                          background: on ? BLUE : "#fff",
                           color: "#fff",
                           fontSize: 11,
                           display: "flex",
@@ -169,8 +169,8 @@ export default function MergeModal() {
                       <span
                         style={{
                           fontFamily: "'Roboto Mono',monospace",
-                          fontSize: 10.5,
-                          color: "#a09a8f",
+                          fontSize: 11.5,
+                          color: "#6a665e",
                         }}
                       >
                         {n.date}
@@ -197,7 +197,7 @@ export default function MergeModal() {
                             width: 12,
                             height: 12,
                             borderRadius: "50%",
-                            border: `1px solid ${pri ? VIOLET : "#cfcabf"}`,
+                            border: `1px solid ${pri ? BLUE : "#cfcabf"}`,
                             display: "flex",
                             alignItems: "center",
                             justifyContent: "center",
@@ -208,14 +208,14 @@ export default function MergeModal() {
                               width: 6,
                               height: 6,
                               borderRadius: "50%",
-                              background: pri ? VIOLET : "transparent",
+                              background: pri ? BLUE : "transparent",
                             }}
                           />
                         </div>
                         <span
                           style={{
                             fontSize: 11.5,
-                            color: pri ? "#5a44b4" : "#8a857c",
+                            color: pri ? "#5a44b4" : "#6a665e",
                             fontWeight: pri ? 600 : 400,
                           }}
                         >
@@ -226,8 +226,8 @@ export default function MergeModal() {
                       <span
                         style={{
                           fontFamily: "'Roboto Mono',monospace",
-                          fontSize: 10.5,
-                          color: "#b5afa2",
+                          fontSize: 11.5,
+                          color: "#6a665e",
                           overflow: "hidden",
                           textOverflow: "ellipsis",
                           whiteSpace: "nowrap",
@@ -270,8 +270,8 @@ export default function MergeModal() {
               <span
                 style={{
                   fontFamily: "'Roboto Mono',monospace",
-                  fontSize: 10.5,
-                  color: "#a09a8f",
+                  fontSize: 11.5,
+                  color: "#6a665e",
                   overflow: "hidden",
                   textOverflow: "ellipsis",
                   whiteSpace: "nowrap",
@@ -316,7 +316,7 @@ export default function MergeModal() {
             background: "#faf9f6",
           }}
         >
-          <span style={{ fontSize: 11.5, color: "#8a857c", flex: 1, minWidth: 0 }}>
+          <span style={{ fontSize: 11.5, color: "#6a665e", flex: 1, minWidth: 0 }}>
             {selected > 1
               ? `${selected - 1}개 노드가 대표 노드의 Run Log로 접히고 원본 폴더는 보관 처리됩니다.`
               : "대표 노드 외 1개 이상을 선택하세요."}
@@ -349,7 +349,7 @@ export default function MergeModal() {
               fontSize: 12.5,
               fontWeight: 600,
               cursor: selected > 1 ? "pointer" : "not-allowed",
-              background: selected > 1 ? VIOLET : "#e6e2da",
+              background: selected > 1 ? BLUE : "#e6e2da",
               color: selected > 1 ? "#fff" : "#a09a8f",
             }}
             hover={selected > 1 ? { background: "#5a44b4" } : undefined}

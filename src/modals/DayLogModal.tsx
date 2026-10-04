@@ -183,10 +183,10 @@ export default function DayLogModal() {
         }}
       >
         <span style={{ fontSize: 14, fontWeight: 600 }}>오늘의 한일</span>
-        <span style={{ fontSize: 11.5, color: "#a09a8f" }}>날짜별 기록</span>
+        <span style={{ fontSize: 11.5, color: "#6a665e" }}>날짜별 기록</span>
         <div style={{ flex: 1 }} />
         <span
-          style={{ fontFamily: "'Roboto Mono',monospace", fontSize: 11, color: "#8a857c" }}
+          style={{ fontFamily: "'Roboto Mono',monospace", fontSize: 11, color: "#6a665e" }}
           title="기록은 ~/.contextflow/today.db 에 남습니다"
         >
           {day}
@@ -224,7 +224,7 @@ export default function DayLogModal() {
               />
             ))}
           {!days.length && (
-            <div style={{ padding: "8px 11px", fontSize: 11, color: "#a09a8f", lineHeight: 1.6 }}>
+            <div style={{ padding: "8px 11px", fontSize: 11, color: "#6a665e", lineHeight: 1.6 }}>
               아직 쌓인 날짜가 없습니다
             </div>
           )}
@@ -254,7 +254,7 @@ export default function DayLogModal() {
                 style={{
                   padding: "14px 14px",
                   fontSize: 11.5,
-                  color: "#a09a8f",
+                  color: "#6a665e",
                   lineHeight: 1.7,
                 }}
               >
@@ -334,7 +334,7 @@ export default function DayLogModal() {
 
       <ModalFooter>
         <GhostButton onClick={() => setAdding({ title: "", body: "" })}>＋ 항목 추가</GhostButton>
-        <span style={{ fontSize: 11, color: "#a09a8f" }}>
+        <span style={{ fontSize: 11, color: "#6a665e" }}>
           {entries.length}건 · 제목을 누르면 내용이 열립니다
         </span>
         <div style={{ flex: 1 }} />
@@ -418,8 +418,8 @@ function DayRow({
       <span
         style={{
           fontFamily: "'Roboto Mono',monospace",
-          fontSize: 10,
-          color: count ? "#8a857c" : "#c5c0b6",
+          fontSize: 11.5,
+          color: count ? "#6a665e" : "#c5c0b6",
           flex: "0 0 auto",
         }}
       >
@@ -505,8 +505,8 @@ function EntryRow({
         <span
           style={{
             fontFamily: "'Roboto Mono',monospace",
-            fontSize: 10,
-            color: "#b5afa2",
+            fontSize: 11.5,
+            color: "#6a665e",
             flex: "0 0 32px",
           }}
         >
@@ -528,12 +528,12 @@ function EntryRow({
         {!entry.folder && (
           <span
             style={{
-              fontSize: 9.5,
-              color: "#8a857c",
+              fontSize: 11,
+              color: "#6a665e",
               background: "#f0ece4",
               borderRadius: 3,
               padding: "0 4px",
-              lineHeight: "14px",
+              lineHeight: "15px",
               flex: "0 0 auto",
             }}
             title="업무와 연결되지 않은 기록입니다"
@@ -549,12 +549,12 @@ function EntryRow({
         {pushed.length > 0 && (
           <span
             style={{
-              fontSize: 9.5,
+              fontSize: 11,
               color: "#2f7f57",
               background: "#e9f5ee",
               borderRadius: 3,
               padding: "0 4px",
-              lineHeight: "14px",
+              lineHeight: "15px",
               flex: "0 0 auto",
               whiteSpace: "nowrap",
             }}
@@ -564,7 +564,7 @@ function EntryRow({
           </span>
         )}
         <IwmsPriceSwitch value={price} onChange={onPrice} />
-        <span style={{ fontSize: 9, color: "#a09a8f", flex: "0 0 auto" }}>{open ? "▲" : "▼"}</span>
+        <span style={{ fontSize: 9, color: "#6a665e", flex: "0 0 auto" }}>{open ? "▲" : "▼"}</span>
         <Box
           onClick={(ev) => {
             ev.stopPropagation();
@@ -579,7 +579,7 @@ function EntryRow({
             alignItems: "center",
             justifyContent: "center",
             borderRadius: 3,
-            fontSize: 10,
+            fontSize: 11,
             color: "#c5c0b6",
           }}
           hover={{ background: "#e0dcd4", color: "#4e4a43" }}
@@ -618,8 +618,8 @@ function EntryRow({
             <div
               style={{
                 fontFamily: "'Roboto Mono',monospace",
-                fontSize: 10,
-                color: "#a09a8f",
+                fontSize: 11.5,
+                color: "#6a665e",
                 wordBreak: "break-all",
                 lineHeight: 1.6,
               }}

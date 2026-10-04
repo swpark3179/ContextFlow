@@ -267,7 +267,7 @@ function CodeCard({ code, lang }: { code: string; lang: string }) {
         <span
           style={{
             fontFamily: "'Roboto Mono',monospace",
-            fontSize: 10.5,
+            fontSize: 11.5,
             letterSpacing: ".2px",
             color: label ? "#6a665e" : "#b5afa2",
           }}
@@ -277,7 +277,7 @@ function CodeCard({ code, lang }: { code: string; lang: string }) {
         <div style={{ flex: 1 }} />
         {clipped && (
           <span
-            style={{ fontFamily: "'Roboto Mono',monospace", fontSize: 10.5, color: "#a09a8f" }}
+            style={{ fontFamily: "'Roboto Mono',monospace", fontSize: 11.5, color: "#6a665e" }}
             title={`${limit}줄까지 보이고 나머지는 안에서 스크롤합니다`}
           >
             {count}줄
@@ -308,11 +308,11 @@ function CodeCard({ code, lang }: { code: string; lang: string }) {
                     padding: "0 5px",
                     borderRadius: 3,
                     fontFamily: "'Roboto Mono',monospace",
-                    fontSize: 10,
+                    fontSize: 11.5,
                     fontWeight: on ? 600 : 500,
                     cursor: on ? "default" : "pointer",
                     userSelect: "none",
-                    color: on ? "#3a3630" : "#8a857c",
+                    color: on ? "#3a3630" : "#6a665e",
                     background: on ? "#fff" : "transparent",
                     boxShadow: on ? "0 1px 1px rgba(0,0,0,.06)" : undefined,
                   }}
@@ -333,7 +333,7 @@ function CodeCard({ code, lang }: { code: string; lang: string }) {
             height: 18,
             padding: "0 6px",
             borderRadius: 3,
-            fontSize: 10.5,
+            fontSize: 11,
             fontWeight: 600,
             cursor: "pointer",
             color: copied ? "#256b47" : "#6a665e",
@@ -616,7 +616,7 @@ export default function MarkdownView({
       >
         <div style={{ maxWidth: MEASURE }}>
           {!blocks.length && (
-            <div style={{ fontSize: 12.5, color: "#a09a8f" }}>빈 문서입니다</div>
+            <div style={{ fontSize: 12.5, color: "#8a857c" }}>빈 문서입니다</div>
           )}
           {blocks.map((b, i) => {
             const first = i === 0;

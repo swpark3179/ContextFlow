@@ -43,8 +43,8 @@ export function CategoryChip({
         overflow: "hidden",
         textOverflow: "ellipsis",
         whiteSpace: "nowrap",
-        fontSize: 10.5,
-        color: ghost ? "#a09a8f" : "#6a665e",
+        fontSize: 11,
+        color: "#6a665e",
         background: ghost ? "transparent" : "#f0ede7",
         border: `1px ${ghost ? "dashed #d9d4ca" : "solid #e4e0d8"}`,
         borderRadius: 3,
@@ -246,7 +246,7 @@ export default function CategoryPicker({
       {open && (
         <>
           {(!error || hi >= 0) && (picked !== null || allowNone) && (
-            <div style={{ fontSize: 11, color: "#8a857c", marginTop: 4 }}>
+            <div style={{ fontSize: 11, color: "#6a665e", marginTop: 4 }}>
               저장될 값: <span style={{ color: "#4e4a43" }}>{label(picked)}</span>
             </div>
           )}
@@ -292,7 +292,7 @@ export default function CategoryPicker({
                     >
                       {r.text}
                     </span>
-                    <span style={{ fontFamily: "'Roboto Mono',monospace", fontSize: 10.5, color: "#a09a8f" }}>
+                    <span style={{ fontFamily: "'Roboto Mono',monospace", fontSize: 11.5, color: "#6a665e" }}>
                       {r.node.count}
                     </span>
                   </>
@@ -303,7 +303,7 @@ export default function CategoryPicker({
                   </span>
                 )}
                 {r.kind === "none" && (
-                  <span style={{ color: "#8a857c" }}>{UNCAT_LABEL} (카테고리 없음)</span>
+                  <span style={{ color: "#6a665e" }}>{UNCAT_LABEL} (카테고리 없음)</span>
                 )}
               </Box>
             ))}

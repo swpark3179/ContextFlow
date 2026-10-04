@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Box, Input, Select } from "../lib/ui";
-import { GREEN, VIOLET } from "../lib/design";
+import { GREEN } from "../lib/design";
 import { daysSince } from "../lib/format";
 import * as api from "../lib/api";
 import type { TaskMeta } from "../lib/api";
@@ -237,7 +237,7 @@ export default function Archive() {
 
   const stats = [
     { key: "n", value: archived.length, label: "보관된 업무", color: "#3a3630" },
-    { key: "r", value: archived.reduce((n, t) => n + t.runs, 0), label: "누적 회차", color: VIOLET },
+    { key: "r", value: archived.reduce((n, t) => n + t.runs, 0), label: "누적 회차", color: "#2f6f80" },
     { key: "v", value: live, label: "목록에 남은 업무", color: GREEN },
   ];
 
@@ -273,7 +273,7 @@ export default function Archive() {
     cursor: "pointer",
     border: `1px solid ${on ? "#d9d4ca" : "transparent"}`,
     background: on ? "#fff" : "transparent",
-    color: on ? "#23211e" : "#8a857c",
+    color: on ? "#23211e" : "#6a665e",
     fontWeight: on ? 600 : 400,
   });
 
@@ -334,7 +334,7 @@ export default function Archive() {
                   {st.value}
                 </div>
                 <div
-                  style={{ fontSize: 11, color: "#8a857c", marginTop: 2, whiteSpace: "nowrap" }}
+                  style={{ fontSize: 11, color: "#6a665e", marginTop: 2, whiteSpace: "nowrap" }}
                 >
                   {st.label}
                 </div>
@@ -392,7 +392,7 @@ export default function Archive() {
           {nodes.length > 0 && (
             <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 4 }}>
               {/* 바로 옆이 연도의 [전체] 라, 이름 없이는 또 하나의 기간 선택으로 읽힌다. */}
-              <span style={{ fontSize: 11, color: "#a09a8f", marginRight: 2 }}>카테고리</span>
+              <span style={{ fontSize: 11, color: "#6a665e", marginRight: 2 }}>카테고리</span>
               <Select
                 // `*` 는 카테고리에 쓸 수 없는 글자라 어떤 키와도 겹치지 않는다.
                 value={effCat ?? "*"}
@@ -420,7 +420,7 @@ export default function Archive() {
                 ))}
                 {uncat > 0 && <option value="">미분류 ({uncat})</option>}
               </Select>
-              <span style={{ fontSize: 11, color: "#a09a8f", margin: "0 2px 0 8px" }}>묶기</span>
+              <span style={{ fontSize: 11, color: "#6a665e", margin: "0 2px 0 8px" }}>묶기</span>
               {(
                 [
                   ["quarter", "분기"],
@@ -445,7 +445,7 @@ export default function Archive() {
         {months.length > 0 && (
           <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 5 }}>
             <span
-              style={{ fontSize: 10.5, color: "#b5afa2", flex: "0 0 auto", padding: "0 4px 0 10px" }}
+              style={{ fontSize: 11, color: "#6a665e", flex: "0 0 auto", padding: "0 4px 0 10px" }}
             >
               ↳
             </span>
@@ -465,7 +465,7 @@ export default function Archive() {
                     cursor: "pointer",
                     border: `1px solid ${on ? "#cddcf8" : "transparent"}`,
                     background: on ? "#eef3fd" : "transparent",
-                    color: on ? "#2f5cbb" : "#8a857c",
+                    color: on ? "#2f5cbb" : "#6a665e",
                     fontWeight: on ? 600 : 400,
                   }}
                 >
@@ -521,8 +521,8 @@ export default function Archive() {
                     <span
                       style={{
                         fontFamily: "'Roboto Mono',monospace",
-                        fontSize: 10.5,
-                        color: "#b5afa2",
+                        fontSize: 11.5,
+                        color: "#6a665e",
                       }}
                     >
                       {row.count}
@@ -540,7 +540,7 @@ export default function Archive() {
                         style={{
                           flex: "0 0 auto",
                           height: 18,
-                          fontSize: 10.5,
+                          fontSize: 11,
                           lineHeight: "16px",
                           padding: "0 7px",
                           borderRadius: 4,
@@ -605,8 +605,8 @@ export default function Archive() {
                           key={tg}
                           style={{
                             fontFamily: "'Roboto Mono',monospace",
-                            fontSize: 10,
-                            color: "#8a857c",
+                            fontSize: 11.5,
+                            color: "#6a665e",
                             background: "#f2efe9",
                             borderRadius: 3,
                             padding: "1px 5px",
@@ -631,7 +631,7 @@ export default function Archive() {
                       {t.archived === true && (
                         <span
                           style={{
-                            fontSize: 10,
+                            fontSize: 12,
                             color: "#8f5d17",
                             background: "#fbf3e6",
                             borderRadius: 3,
@@ -649,8 +649,8 @@ export default function Archive() {
                       <span
                         style={{
                           fontFamily: "'Roboto Mono',monospace",
-                          fontSize: 10.5,
-                          color: "#a09a8f",
+                          fontSize: 11.5,
+                          color: "#6a665e",
                           flex: "0 0 auto",
                         }}
                       >
@@ -659,7 +659,7 @@ export default function Archive() {
                       <span
                         style={{
                           fontSize: 11.5,
-                          color: "#a09a8f",
+                          color: "#6a665e",
                           overflow: "hidden",
                           textOverflow: "ellipsis",
                           whiteSpace: "nowrap",
@@ -690,8 +690,8 @@ export default function Archive() {
                   <span
                     style={{
                       fontFamily: "'Roboto Mono',monospace",
-                      fontSize: 10.5,
-                      color: "#b5afa2",
+                      fontSize: 11.5,
+                      color: "#6a665e",
                       flex: "0 0 auto",
                     }}
                   >
@@ -749,7 +749,7 @@ export default function Archive() {
           </div>
 
           {archived.length > 0 && groups.length === 0 && (
-            <div style={{ padding: "8px 2px", fontSize: 12, color: "#b5afa2", lineHeight: 1.7 }}>
+            <div style={{ padding: "8px 2px", fontSize: 12, color: "#8a857c", lineHeight: 1.7 }}>
               <div style={{ color: "#8a857c" }}>이 조건에 맞는 보관 업무가 없습니다.</div>
               {/* 카테고리는 카드 칩 한 번으로도 걸려 눈에 덜 띄는 조건이다 — 푸는 길을 먼저 둔다. */}
               {effCat !== null && (
@@ -787,7 +787,7 @@ export default function Archive() {
                 padding: "48px 12px",
                 textAlign: "center",
                 fontSize: 12.5,
-                color: "#a09a8f",
+                color: "#8a857c",
                 lineHeight: 1.8,
               }}
             >
@@ -813,7 +813,7 @@ export default function Archive() {
           <div
             style={{
               fontSize: 11.5,
-              color: "#8a857c",
+              color: "#6a665e",
               marginTop: 5,
               lineHeight: 1.7,
             }}
@@ -835,10 +835,10 @@ export default function Archive() {
                 padding: "6px 9px",
                 background: "#f4f2ee",
                 borderBottom: "1px solid #eae6de",
-                fontSize: 10.5,
+                fontSize: 11,
                 fontWeight: 600,
                 letterSpacing: ".3px",
-                color: "#8a857c",
+                color: "#6a665e",
               }}
             >
               현재 방식 ·{" "}
@@ -866,7 +866,7 @@ export default function Archive() {
               fontSize: 11,
               fontWeight: 600,
               letterSpacing: ".3px",
-              color: "#8a857c",
+              color: "#6a665e",
             }}
           >
             Obsidian에서 같은 목록 보기
@@ -879,7 +879,7 @@ export default function Archive() {
               background: "#fff",
               padding: "8px 10px",
               fontFamily: "'Roboto Mono',monospace",
-              fontSize: 10.5,
+              fontSize: 11.5,
               lineHeight: 1.8,
             }}
           >
@@ -930,8 +930,8 @@ export default function Archive() {
           <div
             style={{
               fontFamily: "'Roboto Mono',monospace",
-              fontSize: 10.5,
-              color: "#b5afa2",
+              fontSize: 11.5,
+              color: "#6a665e",
               marginTop: 5,
               lineHeight: 1.6,
               wordBreak: "break-all",

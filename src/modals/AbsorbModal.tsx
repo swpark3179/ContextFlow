@@ -57,7 +57,7 @@ export default function AbsorbModal() {
         }}
       >
         <span style={{ fontSize: 14, fontWeight: 600 }}>다른 업무에 편입</span>
-        <span style={{ fontSize: 11.5, color: "#8a857c" }}>
+        <span style={{ fontSize: 11.5, color: "#6a665e" }}>
           업무 폴더 전체를 고른 업무의 하위 폴더로 옮깁니다
         </span>
         <div style={{ flex: 1 }} />
@@ -97,8 +97,8 @@ export default function AbsorbModal() {
             <div
               style={{
                 fontFamily: "'Roboto Mono',monospace",
-                fontSize: 10.5,
-                color: "#a09a8f",
+                fontSize: 11.5,
+                color: "#6a665e",
                 marginTop: 3,
                 wordBreak: "break-all",
               }}
@@ -128,7 +128,7 @@ export default function AbsorbModal() {
             }}
           >
             {candidates.length === 0 && (
-              <div style={{ padding: "14px 10px", fontSize: 12, color: "#a09a8f", textAlign: "center" }}>
+              <div style={{ padding: "14px 10px", fontSize: 12, color: "#8a857c", textAlign: "center" }}>
                 받을 수 있는 업무가 없습니다
               </div>
             )}
@@ -189,8 +189,8 @@ export default function AbsorbModal() {
                     <div
                       style={{
                         fontFamily: "'Roboto Mono',monospace",
-                        fontSize: 10.5,
-                        color: "#a09a8f",
+                        fontSize: 11.5,
+                        color: "#6a665e",
                         overflow: "hidden",
                         textOverflow: "ellipsis",
                         whiteSpace: "nowrap",
@@ -222,7 +222,7 @@ export default function AbsorbModal() {
             style={{
               fontFamily: "'Roboto Mono',monospace",
               fontSize: 11,
-              color: "#8a857c",
+              color: "#6a665e",
               marginTop: 6,
               wordBreak: "break-all",
             }}
@@ -231,7 +231,7 @@ export default function AbsorbModal() {
           </div>
         </div>
 
-        <div style={{ fontSize: 11.5, color: "#8a857c", lineHeight: 1.65 }}>
+        <div style={{ fontSize: 11.5, color: "#6a665e", lineHeight: 1.65 }}>
           편입한 업무는 업무 리스트에서 사라지고 파일은 그대로 남습니다 · 파일이 다른
           프로그램에서 열려 있으면 옮기지 못하고, 그때는 아무것도 움직이지 않습니다.
         </div>

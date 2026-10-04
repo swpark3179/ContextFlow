@@ -100,7 +100,7 @@ export default function WikiCard() {
         <div
           style={{
             ...hintStyle,
-            color: "#a09a8f",
+            color: "#6a665e",
             paddingTop: 6,
             borderTop: "1px dashed #eae6de",
           }}

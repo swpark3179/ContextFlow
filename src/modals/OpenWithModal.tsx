@@ -103,7 +103,7 @@ export default function OpenWithModal() {
                 <div style={{ fontSize: 12.5, fontWeight: on ? 600 : 500, color: "#23211e" }}>
                   {p.n}
                 </div>
-                <div style={{ fontSize: 11, color: "#8a857c", marginTop: 1 }}>{p.d}</div>
+                <div style={{ fontSize: 11, color: "#6a665e", marginTop: 1 }}>{p.d}</div>
               </div>
               <div
                 style={{
@@ -164,7 +164,7 @@ export default function OpenWithModal() {
       </Box>
 
       <ModalFooter>
-        <span style={{ fontSize: 10.5, color: "#a09a8f", flex: 1 }}>
+        <span style={{ fontSize: 11, color: "#6a665e", flex: 1 }}>
           OS 연결 프로그램으로 실행됩니다
         </span>
         <GhostButton onClick={() => s.set({ ow: null })}>취소</GhostButton>

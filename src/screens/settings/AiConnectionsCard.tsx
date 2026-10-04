@@ -118,7 +118,7 @@ function Tab({
         }}
       />
       {info.name}
-      {dirty && <span style={{ color: "#b07520", fontSize: 10 }}>●</span>}
+      {dirty && <span style={{ color: "#8f5d17", fontSize: 12 }}>●</span>}
     </Box>
   );
 }
