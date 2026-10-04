@@ -2,7 +2,7 @@
 //!
 //! 오늘의 한일의 업무를 i-WMS 의 그날 카테고리에 입력한다. 이 모듈이 i-WMS 쪽 전부다:
 //! REST 클라이언트(`client`), 응답 해석과 저장 페이로드(`day`), SSO 세션(`session`),
-//! 설정 파일(`settings`). 커맨드는 여기 모아 둔다 — `generate_handler!` 는 커맨드가 정의된 모듈
+//! 설정 파일(`settings`), 오늘의 한일 줄의 대가 선택과 입력 이력(`marks`, `today.db` v2). 커맨드는 여기 모아 둔다 — `generate_handler!` 는 커맨드가 정의된 모듈
 //! 경로로 불러야 해서 다시 내보내기(`pub use`)로는 등록할 수 없다.
 //!
 //! 오류 종류(`AppError.kind`): `iwms_session`(연결 없음 · 만료 — 프런트가 다시 연결하고 한 번 더
@@ -10,6 +10,7 @@
 
 mod client;
 mod day;
+mod marks;
 mod session;
 mod settings;
 
@@ -18,6 +19,7 @@ mod live;
 
 use tauri::{AppHandle, State};
 
+use crate::daylog::DayLog;
 use crate::error::{AppError, Result};
 use client::{CallError, CallResult, Client};
 pub use session::IwmsState;
@@ -92,6 +94,30 @@ pub async fn iwms_day(state: State<'_, IwmsState>, date: String) -> Result<day::
         day::summarize(&mh, &init, &iso, &s.user.user_id, &today()).map_err(CallError::Other)
     })
     .await
+}
+
+/// 그날 지금 Vault 의 줄에 붙은 대가 선택(`O` · `N`). 고르지 않은 줄은 없다.
+#[tauri::command]
+pub fn iwms_marks(log: State<'_, DayLog>, vault: String, day: String) -> Result<Vec<marks::Mark>> {
+    log.with(|conn| marks::marks(conn, &vault, &day))
+}
+
+/// 한 줄의 대가 구분을 고른다. `None` = 입력 안 함.
+#[tauri::command]
+pub fn set_iwms_mark(log: State<'_, DayLog>, entry_id: i64, price: Option<String>) -> Result<()> {
+    log.with(|conn| marks::set_mark(conn, entry_id, price.as_deref()))
+}
+
+/// 그날 i-WMS 에 넣은 행(되돌린 것 포함). 줄의 배지와 검토 화면이 쓴다.
+#[tauri::command]
+pub fn iwms_pushes(log: State<'_, DayLog>, day: String) -> Result<Vec<marks::Push>> {
+    log.with(|conn| marks::pushes(conn, &day))
+}
+
+/// 최근에 확정한 행 — 정제 프롬프트의 예시(학습).
+#[tauri::command]
+pub fn iwms_recent_pushes(log: State<'_, DayLog>, limit: i64) -> Result<Vec<marks::Push>> {
+    log.with(|conn| marks::recent_pushes(conn, limit.clamp(1, 100)))
 }
 
 #[tauri::command]

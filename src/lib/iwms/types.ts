@@ -101,6 +101,32 @@ export interface IwmsSettings {
   categories: Designated[];
 }
 
+/** 오늘의 한일 한 줄의 대가 선택. 고르지 않은 줄(입력 안 함)은 목록에 없다. */
+export interface IwmsMark {
+  entryId: number;
+  price: Price;
+}
+
+/** i-WMS 에 넣은 행 하나(`today.db` 의 `iwms_pushes`). */
+export interface IwmsPush {
+  id: number;
+  commitId: string;
+  /** 오늘의 한일 줄. 그 줄을 지웠으면 `null` 일 수 있다. */
+  entryId: number | null;
+  day: string;
+  title: string;
+  ciKey: string;
+  ciName: string;
+  wbsid: string;
+  task: string;
+  price: Price;
+  minutes: number;
+  note: string;
+  pushedAt: string;
+  /** 되돌렸으면 그 시각. */
+  undoneAt: string | null;
+}
+
 /** 카테고리의 키. 같은 `wbsid` 가 두 탭(대가포함 · 비대상)에 있을 수 있어 탭까지 묶는다. */
 export function categoryKey(c: { ciKey: string; wbsid: string }): string {
   return `${c.ciKey}|${c.wbsid}`;

@@ -111,10 +111,13 @@ CREATE TABLE iwms_pushes (                -- i-WMS 에 실제로 넣은 행. 되
 * 순수 함수 `candidatesFor`(지정 ∩ 그날 가능 ∩ 대가 구분 — 그 구분에 지정한 것이 없으면 그날 전체) · `mappedCategory`
   (가장 깊은 매핑이 이긴다, 대가 구분이 다른 매핑은 보지 않는다).
 
-### 3단계 — 오늘의 한일 대가 선택
+### 3단계 — 오늘의 한일 대가 선택 (완료)
 
-* DB v2, 커맨드 `iwms_marks` · `set_iwms_mark` · `iwms_pushes`. 팝업 줄마다 3단 선택, 입력된 줄의 배지,
-  꼬리의 [i-WMS 업무량 입력…].
+* `today.db` v2(`iwms_marks` · `iwms_pushes`), 커맨드 `iwms_marks` · `set_iwms_mark` · `iwms_pushes` · `iwms_recent_pushes`.
+  v1 DB 가 그대로 올라가는지 테스트한다. 지운 줄의 선택은 JOIN 에서 빠지고, 입력 이력은 남는다.
+* 팝업 줄마다 `[– | 포함 | 미포함]`(누르면 바로 저장, 성공한 뒤 반영). i-WMS 에 넣은 줄에는 `i-WMS ✓ N분` 배지(마우스를
+  올리면 카테고리 · 내용). i-WMS 표시를 못 읽어도 기록 화면은 그대로다.
+* 꼬리의 [i-WMS 업무량 입력…] 은 그것이 여는 검토 화면과 함께 4단계에 넣었다(계획을 바꿨다 — 열 곳이 없는 버튼을 두지 않는다).
 
 ### 4단계 — AI 정제 · 검토 화면 · 템플릿
 

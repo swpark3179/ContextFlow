@@ -866,6 +866,10 @@ pub fn run() {
             iwms::iwms_status,
             iwms::iwms_disconnect,
             iwms::iwms_day,
+            iwms::iwms_marks,
+            iwms::set_iwms_mark,
+            iwms::iwms_pushes,
+            iwms::iwms_recent_pushes,
             iwms::get_iwms_settings,
             iwms::save_iwms_settings,
         ])

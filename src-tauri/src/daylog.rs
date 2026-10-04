@@ -28,7 +28,7 @@ use crate::error::{AppError, Result};
 const DB_FILE: &str = "today.db";
 
 /// 스키마 버전. 컬럼을 늘릴 때는 이 값을 올리고 `migrate` 에 계단을 하나 더 붙인다.
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 
 /// `folder` 에 붙은 부분 유니크 인덱스가 이 스키마의 핵심이다. "같은 날 같은 업무는 한
 /// 줄" 규칙을 DB 제약으로 지키면서, 팝업에서 손으로 넣는 자유 항목(`folder IS NULL`)은
@@ -51,6 +51,38 @@ CREATE TABLE IF NOT EXISTS entries (
 CREATE UNIQUE INDEX IF NOT EXISTS entries_day_folder
   ON entries(day, vault_root, folder) WHERE folder IS NOT NULL;
 CREATE INDEX IF NOT EXISTS entries_day ON entries(vault_root, day);
+";
+
+/// v2 — i-WMS 업무량 자동입력(`src-tauri/src/iwms/marks.rs`).
+///
+/// `iwms_marks` 는 줄마다 고른 대가 구분이다(행이 없음 = 입력 안 함). `iwms_pushes` 는 i-WMS 에 실제로
+/// 넣은 행이고 되돌리기 · 학습의 근거라, 기록 줄을 지워도 남는다. 외래키를 켜지 않은 DB 라 두 표 모두
+/// 읽을 때 `entries` 와 JOIN 해 고아 행을 숨긴다(대가 선택) 또는 그대로 둔다(입력 이력).
+const DDL_V2: &str = "
+CREATE TABLE IF NOT EXISTS iwms_marks (
+  entry_id   INTEGER PRIMARY KEY,
+  price      TEXT    NOT NULL CHECK (price IN ('O', 'N')),
+  updated_at TEXT    NOT NULL
+);
+CREATE TABLE IF NOT EXISTS iwms_pushes (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  commit_id   TEXT    NOT NULL,
+  entry_id    INTEGER,
+  day         TEXT    NOT NULL,
+  title       TEXT    NOT NULL,
+  ci_key      TEXT    NOT NULL,
+  ci_name     TEXT    NOT NULL,
+  wbsid       TEXT    NOT NULL,
+  task        TEXT    NOT NULL,
+  price       TEXT    NOT NULL,
+  minutes     INTEGER NOT NULL,
+  note        TEXT    NOT NULL,
+  pushed_at   TEXT    NOT NULL,
+  undone_at   TEXT,
+  before_json TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS iwms_pushes_day ON iwms_pushes(day);
+CREATE INDEX IF NOT EXISTS iwms_pushes_commit ON iwms_pushes(commit_id);
 ";
 
 /// 기록 한 줄. `folder` 가 `None` 이면 업무와 연결되지 않은 자유 항목이라 눌러 갈 곳이 없다.
@@ -105,7 +137,7 @@ impl DayLog {
 
     /// 열려 있지 않으면 열고 스키마를 맞춘 뒤 넘겨준다. 열기에 실패한 것은 캐시하지
     /// 않으므로(=`None` 으로 남으므로) 다음 호출이 다시 시도한다.
-    fn with<T>(&self, f: impl FnOnce(&mut Connection) -> Result<T>) -> Result<T> {
+    pub(crate) fn with<T>(&self, f: impl FnOnce(&mut Connection) -> Result<T>) -> Result<T> {
         let mut guard = self.lock();
         if guard.is_none() {
             *guard = Some(open(db_path()?)?);
@@ -133,13 +165,16 @@ fn open(path: PathBuf) -> Result<Connection> {
     Ok(conn)
 }
 
-fn migrate(conn: &Connection) -> Result<()> {
+pub(crate) fn migrate(conn: &Connection) -> Result<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
     if version >= SCHEMA_VERSION {
         return Ok(());
     }
     if version < 1 {
         conn.execute_batch(DDL_V1)?;
+    }
+    if version < 2 {
+        conn.execute_batch(DDL_V2)?;
     }
     // pragma 는 바인딩을 받지 않는다. 값이 코드 안의 상수라 문자열 조립이 안전하다.
     conn.execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION}"))?;
@@ -439,6 +474,26 @@ mod tests {
             .query_row("SELECT body FROM entries WHERE folder IS NULL", [], |r| r.get(0))
             .unwrap();
         assert_eq!(body, "본문");
+    }
+
+    /// v1 시절의 DB 가 그대로 v2 로 올라간다 — 기록은 남고 i-WMS 표만 생긴다.
+    #[test]
+    fn a_v1_log_is_upgraded_in_place() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(DDL_V1).unwrap();
+        conn.execute_batch("PRAGMA user_version = 1").unwrap();
+        note(&conn, Some("/vault/Tasks/a"), "v1 시절의 기록", "09:00");
+
+        migrate(&conn).unwrap();
+        let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, 2);
+        assert_eq!(titles(&conn, DAY), ["v1 시절의 기록"]);
+        for table in ["iwms_marks", "iwms_pushes"] {
+            let n: i64 = conn
+                .query_row("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1", [table], |r| r.get(0))
+                .unwrap();
+            assert_eq!(n, 1, "{table}");
+        }
     }
 
     #[test]
