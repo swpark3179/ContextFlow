@@ -3,6 +3,7 @@ import { Box, TextArea } from "../lib/ui";
 import * as api from "../lib/api";
 import * as iwmsApi from "../lib/iwms/api";
 import { problemsOf, rowsOf } from "../lib/iwms/check";
+import { SAME, duplicateOf, type Duplicate } from "../lib/iwms/duplicates";
 import { collectMaterial } from "../lib/iwms/material";
 import { targetsOf, type Target } from "../lib/iwms/marks";
 import { mergeDrafts, type Draft } from "../lib/iwms/parse";
@@ -133,7 +134,8 @@ function PushView({ day }: { day: string }) {
         const t = targetsOf(entries, marks, pushes);
         const d = await useIwms.getState().day(day);
         if (!alive) return;
-        const picked = t.filter((x) => !x.pushed.length);
+        // 이 앱으로 넣었거나, 손으로 이미 넣은 것과 같아 보이는 줄은 기본으로 뺀다 — 같은 일이 두 번 잡힌다.
+        const picked = t.filter((x) => !x.pushed.length && (duplicateOf(x.entry.title, d)?.score ?? 0) < SAME);
         setTargets(t);
         setIncluded(new Set(picked.map((x) => x.entry.id)));
         setIday(d);
@@ -323,14 +325,16 @@ function PushView({ day }: { day: string }) {
           targets.map((t) => {
             const d = draftOf(t.entry.id);
             const on = included.has(t.entry.id);
+            const dup = iday ? duplicateOf(t.entry.title, iday) : null;
             if (!on || !d) {
-              return <ExcludedRow key={t.entry.id} t={t} onInclude={() => setIncluding(t, true)} />;
+              return <ExcludedRow key={t.entry.id} t={t} dup={dup} onInclude={() => setIncluding(t, true)} />;
             }
             return (
               <DraftRow
                 key={t.entry.id}
                 t={t}
                 d={d}
+                dup={dup}
                 options={table?.groups.find((g) => g.price === t.price)?.list ?? []}
                 disabled={busy}
                 onCategory={(c) => update(d.entryId, { category: c, edited: { category: true } })}
@@ -607,7 +611,13 @@ function PriceTag({ price }: { price: "O" | "N" }) {
   );
 }
 
-function ExcludedRow({ t, onInclude }: { t: Target; onInclude: () => void }) {
+/** 이미 i-WMS 에 있는 것과 닮았다는 한 줄. */
+function dupText(dup: Duplicate): string {
+  const first = dup.row.note.split("\n")[0] ?? "";
+  return `i-WMS 에 ${dup.score >= SAME ? "이미 있음" : "비슷한 행"}: ${dup.category.ciName} › ${dup.category.task} · ${dup.row.minutes}분 "${first}"`;
+}
+
+function ExcludedRow({ t, dup, onInclude }: { t: Target; dup: Duplicate | null; onInclude: () => void }) {
   const pushed = t.pushed.reduce((n, p) => n + p.minutes, 0);
   return (
     <div
@@ -625,9 +635,17 @@ function ExcludedRow({ t, onInclude }: { t: Target; onInclude: () => void }) {
       <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {t.entry.title}
       </span>
-      {t.pushed.length > 0 && <span>이미 입력함 · {pushed}분</span>}
-      <Box onClick={onInclude} style={{ color: "#3a6fd8", cursor: "pointer" }} hover={{ textDecoration: "underline" }}>
-        {t.pushed.length ? "다시 넣기" : "넣기"}
+      {t.pushed.length > 0 ? (
+        <span>이 앱으로 입력함 · {pushed}분</span>
+      ) : (
+        dup && (
+          <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 460 }}>
+            {dupText(dup)}
+          </span>
+        )
+      )}
+      <Box onClick={onInclude} style={{ color: "#3a6fd8", cursor: "pointer", flex: "0 0 auto" }} hover={{ textDecoration: "underline" }}>
+        {t.pushed.length || dup ? "그래도 넣기" : "넣기"}
       </Box>
     </div>
   );
@@ -645,6 +663,7 @@ const cellInput = {
 function DraftRow({
   t,
   d,
+  dup,
   options,
   disabled,
   onCategory,
@@ -655,6 +674,7 @@ function DraftRow({
 }: {
   t: Target;
   d: Draft;
+  dup: Duplicate | null;
   options: IwmsCategory[];
   disabled: boolean;
   onCategory: (c: IwmsCategory | null) => void;
@@ -675,6 +695,7 @@ function DraftRow({
           {t.pushed.length > 0 && <span style={{ fontSize: 10, color: "#b07520" }}>이미 입력함 — 중복 주의</span>}
         </div>
         <div style={{ fontSize: 12.5, color: "#3a3630", lineHeight: 1.5, wordBreak: "break-all" }}>{t.entry.title}</div>
+        {dup && <div style={{ fontSize: 10.5, color: "#b07520", lineHeight: 1.5 }}>{dupText(dup)} — 중복 주의</div>}
         {d.issues.map((m) => (
           <div key={m} style={{ fontSize: 10.5, color: "#b07520", lineHeight: 1.5 }}>
             {m}

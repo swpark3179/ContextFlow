@@ -16,6 +16,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { duplicateOf } from "../src/lib/iwms/duplicates";
 import { collectMaterial } from "../src/lib/iwms/material";
 import { parseRefine } from "../src/lib/iwms/parse";
 import { buildIwmsPrompt, buildIwmsSystemPrompt, codeTable } from "../src/lib/iwms/prompts";
@@ -48,6 +49,10 @@ describe.skipIf(!dir)("i-WMS 정제 실데이터", () => {
       : DEFAULTS;
 
     const targets = rows.map((r) => ({ entry: r.entry, price: prices[String(r.entry.id)] ?? ("O" as Price), pushed: [] }));
+    for (const t of targets) {
+      const dup = duplicateOf(t.entry.title, day);
+      if (dup) console.log(`이미 있음? ${t.entry.title} ≈ "${dup.row.note.split("\n")[0]}" (${dup.score.toFixed(2)})`);
+    }
     const tasks = rows.filter((r) => r.task).map((r) => r.task as TaskMeta);
     const items = await collectMaterial(targets, tasks, settings.categories, day.workDate, async (p) =>
       fs.readFileSync(p, "utf8"),
