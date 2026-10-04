@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Box } from "../lib/ui";
-import { emptyNewTask, openCategoryHub, useStore } from "../store/useStore";
+import { emptyNewTask, isArchived, openCategoryHub, useStore } from "../store/useStore";
+import { useAssist } from "../store/assistStore";
 import { GREEN } from "../lib/design";
 import * as api from "../lib/api";
 
@@ -25,6 +26,9 @@ export function menuItems(s: Store): Record<string, MenuItem[]> {
    * 백엔드가 거절하고 실패 토스트만 뜬다. 눌리지 않는 것으로 먼저 보여 준다.
    */
   const noTask = !s.activeFolder;
+  // AI 도우미는 살아 있는 업무에만 — 워크스페이스 머리의 [AI ▾] 와 같은 조건.
+  const active = s.tasks.find((t) => t.folder === s.activeFolder);
+  const noAssist = !active || isArchived(active, s.settings.archDays);
 
   return {
     파일: [
@@ -86,6 +90,19 @@ export function menuItems(s: Store): Record<string, MenuItem[]> {
         run: () => void s.openAbsorb(s.activeFolder),
       },
       { label: "업무 분할…", hint: "새 업무로", off: noTask, run: () => void s.openSplit(s.activeFolder) },
+      // 지금 업무에 대한 AI 도우미 — 워크스페이스 머리의 [AI ▾] 와 같다.
+      {
+        label: "위키 가이드…",
+        hint: "AI",
+        off: noAssist,
+        run: () => useAssist.getState().openGuide(s.activeFolder),
+      },
+      {
+        label: "간략 입력 정리…",
+        hint: "AI",
+        off: noAssist,
+        run: () => useAssist.getState().openBrief(s.activeFolder),
+      },
       // 한 번 끌어 옮기면 그 순서가 계속 이긴다 — 돌아가는 길이 있어야 한다.
       // 업무 하나가 아니라 목록 전체를 다루므로 고른 업무가 없어도 쓸 수 있다.
       { label: "정렬 초기화 (최근 수정순)", run: () => void s.clearTaskOrder() },

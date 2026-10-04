@@ -54,7 +54,7 @@ const HISTORY_ANSWER_CAP = 1_500;
 const HISTORY_TOTAL_CAP = 8_000;
 
 const PLAN_TYPES: WikiKind[] = ["procedure", "topic", "entity"];
-const KIND_LABEL: Record<WikiKind, string> = {
+export const KIND_LABEL: Record<WikiKind, string> = {
   procedure: "절차",
   topic: "주제",
   entity: "시스템·도구",

@@ -110,7 +110,13 @@ export interface ActiveChoice {
  * 기능별 연결을 따로 고를 수 있는 기능 — Rust `ai_settings::ROUTES` 와 1:1.
  * 추천은 여기 없다: 추천이 쓰는 것이 곧 기본 연결(`active`)이다.
  */
-export type AiFeature = "wiki.ingest" | "wiki.query" | "wiki.web" | "iwms.refine";
+export type AiFeature =
+  | "wiki.ingest"
+  | "wiki.query"
+  | "wiki.web"
+  | "iwms.refine"
+  | "task.guide"
+  | "task.brief";
 
 export const AI_FEATURES: { id: AiFeature; label: string; note: string }[] = [
   {
@@ -132,6 +138,16 @@ export const AI_FEATURES: { id: AiFeature; label: string; note: string }[] = [
     id: "iwms.refine",
     label: "i-WMS 정제",
     note: "오늘의 한일을 i-WMS 업무량(카테고리 · 분 · 상세내용)으로 정제하는 일 — 업무 내용이 나가므로 사내 연결을 권한다",
+  },
+  {
+    id: "task.guide",
+    label: "위키 가이드",
+    note: "위키 페이지를 읽고 지금 업무의 진행 순서 · 주의할 점을 쓰는 일 — 입력이 길고, 업무 개요가 함께 나간다",
+  },
+  {
+    id: "task.brief",
+    label: "간략 입력 정리",
+    note: "한두 줄 입력을 개요 · 할 일 · 일정으로 정리하고 빠진 것을 묻는 일 — 짧게 여러 번 묻는다, 업무 내용이 나간다",
   },
 ];
 

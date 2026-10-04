@@ -16,6 +16,8 @@ import NewTaskModal from "./modals/NewTaskModal";
 import MergeModal from "./modals/MergeModal";
 import DayLogModal from "./modals/DayLogModal";
 import IwmsPushModal from "./modals/IwmsPushModal";
+import GuideModal from "./modals/GuideModal";
+import BriefModal from "./modals/BriefModal";
 import DeleteModal from "./modals/DeleteModal";
 import ImportModal from "./modals/ImportModal";
 import OpenWithModal from "./modals/OpenWithModal";
@@ -29,6 +31,7 @@ import { emptyNewTask, lastReloadAt, useStore } from "./store/useStore";
 import { RELOAD_DELAY_MS, shouldReload } from "./lib/focus";
 import { useAi } from "./store/aiStore";
 import { useIwms } from "./store/iwmsStore";
+import { useAssist } from "./store/assistStore";
 import { useWiki } from "./store/wikiStore";
 import { startIndexSync } from "./store/indexSync";
 
@@ -144,6 +147,10 @@ export default function App() {
         else if (st.fileRen) st.set({ fileRen: null });
         else if (st.del) st.set({ del: null });
         else if (st.ow) st.set({ ow: null });
+        // AI 도우미 팝업 — 생성 중이면 끊고 버린다(팝업이 닫히며 실행을 취소한다). 파일에 쓰는 중에는 닫지 않는다.
+        else if (useAssist.getState().guide || useAssist.getState().brief) {
+          if (!useAssist.getState().busy) useAssist.getState().close();
+        }
         else if (st.ren) st.set({ ren: null });
         else if (st.drop) st.set({ drop: null });
         else if (st.tplNew) st.set({ tplNew: null });
@@ -328,6 +335,8 @@ export default function App() {
       <MergeModal />
       <DayLogModal />
       <IwmsPushModal />
+      <GuideModal />
+      <BriefModal />
       <Toasts />
     </div>
   );
