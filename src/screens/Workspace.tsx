@@ -72,7 +72,7 @@ export default function Workspace() {
         <div style={{ fontSize: 14, color: "#8a857c" }}>
           {live.length ? "선택된 업무가 없습니다" : "업무가 없습니다"}
         </div>
-        <div style={{ fontSize: 12, color: "#a09a8f", textAlign: "center", lineHeight: 1.8 }}>
+        <div style={{ fontSize: 12, color: "#8a857c", textAlign: "center", lineHeight: 1.8 }}>
           {live.length ? (
             <>
               왼쪽 업무 리스트에서 이어서 할 업무를 선택하세요.
@@ -150,7 +150,7 @@ export default function Workspace() {
                   justifyContent: "center",
                   borderRadius: 4,
                   fontSize: 11,
-                  color: "#a09a8f",
+                  color: "#6a665e",
                   cursor: "pointer",
                 }}
                 hover={{ background: "#e6e2da", color: "#4e4a43" }}
@@ -163,7 +163,7 @@ export default function Workspace() {
                 key={tag}
                 style={{
                   fontFamily: "'Roboto Mono',monospace",
-                  fontSize: 10.5,
+                  fontSize: 11.5,
                   color: "#6a665e",
                   background: "#f0ede7",
                   border: "1px solid #e4e0d8",
@@ -181,7 +181,7 @@ export default function Workspace() {
               style={{
                 fontFamily: "'Roboto Mono',monospace",
                 fontSize: 11,
-                color: "#a09a8f",
+                color: "#6a665e",
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
@@ -228,7 +228,7 @@ export default function Workspace() {
         <div style={{ flex: 1 }} />
         {/* AI 도우미는 살아 있는 업무에만 — 보관된 업무의 index.md 에 정리를 덧붙일 일은 없다. */}
         {!isArchived(task, s.settings.archDays) && s.screen !== "archive" && <AssistMenu folder={task.folder} />}
-        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: "#8a857c" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: "#6a665e" }}>
           <div style={{ width: 5, height: 5, borderRadius: "50%", background: GREEN }} />
           <span>스냅샷 {s.snapAt}</span>
         </div>
@@ -300,7 +300,7 @@ export default function Workspace() {
                     }}
                   />
                   <span style={{ flex: 1 }}>{label}</span>
-                  <span style={{ fontSize: 11, color: "#a09a8f" }}>{hint}</span>
+                  <span style={{ fontSize: 11, color: "#6a665e" }}>{hint}</span>
                 </Box>
               ))}
               <Box
@@ -319,7 +319,7 @@ export default function Workspace() {
               >
                 <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#b5afa2" }} />
                 <span style={{ flex: 1 }}>지금 보관함으로</span>
-                <span style={{ fontSize: 11, color: "#a09a8f" }}>목록에서 숨김</span>
+                <span style={{ fontSize: 11, color: "#6a665e" }}>목록에서 숨김</span>
               </Box>
               {/* 업무의 경계를 다시 그리는 두 항목. 상태를 바꾸는 것도 보관하는 것도
                   아니라 **폴더를 옮기는** 일이라, 선 하나를 두고 아래에 모아 둔다. */}
@@ -338,9 +338,9 @@ export default function Workspace() {
                 }}
                 hover={{ background: "#f2efe9" }}
               >
-                <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#6a54c6" }} />
+                <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#3a6fd8" }} />
                 <span style={{ flex: 1 }}>다른 업무에 편입…</span>
-                <span style={{ fontSize: 11, color: "#a09a8f" }}>하위 폴더로</span>
+                <span style={{ fontSize: 11, color: "#6a665e" }}>하위 폴더로</span>
               </Box>
               <Box
                 onClick={() => void s.openSplit(task.folder)}
@@ -356,9 +356,9 @@ export default function Workspace() {
                 }}
                 hover={{ background: "#f2efe9" }}
               >
-                <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#6a54c6" }} />
+                <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#3a6fd8" }} />
                 <span style={{ flex: 1 }}>업무 분할…</span>
-                <span style={{ fontSize: 11, color: "#a09a8f" }}>새 업무로</span>
+                <span style={{ fontSize: 11, color: "#6a665e" }}>새 업무로</span>
               </Box>
               <div style={{ height: 1, background: "#f0ede7", margin: "3px 0" }} />
               <Box
@@ -378,9 +378,9 @@ export default function Workspace() {
                 }}
                 hover={{ background: "#f2efe9" }}
               >
-                <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#6a54c6" }} />
+                <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#8a857c" }} />
                 <span style={{ flex: 1 }}>Obsidian에서 열기</span>
-                <span style={{ fontSize: 11, color: "#a09a8f" }}>
+                <span style={{ fontSize: 11, color: "#6a665e" }}>
                   {s.obsidianOk ? "index.md" : "탐색기 폴백"}
                 </span>
               </Box>

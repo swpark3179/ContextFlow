@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Select } from "../../lib/ui";
+import { AiSignal, AiStep, Select } from "../../lib/ui";
+import { AI } from "../../lib/design";
 import { AI_FEATURES, type ActiveChoice, type AiFeature, type ModelOption } from "../../lib/ai";
 import * as api from "../../lib/api";
 import { CANCELED, runOnce, type RunResult } from "../../lib/runOnce";
@@ -309,15 +310,18 @@ function TestPanel({ test, onCancel }: { test: TestState; onCancel: () => void }
         <span style={{ fontSize: 12, fontWeight: 600, color: "#4e4a43" }}>
           테스트 대화 · {test.label}
         </span>
-        <span style={{ ...hintStyle, fontSize: 11 }}>
-          {test.running
-            ? `응답 기다리는 중… ${elapsed.toFixed(0)}초`
-            : canceled
-              ? "취소했습니다"
-              : failed
-                ? "실패"
-                : "성공"}
-        </span>
+        {test.running ? (
+          // 경과 시간을 보여 주던 유일한 자리 — 같은 신호 점 · 흐르는 라벨로 맞춘다.
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 12, fontWeight: 500 }}>
+            <AiSignal size={6} />
+            <AiStep>응답 기다리는 중</AiStep>
+            <span style={{ fontFamily: "'Roboto Mono',monospace", fontSize: 11.5, color: AI.fg }}>
+              {elapsed.toFixed(0)}초
+            </span>
+          </span>
+        ) : (
+          <span style={hintStyle}>{canceled ? "취소했습니다" : failed ? "실패" : "성공"}</span>
+        )}
         {test.running && (
           <span style={{ marginLeft: "auto" }}>
             <Btn label="취소" onClick={onCancel} />

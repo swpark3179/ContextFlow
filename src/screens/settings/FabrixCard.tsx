@@ -223,9 +223,12 @@ export default function FabrixCard({ onDirtyChange }: { onDirtyChange?: (dirty: 
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
         <Btn label="저장" primary onClick={save} />
         <Btn
-          label={busy ? "확인 중…" : "연결 테스트"}
+          label="연결 테스트"
+          busy={busy}
+          busyLabel="응답 기다리는 중"
+          ai
           onClick={test}
-          disabled={busy || dirty}
+          disabled={dirty}
         />
         <Btn label="모델 다시 조회" onClick={() => void detectOne(ID, true)} disabled={dirty} />
         <DirtyMark dirty={dirty} />

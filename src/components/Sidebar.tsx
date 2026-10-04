@@ -53,6 +53,7 @@ function WikiDock() {
     (w) => w.queue.filter((q) => q.state !== "queued" && q.state !== "running").length,
   );
   const current = useWiki((w) => w.queue.find((q) => q.state === "running"));
+  const fresh = useWiki((w) => w.fresh);
   const on = screen === "wiki";
   if (running && total > 0) {
     return (
@@ -67,7 +68,9 @@ function WikiDock() {
           borderRadius: 5,
           cursor: "pointer",
           background: AI.soft,
-          border: `1px solid ${on ? AI.bd : AI.softBd}`,
+          borderWidth: 1,
+          borderStyle: "solid",
+          borderColor: on ? AI.bd : AI.softBd,
         }}
         hover={{ borderColor: AI.bd }}
       >
@@ -131,7 +134,27 @@ function WikiDock() {
           flex: "0 0 9px",
         }}
       />
-      <span style={{ fontSize: 11.5, color: TEXT.sub, flex: 1, minWidth: 0 }}>위키</span>
+      <span style={{ fontSize: 11.5, color: TEXT.sub, flex: fresh ? "0 1 auto" : 1, minWidth: 0 }}>위키</span>
+      {fresh > 0 && (
+        <span
+          className="cf-up"
+          title="위키 화면 밖에 있는 동안 반영을 마친 업무 수 — 위키를 열면 지워집니다"
+          style={{
+            flex: "0 0 auto",
+            fontSize: 11,
+            fontWeight: 600,
+            color: AI.fg,
+            background: AI.bg,
+            borderRadius: 3,
+            padding: "0 5px",
+            lineHeight: "16px",
+            whiteSpace: "nowrap",
+          }}
+        >
+          +{fresh} 반영
+        </span>
+      )}
+      {fresh > 0 && <span style={{ flex: 1 }} />}
       <span
         style={{
           fontFamily: "'Roboto Mono',monospace",
@@ -245,18 +268,18 @@ function TodayDock() {
           }}
           hover={{ background: "#e0dcd4" }}
         >
-          <span style={{ fontSize: 9.5, color: "#a09a8f" }}>🗓</span>
+          <span style={{ fontSize: 11, color: "#6a665e" }}>🗓</span>
           <span
             style={{
               fontFamily: "'Roboto Mono',monospace",
-              fontSize: 10.5,
+              fontSize: 11.5,
               color: items.length ? "#6a665e" : "#b5afa2",
             }}
           >
             {items.length}건
           </span>
         </Box>
-        <span style={{ fontSize: 9, color: "#a09a8f", flex: "0 0 auto" }}>
+        <span style={{ fontSize: 9, color: "#6a665e", flex: "0 0 auto" }}>
           {s.todayMin ? "▲" : "▼"}
         </span>
       </Box>
@@ -265,8 +288,8 @@ function TodayDock() {
         <div
           style={{
             padding: "5px 8px 7px 8px",
-            fontSize: 10.5,
-            color: "#a09a8f",
+            fontSize: 11,
+            color: "#6a665e",
             lineHeight: 1.5,
             borderTop: "1px solid #efece5",
           }}
@@ -314,7 +337,7 @@ function TodayDock() {
                   style={{
                     fontSize: 11.5,
                     lineHeight: "16px",
-                    color: task ? "#3a3630" : "#a09a8f",
+                    color: task ? "#3a3630" : "#6a665e",
                     flex: "1 1 auto",
                     minWidth: 0,
                     overflow: "hidden",
@@ -337,12 +360,12 @@ function TodayDock() {
                 {archived && (
                   <span
                     style={{
-                      fontSize: 9.5,
-                      color: "#8a857c",
+                      fontSize: 11,
+                      color: "#6a665e",
                       background: "#ece8e0",
                       borderRadius: 3,
                       padding: "0 3px",
-                      lineHeight: "13px",
+                      lineHeight: "15px",
                       flex: "0 0 auto",
                     }}
                   >
@@ -352,8 +375,8 @@ function TodayDock() {
                 <span
                   style={{
                     fontFamily: "'Roboto Mono',monospace",
-                    fontSize: 10,
-                    color: "#b5afa2",
+                    fontSize: 11.5,
+                    color: "#6a665e",
                     flex: "0 0 auto",
                   }}
                 >
@@ -373,7 +396,7 @@ function TodayDock() {
                     alignItems: "center",
                     justifyContent: "center",
                     borderRadius: 3,
-                    fontSize: 9.5,
+                    fontSize: 11,
                     color: "#c5c0b6",
                   }}
                   hover={{ background: "#e0dcd4", color: "#4e4a43" }}
@@ -495,8 +518,8 @@ function TaskRow({
           <span
             style={{
               fontFamily: "'Roboto Mono',monospace",
-              fontSize: 10.5,
-              color: "#a09a8f",
+              fontSize: 11.5,
+              color: "#6a665e",
               flex: "0 0 auto",
             }}
           >
@@ -505,8 +528,8 @@ function TaskRow({
           {showCategory && t.category && (
             <span
               style={{
-                fontSize: 10.5,
-                color: "#a09a8f",
+                fontSize: 11,
+                color: "#6a665e",
                 flex: "0 1 auto",
                 minWidth: 0,
                 overflow: "hidden",
@@ -518,12 +541,12 @@ function TaskRow({
             </span>
           )}
           {showCategory && t.category && t.tagline && (
-            <span style={{ fontSize: 10.5, color: "#a09a8f", flex: "0 0 auto" }}>·</span>
+            <span style={{ fontSize: 11, color: "#6a665e", flex: "0 0 auto" }}>·</span>
           )}
           <span
             style={{
-              fontSize: 10.5,
-              color: "#a09a8f",
+              fontSize: 11,
+              color: "#6a665e",
               overflow: "hidden",
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",
@@ -537,13 +560,13 @@ function TaskRow({
         <div
           style={{
             fontFamily: "'Roboto Mono',monospace",
-            fontSize: 10,
-            color: "#8a857c",
+            fontSize: 11.5,
+            color: "#6a665e",
             background: "#ece8e0",
             borderRadius: 3,
             padding: "1px 4px",
-            height: 16,
-            lineHeight: "14px",
+            height: 17,
+            lineHeight: "15px",
             marginTop: 1,
           }}
         >
@@ -612,7 +635,7 @@ function CategoryRow({
         style={{
           flex: "0 0 9px",
           fontSize: 8,
-          color: "#a09a8f",
+          color: "#6a665e",
           textAlign: "center",
           opacity: forceOpen ? 0.4 : 1,
         }}
@@ -636,8 +659,8 @@ function CategoryRow({
       <span
         style={{
           fontFamily: "'Roboto Mono',monospace",
-          fontSize: 10,
-          color: "#b5afa2",
+          fontSize: 11.5,
+          color: "#6a665e",
           flex: "0 0 auto",
         }}
       >
@@ -661,7 +684,7 @@ function CategoryRow({
             alignItems: "center",
             justifyContent: "center",
             borderRadius: 3,
-            fontSize: 9.5,
+            fontSize: 11,
             color: "#c5c0b6",
             cursor: "pointer",
             // 끄는 동안에는 감추되 자리는 남긴다 — 개수 칸이 옆으로 밀리지 않게.
@@ -1037,14 +1060,14 @@ export default function Sidebar() {
           }}
           hover={{ background: "#ece8e0" }}
         >
-          <span style={{ fontSize: 9, color: "#8a857c" }}>▶</span>
+          <span style={{ fontSize: 9, color: "#6a665e" }}>▶</span>
           <span
             style={{
               writingMode: "vertical-rl",
               fontSize: 11.5,
               fontWeight: 600,
               letterSpacing: 1,
-              color: "#8a857c",
+              color: "#6a665e",
             }}
           >
             업무 리스트
@@ -1053,8 +1076,8 @@ export default function Sidebar() {
             style={{
               writingMode: "vertical-rl",
               fontFamily: "'Roboto Mono',monospace",
-              fontSize: 10.5,
-              color: "#b5afa2",
+              fontSize: 11.5,
+              color: "#6a665e",
             }}
           >
             {live.length}개
@@ -1093,7 +1116,7 @@ export default function Sidebar() {
             fontSize: 11.5,
             fontWeight: 600,
             letterSpacing: ".6px",
-            color: "#8a857c",
+            color: "#6a665e",
             flex: 1,
             minWidth: 0,
             // 최소 폭(196px)에서 버튼이 하나 늘어도 두 줄로 꺾이지 않게.
@@ -1254,7 +1277,7 @@ export default function Sidebar() {
                   userSelect: "none",
                   border: `1px solid ${on ? "#d9d4ca" : "transparent"}`,
                   background: on ? "#fff" : "transparent",
-                  color: on ? "#23211e" : "#8a857c",
+                  color: on ? "#23211e" : "#6a665e",
                   fontWeight: on ? 600 : 400,
                 }}
               >
@@ -1266,7 +1289,7 @@ export default function Sidebar() {
         {/* 순서를 정해 둔 사용자가 검색을 켠 채 끌어 보고 "왜 안 되지" 하는 것을 막는다.
             한 번도 순서를 바꾼 적 없으면 알릴 것도 없으므로 띄우지 않는다. */}
         {listActive && !sortable && live.some((t) => t.order !== null) && (
-          <div style={{ fontSize: 10.5, color: "#a09a8f", lineHeight: 1.5 }}>
+          <div style={{ fontSize: 11, color: "#6a665e", lineHeight: 1.5 }}>
             검색 중에는 순서를 바꿀 수 없습니다
           </div>
         )}
@@ -1290,7 +1313,7 @@ export default function Sidebar() {
             style={{
               padding: "5px 7px 8px 7px",
               fontSize: 11.5,
-              color: "#8a857c",
+              color: "#6a665e",
               lineHeight: 1.6,
             }}
           >
@@ -1376,7 +1399,7 @@ export default function Sidebar() {
               padding: "22px 12px",
               textAlign: "center",
               fontSize: 12.5,
-              color: "#a09a8f",
+              color: "#8a857c",
               lineHeight: 1.6,
             }}
           >
@@ -1392,9 +1415,9 @@ export default function Sidebar() {
               <div style={{ flex: 1, height: 1, background: "#e0dcd4" }} />
               <span
                 style={{
-                  fontSize: 10.5,
+                  fontSize: 11,
                   letterSpacing: ".3px",
-                  color: "#a09a8f",
+                  color: "#6a665e",
                   whiteSpace: "nowrap",
                 }}
               >
@@ -1443,8 +1466,8 @@ export default function Sidebar() {
                   <div
                     style={{
                       fontFamily: "'Roboto Mono',monospace",
-                      fontSize: 10.5,
-                      color: "#b5afa2",
+                      fontSize: 11.5,
+                      color: "#6a665e",
                       marginTop: 1,
                     }}
                   >
@@ -1458,7 +1481,7 @@ export default function Sidebar() {
                   }}
                   style={{
                     flex: "0 0 auto",
-                    fontSize: 10.5,
+                    fontSize: 11,
                     color: "#5a44b4",
                     background: "#f2eefc",
                     border: "1px solid #e4dcf8",
@@ -1545,7 +1568,7 @@ export default function Sidebar() {
             style={{
               fontFamily: "'Roboto Mono',monospace",
               fontSize: 11,
-              color: "#8a857c",
+              color: "#6a665e",
               flex: "0 0 auto",
             }}
           >
@@ -1570,7 +1593,7 @@ export default function Sidebar() {
                   cursor: "pointer",
                   border: `1px solid ${on ? "#d9d4ca" : "#e6e2da"}`,
                   background: on ? "#fff" : "transparent",
-                  color: on ? "#23211e" : "#8a857c",
+                  color: on ? "#23211e" : "#6a665e",
                   fontWeight: on ? 600 : 400,
                 }}
               >

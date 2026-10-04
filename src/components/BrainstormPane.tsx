@@ -92,10 +92,10 @@ export function BrainstormViewTabs({ path }: { path: string }) {
             key={k}
             onClick={() => setView({ view: k })}
             style={{
-              fontSize: 10.5,
+              fontSize: 11,
               padding: "2px 8px",
               cursor: "pointer",
-              color: on ? "#2f5cbb" : "#8a857c",
+              color: on ? "#2f5cbb" : "#6a665e",
               background: on ? "#eef3fd" : "#fff",
               fontWeight: on ? 600 : 400,
             }}
@@ -420,7 +420,7 @@ export default function BrainstormPane({ path }: { path: string }) {
                         overflowWrap: "anywhere",
                       }}
                     >
-                      {p.node.title || <span style={{ color: "#b5afa2" }}>이름 없는 생각</span>}
+                      {p.node.title || <span style={{ color: "#8a857c" }}>이름 없는 생각</span>}
                     </span>
                     <Box
                       onMouseDown={(e) => {
@@ -467,7 +467,7 @@ export default function BrainstormPane({ path }: { path: string }) {
                             alignSelf: "center",
                             fontFamily: "'Roboto Mono',monospace",
                             fontSize: 9.5,
-                            color: "#a09a8f",
+                            color: "#6a665e",
                           }}
                         >
                           +{p.node.images.length - 3}
@@ -481,7 +481,7 @@ export default function BrainstormPane({ path }: { path: string }) {
                       style={{
                         fontSize: 11,
                         lineHeight: 1.5,
-                        color: "#8a857c",
+                        color: "#6a665e",
                         overflow: "hidden",
                         textOverflow: "ellipsis",
                         whiteSpace: "nowrap",
@@ -516,7 +516,7 @@ export default function BrainstormPane({ path }: { path: string }) {
                         );
                       })}
                       {!!p.node.reason.trim() && (
-                        <span style={{ fontSize: 9.5, color: "#a09a8f" }}>폐기 이유 있음</span>
+                        <span style={{ fontSize: 9.5, color: "#6a665e" }}>폐기 이유 있음</span>
                       )}
                     </div>
                   )}
@@ -542,7 +542,7 @@ export default function BrainstormPane({ path }: { path: string }) {
                         fontSize: 9,
                         lineHeight: "14px",
                         textAlign: "center",
-                        color: "#8a857c",
+                        color: "#6a665e",
                         cursor: "pointer",
                       }}
                       hover={{ borderColor: "#3a6fd8", color: "#2f5cbb" }}
@@ -576,7 +576,7 @@ export default function BrainstormPane({ path }: { path: string }) {
                 undoOnce();
               }}
               style={{
-                fontSize: 10.5,
+                fontSize: 11,
                 padding: "0 7px",
                 height: 18,
                 lineHeight: "18px",
@@ -618,8 +618,8 @@ export default function BrainstormPane({ path }: { path: string }) {
             <span
               style={{
                 fontFamily: "'Roboto Mono',monospace",
-                fontSize: 10,
-                color: "#8a857c",
+                fontSize: 11.5,
+                color: "#6a665e",
                 padding: "0 4px",
               }}
             >
@@ -631,7 +631,7 @@ export default function BrainstormPane({ path }: { path: string }) {
                 fit();
               }}
               style={{
-                fontSize: 10.5,
+                fontSize: 11,
                 padding: "0 7px",
                 height: 18,
                 lineHeight: "18px",
@@ -678,8 +678,8 @@ export default function BrainstormPane({ path }: { path: string }) {
             <span
               style={{
                 fontFamily: "'Roboto Mono',monospace",
-                fontSize: 10,
-                color: "#a09a8f",
+                fontSize: 11.5,
+                color: "#6a665e",
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
@@ -690,9 +690,9 @@ export default function BrainstormPane({ path }: { path: string }) {
           </div>
 
           {!node && (
-            <div style={{ padding: "16px 12px", fontSize: 11.5, lineHeight: 1.7, color: "#a09a8f" }}>
+            <div style={{ padding: "16px 12px", fontSize: 11.5, lineHeight: 1.7, color: "#6a665e" }}>
               노드를 고르면 여기서 자세히 적을 수 있습니다.
-              <div style={{ marginTop: 8, color: "#b5afa2" }}>
+              <div style={{ marginTop: 8, color: "#6a665e" }}>
                 Tab 하위 생각 · Enter 형제 · Delete 삭제 · Ctrl+Z 되돌리기
               </div>
             </div>
@@ -731,7 +731,7 @@ export default function BrainstormPane({ path }: { path: string }) {
                         padding: "3px 8px",
                         borderRadius: 3,
                         cursor: "pointer",
-                        color: on ? stk.fg : "#8a857c",
+                        color: on ? stk.fg : "#6a665e",
                         background: on ? stk.bg : "#fff",
                         // 고른 것은 테두리를 두 겹으로 두른다. 옅은 배경색만으로는
                         // 지금 이 생각이 채택인지 유력인지 한눈에 들어오지 않았다.
@@ -756,7 +756,7 @@ export default function BrainstormPane({ path }: { path: string }) {
 
               <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
                 <div style={labelStyle}>상세</div>
-                <span style={{ fontSize: 10, color: "#b5afa2" }}>Enter 로 줄바꿈</span>
+                <span style={{ fontSize: 11, color: "#6a665e" }}>Enter 로 줄바꿈</span>
               </div>
               <DraftTextArea
                 key={`${path}|${sel}|detail`}
@@ -824,7 +824,7 @@ export default function BrainstormPane({ path }: { path: string }) {
                         fontSize: 9,
                         lineHeight: "13px",
                         textAlign: "center",
-                        color: "#8a857c",
+                        color: "#6a665e",
                         cursor: "pointer",
                       }}
                       hover={{ color: "#a55a4c", borderColor: "#eddad4" }}
@@ -840,7 +840,7 @@ export default function BrainstormPane({ path }: { path: string }) {
                   onClick={() => setPicking(true)}
                   style={{
                     display: "inline-block",
-                    fontSize: 10.5,
+                    fontSize: 11,
                     padding: "3px 7px",
                     borderRadius: 3,
                     marginBottom: 12,
@@ -866,9 +866,9 @@ export default function BrainstormPane({ path }: { path: string }) {
                   }}
                 >
                   {!images.length && (
-                    <div style={{ fontSize: 10.5, lineHeight: 1.7, color: "#8a857c" }}>
+                    <div style={{ fontSize: 11, lineHeight: 1.7, color: "#6a665e" }}>
                       업무 폴더에 그림이 없습니다.
-                      <div style={{ color: "#a09a8f" }}>
+                      <div style={{ color: "#6a665e" }}>
                         탐색기로 끌어다 놓으면 여기에 나타납니다.
                       </div>
                     </div>
@@ -910,7 +910,7 @@ export default function BrainstormPane({ path }: { path: string }) {
                               flex: 1,
                               minWidth: 0,
                               fontFamily: "'Roboto Mono',monospace",
-                              fontSize: 10,
+                              fontSize: 11.5,
                               color: "#4e4a43",
                               overflow: "hidden",
                               textOverflow: "ellipsis",
@@ -919,7 +919,7 @@ export default function BrainstormPane({ path }: { path: string }) {
                           >
                             {rel}
                           </span>
-                          {already && <span style={{ fontSize: 9.5, color: "#a09a8f" }}>붙어 있음</span>}
+                          {already && <span style={{ fontSize: 11, color: "#6a665e" }}>붙어 있음</span>}
                         </Box>
                       );
                     })}
@@ -928,8 +928,8 @@ export default function BrainstormPane({ path }: { path: string }) {
                     onClick={() => setPicking(false)}
                     style={{
                       marginTop: 4,
-                      fontSize: 10.5,
-                      color: "#8a857c",
+                      fontSize: 11,
+                      color: "#6a665e",
                       cursor: "pointer",
                       textAlign: "right",
                     }}
@@ -947,7 +947,7 @@ export default function BrainstormPane({ path }: { path: string }) {
                     <span
                       style={{
                         flex: "0 0 auto",
-                        fontSize: 9.5,
+                        fontSize: 11,
                         fontWeight: 600,
                         padding: "2px 5px",
                         borderRadius: 3,
@@ -975,8 +975,8 @@ export default function BrainstormPane({ path }: { path: string }) {
                       onClick={() => patchNode({ evidence: node.evidence.filter((_, k) => k !== i) })}
                       style={{
                         flex: "0 0 auto",
-                        fontSize: 10,
-                        color: "#b5afa2",
+                        fontSize: 11,
+                        color: "#6a665e",
                         cursor: "pointer",
                         padding: "0 3px",
                       }}
@@ -999,7 +999,7 @@ export default function BrainstormPane({ path }: { path: string }) {
                       patchNode({ evidence: [...node.evidence, { kind: k, text: "" }] });
                     }}
                     style={{
-                      fontSize: 10.5,
+                      fontSize: 11,
                       padding: "3px 7px",
                       borderRadius: 3,
                       cursor: "pointer",

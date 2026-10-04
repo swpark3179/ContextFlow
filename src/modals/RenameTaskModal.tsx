@@ -74,7 +74,7 @@ export default function RenameTaskModal() {
               fontFamily: "'Roboto Mono',monospace",
               fontSize: 11,
               lineHeight: 1.75,
-              color: "#8a857c",
+              color: "#6a665e",
               wordBreak: "break-all",
             }}
           >
@@ -82,7 +82,7 @@ export default function RenameTaskModal() {
             <br />
             <span style={{ color: changed ? "#2f5cbb" : "#c2bdb2" }}>→ {nextFolder}</span>
           </div>
-          <div style={{ fontSize: 11, color: "#a09a8f", marginTop: 6, lineHeight: 1.6 }}>
+          <div style={{ fontSize: 11, color: "#6a665e", marginTop: 6, lineHeight: 1.6 }}>
             index.md의 title과 폴더 이름이 함께 바뀝니다. 다른 노트에서 이 폴더 경로로 걸어 둔
             링크는 끊길 수 있습니다.
           </div>

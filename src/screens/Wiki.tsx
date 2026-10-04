@@ -26,12 +26,12 @@ const ORDER: api.WikiKind[] = ["procedure", "topic", "entity", "source", "answer
 /** 검색 결과를 보이는 최대 건수. */
 const HIT_MAX = 30;
 
-const hint: React.CSSProperties = { fontSize: 11.5, color: "#8a857c", lineHeight: 1.6 };
+const hint: React.CSSProperties = { fontSize: 11.5, color: "#6a665e", lineHeight: 1.6 };
 const head: React.CSSProperties = {
   fontSize: 11,
   fontWeight: 600,
   letterSpacing: ".4px",
-  color: "#8a857c",
+  color: "#6a665e",
   padding: "10px 12px 4px",
 };
 
@@ -71,6 +71,9 @@ export default function Wiki() {
     source: true,
     answer: true,
   });
+
+  // 화면에 들어왔다 — 도크의 `+N 반영` 은 여기서 지운다.
+  useEffect(() => useWiki.getState().seenFresh(), []);
 
   // 화면에 들어올 때 위키 폴더를 마련하고(씨앗은 없을 때만) 상태를 다시 읽는다.
   useEffect(() => {
@@ -220,7 +223,7 @@ export default function Wiki() {
           */}
           {pickable && (
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8 }}>
-              <span style={{ fontSize: 11, color: "#a09a8f" }}>카테고리</span>
+              <span style={{ fontSize: 11, color: "#6a665e" }}>카테고리</span>
               <Select
                 // `*` 는 카테고리에 쓸 수 없는 글자라 어떤 키와도 겹치지 않는다.
                 value={cats.effCat ?? "*"}
@@ -411,10 +414,10 @@ export default function Wiki() {
                 </span>
                 <span>{q.title}</span>
                 {q.state === "running" && q.step && (
-                  <span style={{ color: "#8a857c" }}> · {q.step}</span>
+                  <span style={{ color: "#6a665e" }}> · {q.step}</span>
                 )}
                 {q.state === "done" && (
-                  <span style={{ color: "#8a857c" }}> · 페이지 {q.written ?? 0}장</span>
+                  <span style={{ color: "#6a665e" }}> · 페이지 {q.written ?? 0}장</span>
                 )}
                 {q.state === "failed" && (
                   <div style={{ color: "#c04a4a", fontSize: 11, display: "flex", gap: 6 }}>
@@ -496,7 +499,7 @@ export default function Wiki() {
                 marginLeft: "auto",
                 alignSelf: "center",
                 fontSize: 11.5,
-                color: "#8a857c",
+                color: "#6a665e",
                 cursor: "pointer",
                 padding: "0 6px",
               }}

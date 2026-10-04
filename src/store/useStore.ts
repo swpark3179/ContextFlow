@@ -2,7 +2,7 @@ import { create } from "zustand";
 import * as api from "../lib/api";
 import type { TaskMeta, TemplateMeta, Recommendation } from "../lib/api";
 import type { FileEntry } from "../lib/tree";
-import { normalizeStatus, TOAST } from "../lib/design";
+import { AI_SIGNAL_KINDS, normalizeStatus, TOAST, type AiSignalKind } from "../lib/design";
 import { basename, daysSince, hhmm, joinPath, nowStamp, today } from "../lib/format";
 import { setImageWidth, splitFrontmatter, toggleTaskLine } from "../lib/markdown";
 import { rebaseIndexDoc } from "../lib/indexDoc";
@@ -151,6 +151,10 @@ export interface Settings {
    * 끄면 더 갱신하지 않을 뿐, 이미 만든 노트는 그대로 둔다.
    */
   catHubs: boolean;
+  /** AI 가 일하는 동안의 신호 점 모양(`lib/ui.tsx` 의 `AiSignal`). */
+  aiSignal: AiSignalKind;
+  /** 움직임 줄이기 — `system` 은 OS 설정을 따르고, `reduce` 는 늘 줄인다. */
+  motion: "system" | "reduce";
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -174,6 +178,8 @@ export const DEFAULT_SETTINGS: Settings = {
   sideGroup: true,
   catClosed: [],
   catHubs: true,
+  aiSignal: "pulse",
+  motion: "system",
 };
 
 /**
@@ -187,6 +193,8 @@ export function mergeSettings(stored: unknown): Settings {
     ...merged,
     sideGroup: typeof raw.sideGroup === "boolean" ? raw.sideGroup : DEFAULT_SETTINGS.sideGroup,
     catHubs: typeof raw.catHubs === "boolean" ? raw.catHubs : DEFAULT_SETTINGS.catHubs,
+    aiSignal: AI_SIGNAL_KINDS.some(([k]) => k === raw.aiSignal) ? raw.aiSignal! : DEFAULT_SETTINGS.aiSignal,
+    motion: raw.motion === "reduce" ? "reduce" : "system",
     catClosed: Array.isArray(raw.catClosed)
       ? [...new Set(raw.catClosed.filter((k): k is string => typeof k === "string"))]
       : DEFAULT_SETTINGS.catClosed,

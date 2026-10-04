@@ -26,7 +26,7 @@ import RenameTaskModal from "./modals/RenameTaskModal";
 import AbsorbModal from "./modals/AbsorbModal";
 import SplitModal from "./modals/SplitModal";
 import CategoryModal from "./modals/CategoryModal";
-import { Box } from "./lib/ui";
+import { AiSignal, AiStep, Box, applyMotion, setAiSignalKind } from "./lib/ui";
 import { emptyNewTask, lastReloadAt, useStore } from "./store/useStore";
 import { RELOAD_DELAY_MS, shouldReload } from "./lib/focus";
 import { useAi } from "./store/aiStore";
@@ -48,6 +48,11 @@ export default function App() {
     // 실패해도 앱은 로컬 유사도로 정상 동작한다.
     void useAi.getState().refreshAll();
   }, []);
+
+  // AI 작업 표시 — 신호 점 모양과 움직임 줄이기는 설정을 따른다.
+  const { aiSignal, motion } = s.settings;
+  useEffect(() => setAiSignalKind(aiSignal), [aiSignal]);
+  useEffect(() => applyMotion(motion), [motion]);
 
   // Obsidian 색인 노트(보관함 MOC · 카테고리 허브)의 자동 갱신. boot 와 따로 둔다 — StrictMode 의
   // 두 번 도는 effect 에서도 정리 함수(stop)가 앞의 구독을 끊어 하나만 남는다.
@@ -250,11 +255,13 @@ export default function App() {
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
+                gap: 9,
                 fontSize: 13,
-                color: "#8a857c",
               }}
             >
-              Vault를 읽는 중…
+              {/* 파일을 읽는 대기(AI 아님) — 같은 모양을 회색으로. */}
+              <AiSignal color="#8a857c" />
+              <AiStep tone="ink">Vault를 읽는 중</AiStep>
             </div>
           )}
           {s.ready && s.bootError && (

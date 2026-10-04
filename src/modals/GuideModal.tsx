@@ -3,7 +3,8 @@ import * as api from "../lib/api";
 import { nowStamp } from "../lib/format";
 import { mdParse } from "../lib/markdown";
 import { CANCELED } from "../lib/runOnce";
-import { Box } from "../lib/ui";
+import { AiRail, AiWaitBar, BusyLabel, Caret } from "../lib/ui";
+import { TEXT } from "../lib/design";
 import { KIND_LABEL } from "../lib/wiki/prompts";
 import { resolveLink } from "../lib/wiki/links";
 import {
@@ -45,6 +46,10 @@ function GuideView({ folder }: { folder: string }) {
   const [phase, setPhase] = useState<Phase>("running");
   const [text, setText] = useState("");
   const [step, setStep] = useState("");
+  /** 만들기를 시작한 시각 · 받은 생각 글자 수 · [저장] 을 누른 시각 — 대기 표시용. */
+  const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [thought, setThought] = useState(0);
+  const [savingAt, setSavingAt] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<GuideResult | null>(null);
   const [used, setUsed] = useState<api.WikiPageMeta[]>([]);
@@ -56,6 +61,8 @@ function GuideView({ folder }: { folder: string }) {
     abort.current = ctl;
     const mine = () => abort.current === ctl;
     setPhase("running");
+    setStartedAt(Date.now());
+    setThought(0);
     setText("");
     setStep("");
     setError(null);
@@ -83,6 +90,7 @@ function GuideView({ folder }: { folder: string }) {
         ai: { packs: a.packs, settings: a.settings },
         signal: ctl.signal,
         onPartial: (t) => mine() && setText(t),
+        onThinking: (n) => mine() && setThought(n),
         onStep: (s) => mine() && setStep(s),
         onPages: (p) => mine() && setUsed(p),
       });
@@ -113,6 +121,7 @@ function GuideView({ folder }: { folder: string }) {
   const save = async () => {
     if (result?.kind !== "done" || phase !== "done") return;
     setPhase("saving");
+    setSavingAt(Date.now());
     setBusy(true);
     setError(null);
     try {
@@ -151,6 +160,8 @@ function GuideView({ folder }: { folder: string }) {
       <AssistHead title="위키 가이드" task={task?.title ?? ""}>
         <RouteLabel info={info} />
       </AssistHead>
+      {/* 진행선 — 가이드를 만드는 동안. */}
+      <div style={{ flex: "0 0 2px", height: 2 }}>{phase === "running" && <AiRail />}</div>
 
       {used.length > 0 && (
         <div
@@ -164,14 +175,14 @@ function GuideView({ folder }: { folder: string }) {
             borderBottom: "1px solid #efebe4",
           }}
         >
-          <span style={{ fontSize: 11, fontWeight: 600, color: "#a09a8f", marginRight: 3 }}>근거 위키</span>
+          <span style={{ fontSize: 11, fontWeight: 600, color: TEXT.sub, marginRight: 3 }}>근거 위키</span>
           {used.map((p) => (
             <span
               key={p.path}
               title={`${p.path}${p.summary ? `\n${p.summary}` : ""}`}
               style={{ ...chipStyle(cited.has(p.path)), cursor: "default" }}
             >
-              <span style={{ fontSize: 10, color: "#a09a8f" }}>{KIND_LABEL[p.kind] ?? p.kind}</span>
+              <span style={{ fontSize: 11, color: TEXT.sub }}>{KIND_LABEL[p.kind] ?? p.kind}</span>
               {p.title}
             </span>
           ))}
@@ -190,21 +201,24 @@ function GuideView({ folder }: { folder: string }) {
           </Notice>
         )}
         {phase === "running" && (
-          <Notice tone="muted">
-            {step || "준비하는 중…"} {text ? `(${text.length.toLocaleString()}자)` : ""}{" "}
-            <Box
-              onClick={() => abort.current?.abort()}
-              style={{ display: "inline", color: "#3a6fd8", cursor: "pointer" }}
-            >
-              취소
-            </Box>
-          </Notice>
+          <AiWaitBar
+            since={startedAt}
+            label={!text && thought ? "생각하는 중" : (step || "준비하는 중").replace(/…$/, "")}
+            chars={text.length}
+            thinking={thought}
+            onCancel={() => abort.current?.abort()}
+          />
         )}
         {text && (
           <div style={{ padding: "10px 18px 0 18px" }}>
             <WikiLinkContext.Provider value={links}>
               <MarkdownView blocks={blocks} inline />
             </WikiLinkContext.Provider>
+            {phase === "running" && (
+              <div style={{ fontSize: 13, lineHeight: 1.75 }}>
+                <Caret />
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -212,7 +226,7 @@ function GuideView({ folder }: { folder: string }) {
       <ModalFooter>
         {phase !== "running" && phase !== "saving" && <GhostButton onClick={() => void run()}>다시 만들기</GhostButton>}
         {phase === "done" && (
-          <span style={{ fontSize: 11, color: "#a09a8f" }}>
+          <span style={{ fontSize: 11.5, color: TEXT.sub }}>
             저장하면 업무 폴더의 {GUIDE_FILE} 아래에 날짜와 함께 덧붙습니다
           </span>
         )}
@@ -220,8 +234,10 @@ function GuideView({ folder }: { folder: string }) {
         {phase === "done" || phase === "saving" ? (
           <>
             <GhostButton onClick={dismiss}>읽고 닫기</GhostButton>
-            <PrimaryButton onClick={() => void save()} disabled={phase === "saving"}>
-              {phase === "saving" ? "저장하는 중…" : `${GUIDE_FILE} 에 저장`}
+            <PrimaryButton onClick={() => void save()} busy={phase === "saving"} minWidth={150}>
+              <BusyLabel busy={phase === "saving"} since={savingAt} color="#fff" idle={`${GUIDE_FILE} 에 저장`}>
+                저장하는 중
+              </BusyLabel>
             </PrimaryButton>
           </>
         ) : (

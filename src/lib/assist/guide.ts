@@ -212,6 +212,8 @@ export async function makeGuide(o: {
   ai: PackSource;
   signal?: AbortSignal;
   onPartial?: (text: string) => void;
+  /** 답 전의 생각 토큰 — 받은 길이와 마지막 줄(`runOnce` 의 `onThinking`). */
+  onThinking?: (length: number, tail: string) => void;
   onStep?: (step: string) => void;
   onPages?: (used: api.WikiPageMeta[]) => void;
 }): Promise<GuideResult> {
@@ -255,7 +257,7 @@ export async function makeGuide(o: {
         inject: injectionFor("task.guide", o.ai.packs, o.ai.settings),
       }),
     },
-    { signal: o.signal, onPartial: o.onPartial },
+    { signal: o.signal, onPartial: o.onPartial, onThinking: o.onThinking },
   );
   if (run.error === CANCELED) throw new Error(CANCELED);
   const text = run.text.trim();

@@ -5,7 +5,8 @@ import { today } from "../lib/format";
 import { mdParse } from "../lib/markdown";
 import { injectionFor } from "../lib/promptPacks";
 import { CANCELED } from "../lib/runOnce";
-import { Box, Input, TextArea } from "../lib/ui";
+import { AiRail, AiWaitBar, Box, BusyLabel, Input, Skeleton, TextArea } from "../lib/ui";
+import { TEXT } from "../lib/design";
 import {
   BRIEF_ROUNDS,
   answerText,
@@ -66,6 +67,9 @@ function BriefView({ folder }: { folder: string }) {
   const [dropped, setDropped] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [partial, setPartial] = useState(0);
+  /** 정리를 시작한 시각 · 받은 생각 글자 수 — 대기 띠와 단추가 쓴다. */
+  const [thinkAt, setThinkAt] = useState<number | null>(null);
+  const [thought, setThought] = useState(0);
   const abort = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -114,6 +118,8 @@ function BriefView({ folder }: { folder: string }) {
     const left = questions.filter((q) => !answered(answers[q.id]));
     const next = round + 1;
     setPhase("thinking");
+    setThinkAt(Date.now());
+    setThought(0);
     setError(null);
     setPartial(0);
     const a = useAi.getState();
@@ -128,7 +134,11 @@ function BriefView({ folder }: { folder: string }) {
         today: today(),
         inject: injectionFor("task.brief", a.packs, a.settings),
       },
-      { signal: ctl.signal, onPartial: (t) => abort.current === ctl && setPartial(t.length) },
+      {
+        signal: ctl.signal,
+        onPartial: (t) => abort.current === ctl && setPartial(t.length),
+        onThinking: (n) => abort.current === ctl && setThought(n),
+      },
     );
     if (abort.current !== ctl) return;
     if (res.error === CANCELED) {
@@ -191,6 +201,8 @@ function BriefView({ folder }: { folder: string }) {
       <AssistHead title="간략 입력 정리" task={task?.title ?? ""}>
         <RouteLabel info={info} />
       </AssistHead>
+      {/* 진행선 — AI 가 정리하는 동안. */}
+      <div style={{ flex: "0 0 2px", height: 2 }}>{phase === "thinking" && <AiRail />}</div>
 
       {(phase === "input" || (phase === "thinking" && !draft)) && (
         <div style={{ flex: "1 1 auto", minHeight: 0, overflowY: "auto", padding: "12px 16px" }}>
@@ -215,11 +227,21 @@ function BriefView({ folder }: { folder: string }) {
             <div style={{ fontWeight: 600 }}>
               {task?.title}
               {task?.category && (
-                <span style={{ fontWeight: 400, color: "#8a857c" }}> · {catLabel(task.category)}</span>
+                <span style={{ fontWeight: 400, color: TEXT.sub }}> · {catLabel(task.category)}</span>
               )}
             </div>
-            <div style={{ color: "#8a857c", whiteSpace: "pre-wrap", maxHeight: 90, overflow: "hidden" }}>
-              {overview === null ? "개요를 읽는 중…" : overview.trim() ? overview.slice(0, 300) : "(개요가 아직 비어 있습니다)"}
+            <div style={{ color: TEXT.sub, whiteSpace: "pre-wrap", maxHeight: 90, overflow: "hidden" }}>
+              {overview === null ? (
+                // 개요는 파일에서 읽는다(AI 가 아니다) — 회색 스켈레톤으로 자리만.
+                <span style={{ display: "flex", flexDirection: "column", gap: 6, padding: "4px 0" }} title="개요를 읽는 중">
+                  <Skeleton width="92%" height={9} />
+                  <Skeleton width="64%" height={9} />
+                </span>
+              ) : overview.trim() ? (
+                overview.slice(0, 300)
+              ) : (
+                "(개요가 아직 비어 있습니다)"
+              )}
             </div>
           </div>
 
@@ -247,11 +269,20 @@ function BriefView({ folder }: { folder: string }) {
             }}
             focusStyle={inputFocus}
           />
-          <div style={{ fontSize: 11, color: "#8a857c", lineHeight: 1.7, marginTop: 6 }}>
+          <div style={{ fontSize: 11, color: "#6a665e", lineHeight: 1.7, marginTop: 6 }}>
             적은 것과 업무 제목 · 카테고리 · 태그 · 지금 개요가 AI 연결로 나갑니다. 적힌 사실만 정리하고, 빠진 것은
             선택지나 입력으로 되묻습니다(최대 {BRIEF_ROUNDS}바퀴). Ctrl+Enter 로 시작합니다.
           </div>
-          {phase === "thinking" && <ThinkingLine name={info.name} partial={partial} onCancel={() => abort.current?.abort()} />}
+          {phase === "thinking" && (
+            <ThinkingLine
+              name={info.name}
+              since={thinkAt}
+              partial={partial}
+              thought={thought}
+              margin="9px 0 0"
+              onCancel={() => abort.current?.abort()}
+            />
+          )}
         </div>
       )}
 
@@ -299,8 +330,8 @@ function BriefView({ folder }: { folder: string }) {
               <div style={{ marginTop: 12 }}>
                 <div style={labelStyle}>앞서 답한 것</div>
                 {qa.map((q) => (
-                  <div key={q.id} style={{ fontSize: 11.5, lineHeight: 1.6, color: "#6a665e", marginBottom: 3 }}>
-                    <span style={{ color: "#a09a8f" }}>{q.ask}</span> → {q.unknown ? "모름" : q.answer}
+                  <div key={q.id} style={{ fontSize: 11.5, lineHeight: 1.6, color: "#3a3630", marginBottom: 3 }}>
+                    <span style={{ color: "#6a665e" }}>{q.ask}</span> → {q.unknown ? "모름" : q.answer}
                   </div>
                 ))}
               </div>
@@ -324,7 +355,7 @@ function BriefView({ folder }: { folder: string }) {
               </div>
             )}
             {draft && !questions.length && (
-              <div style={{ fontSize: 11.5, color: "#8a857c", lineHeight: 1.7, marginTop: 12 }}>
+              <div style={{ fontSize: 11.5, color: "#6a665e", lineHeight: 1.7, marginTop: 12 }}>
                 {round >= BRIEF_ROUNDS
                   ? "보완은 여기까지입니다. 정해지지 않은 것은 “확인 필요” 에 남깁니다."
                   : "더 물을 것이 없습니다."}
@@ -335,7 +366,14 @@ function BriefView({ folder }: { folder: string }) {
           {/* 오른쪽 — 정리본 미리보기 */}
           <div style={{ flex: "1 1 auto", minWidth: 0, overflowY: "auto", paddingBottom: 14 }}>
             {phase === "thinking" && (
-              <ThinkingLine name={info.name} partial={partial} onCancel={() => abort.current?.abort()} />
+              <ThinkingLine
+                name={info.name}
+                since={thinkAt}
+                partial={partial}
+                thought={thought}
+                margin="9px 14px 0"
+                onCancel={() => abort.current?.abort()}
+              />
             )}
             {error && <Notice tone={error === "취소했습니다" ? "muted" : draft ? "warn" : "error"}>{error}</Notice>}
             {dropped > 0 && (
@@ -373,14 +411,16 @@ function BriefView({ folder }: { folder: string }) {
           <>
             <div style={{ flex: 1 }} />
             <GhostButton onClick={dismiss}>닫기</GhostButton>
-            <PrimaryButton onClick={() => undefined} disabled>
-              정리하는 중…
+            <PrimaryButton onClick={() => undefined} busy minWidth={120}>
+              <BusyLabel busy since={thinkAt} color="#fff" idle="">
+                정리하는 중
+              </BusyLabel>
             </PrimaryButton>
           </>
         )}
         {(phase === "review" || phase === "saving") && (
           <>
-            <span style={{ fontSize: 11, color: "#a09a8f" }}>
+            <span style={{ fontSize: 11.5, color: TEXT.sub }}>
               보완 {Math.min(round, BRIEF_ROUNDS)}/{BRIEF_ROUNDS}
             </span>
             {!draft && phase === "review" && <GhostButton onClick={() => void runRound()}>다시 시도</GhostButton>}
@@ -391,8 +431,14 @@ function BriefView({ folder }: { folder: string }) {
                 <span style={{ color: hasAnswers ? undefined : "#b5b0a6" }}>답 반영해 다시 정리</span>
               </GhostButton>
             )}
-            <PrimaryButton onClick={onSave} disabled={!canSave || phase === "saving"}>
-              {phase === "saving" ? "넣는 중…" : hasAnswers ? "답 반영 후 index.md 에 넣기" : "index.md 에 넣기"}
+            <PrimaryButton onClick={onSave} disabled={!canSave} busy={phase === "saving"} minWidth={120}>
+              <BusyLabel
+                busy={phase === "saving"}
+                color="#fff"
+                idle={hasAnswers ? "답 반영 후 index.md 에 넣기" : "index.md 에 넣기"}
+              >
+                넣는 중
+              </BusyLabel>
             </PrimaryButton>
           </>
         )}
@@ -401,14 +447,31 @@ function BriefView({ folder }: { folder: string }) {
   );
 }
 
-function ThinkingLine({ name, partial, onCancel }: { name: string | null; partial: number; onCancel: () => void }) {
+/** 정리하는 동안의 안내 띠 — 생각만 하는 동안은 "생각하는 중" 과 생각 글자 수. */
+function ThinkingLine({
+  name,
+  since,
+  partial,
+  thought,
+  margin,
+  onCancel,
+}: {
+  name: string | null;
+  since: number | null;
+  partial: number;
+  thought: number;
+  margin: string;
+  onCancel: () => void;
+}) {
   return (
-    <Notice tone="muted">
-      {name ?? "AI"} 가 정리하는 중… {partial ? `(${partial.toLocaleString()}자)` : ""}{" "}
-      <Box onClick={onCancel} style={{ display: "inline", color: "#3a6fd8", cursor: "pointer" }}>
-        취소
-      </Box>
-    </Notice>
+    <AiWaitBar
+      since={since}
+      label={`${name ?? "AI"} 가 ${!partial && thought ? "생각하는 중" : "정리하는 중"}`}
+      chars={partial}
+      thinking={thought}
+      onCancel={onCancel}
+      style={{ margin }}
+    />
   );
 }
 
@@ -450,11 +513,11 @@ function QuestionCard({
       }}
     >
       <div style={{ fontSize: 12.5, fontWeight: 600, color: "#23211e", lineHeight: 1.5 }}>
-        <span style={{ color: "#a09a8f", marginRight: 5 }}>Q{n}</span>
+        <span style={{ color: "#8a857c", marginRight: 5 }}>Q{n}</span>
         {q.ask}
-        {q.kind === "multi" && <span style={{ fontWeight: 400, color: "#a09a8f" }}> (여러 개)</span>}
+        {q.kind === "multi" && <span style={{ fontWeight: 400, color: "#8a857c" }}> (여러 개)</span>}
       </div>
-      {q.why && <div style={{ fontSize: 11, color: "#8a857c", marginTop: 2, lineHeight: 1.5 }}>{q.why}</div>}
+      {q.why && <div style={{ fontSize: 11, color: "#6a665e", marginTop: 2, lineHeight: 1.5 }}>{q.why}</div>}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 7 }}>
         {q.options.map((opt) => (
           <Box key={opt} title={opt} onClick={() => pick(opt)} style={chipStyle(a.picks.includes(opt))}>

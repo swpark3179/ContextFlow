@@ -83,7 +83,7 @@ export default function IwmsCategoriesCard() {
             style={{ ...inputMono, width: 140 }}
             focusStyle={inputFocus}
           />
-          <Btn label={loading ? "불러오는 중…" : "불러오기"} disabled={loading || !date} onClick={() => void load()} />
+          <Btn label="불러오기" busy={loading} busyLabel="불러오는 중" disabled={!date} onClick={() => void load()} />
           <span style={{ ...hintStyle, marginLeft: 4 }}>
             {day
               ? `탭 ${day.tabs.length} · 카테고리 ${day.categories.length} · 지정 ${designated.length}`
@@ -151,13 +151,13 @@ function PriceSection({
   const tabs = [...new Set(cats.map((c) => c.ciName))];
   return (
     <div>
-      <div style={{ fontSize: 12, fontWeight: 600, color: price === "O" ? "#2f5cbb" : "#6a54c6", marginBottom: 4 }}>
-        {PRICE_LABEL[price]} <span style={{ fontWeight: 400, color: "#a09a8f" }}>({price === "O" ? "운영" : "비대상"} · {cats.length})</span>
+      <div style={{ fontSize: 12, fontWeight: 600, color: price === "O" ? "#2f5cbb" : "#4e4a43", marginBottom: 4 }}>
+        {PRICE_LABEL[price]} <span style={{ fontWeight: 400, color: "#8a857c" }}>({price === "O" ? "운영" : "비대상"} · {cats.length})</span>
       </div>
       {!cats.length && <div style={hintStyle}>이 날짜에는 없습니다.</div>}
       {tabs.map((tab) => (
         <div key={tab} style={{ marginBottom: 6 }}>
-          <div style={{ fontSize: 11, color: "#8a857c", padding: "2px 0" }}>{tab}</div>
+          <div style={{ fontSize: 11, color: "#6a665e", padding: "2px 0" }}>{tab}</div>
           {cats
             .filter((c) => c.ciName === tab)
             .map((c) => {
@@ -208,13 +208,13 @@ function CategoryRow({
         title={c.blocked ?? `${c.wbsid}`}
       >
         <input type="checkbox" checked={on} onChange={(e) => onToggle(e.target.checked)} />
-        <span style={{ color: "#8a857c", flex: "0 1 auto", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        <span style={{ color: "#6a665e", flex: "0 1 auto", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {c.path}
         </span>
         <span style={{ color: "#3a3630", fontWeight: on ? 600 : 400, whiteSpace: "nowrap" }}>› {c.task}</span>
         <span style={{ flex: 1 }} />
-        {c.minutes > 0 && <span style={{ ...hintStyle, fontSize: 10.5 }}>입력됨 {c.minutes}분</span>}
-        {c.blocked && <span style={{ ...hintStyle, fontSize: 10.5, color: "#b07520" }}>{c.blocked}</span>}
+        {c.minutes > 0 && <span style={{ ...hintStyle, fontSize: 11 }}>입력됨 {c.minutes}분</span>}
+        {c.blocked && <span style={{ ...hintStyle, fontSize: 12, color: "#8f5d17" }}>{c.blocked}</span>}
       </label>
       {on && d && <Extras d={d} onPatch={onPatch} />}
     </div>
@@ -238,7 +238,7 @@ function Extras({ d, onPatch }: { d: Designated; onPatch: (patch: Partial<Pick<D
         focusStyle={inputFocus}
       />
       <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap", fontSize: 11 }}>
-        <span style={{ color: "#8a857c" }}>이 업무 카테고리는 여기로:</span>
+        <span style={{ color: "#6a665e" }}>이 업무 카테고리는 여기로:</span>
         {d.mapFrom.map((m) => (
           <Box
             key={m}
@@ -291,15 +291,15 @@ function DesignatedRow({
   return (
     <div style={{ borderBottom: "1px solid #f4f1ec" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 7, minHeight: 26, fontSize: 12, opacity: dim ? 0.6 : 1 }}>
-        <span style={{ fontSize: 10.5, color: d.priceType === "O" ? "#2f5cbb" : "#6a54c6", whiteSpace: "nowrap" }}>
+        <span style={{ fontSize: 11, color: d.priceType === "O" ? "#2f5cbb" : "#4e4a43", whiteSpace: "nowrap" }}>
           {PRICE_LABEL[d.priceType as Price] ?? d.priceType}
         </span>
-        <span style={{ color: "#8a857c", whiteSpace: "nowrap" }}>{d.ciName}</span>
+        <span style={{ color: "#6a665e", whiteSpace: "nowrap" }}>{d.ciName}</span>
         <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {d.path} › {d.task}
         </span>
         <span style={{ flex: 1 }} />
-        <Box onClick={onRemove} style={{ color: "#a09a8f", cursor: "pointer", padding: "0 4px" }} hover={{ color: "#4e4a43" }}>
+        <Box onClick={onRemove} style={{ color: "#6a665e", cursor: "pointer", padding: "0 4px" }} hover={{ color: "#4e4a43" }}>
           해제
         </Box>
       </div>

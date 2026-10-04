@@ -27,6 +27,15 @@ export const TEXT = {
   warn: "#8f5d17",
 } as const;
 
+/** AI 신호 점의 모양 — 설정(`settings.aiSignal`)에서 고르고 `AiSignal`(`lib/ui.tsx`)이 그린다. */
+export type AiSignalKind = "pulse" | "dots" | "orbit";
+
+export const AI_SIGNAL_KINDS: [AiSignalKind, string][] = [
+  ["pulse", "숨쉬는 점"],
+  ["dots", "세 점"],
+  ["orbit", "궤도"],
+];
+
 /**
  * AI 전용 보라. "움직이는 보라 = AI 가 지금 일한다" 가 통하려면 다른 뜻에는 보라를 쓰지
  * 않는다(마크다운 확장자 · 병합 · 연결 앱은 다른 색으로 옮겼다).
@@ -282,7 +291,7 @@ export function extStyle(ext: string): { fg: string; bg: string } {
   if (["json", "ts", "tsx", "js", "sql", "ps1", "rs", "py"].includes(ext))
     return { fg: "#2f5cbb", bg: "#eef3fd" };
   if (["csv", "xlsx", "tsv"].includes(ext)) return { fg: "#256b47", bg: "#e9f4ee" };
-  return { fg: "#8a857c", bg: "#f0ede7" };
+  return { fg: "#6a665e", bg: "#f0ede7" };
 }
 
 /** Toast accents used across the design's `toast(...)` calls. */

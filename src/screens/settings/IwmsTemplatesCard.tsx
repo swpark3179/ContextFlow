@@ -115,8 +115,10 @@ export default function IwmsTemplatesCard() {
             <span style={{ fontSize: 12.5, fontWeight: 500 }}>카테고리별 샘플</span>
             <div style={{ flex: 1 }} />
             <Btn
-              label={importing ? "가져오는 중…" : "i-WMS 템플릿 가져오기"}
-              disabled={importing || !designated.length}
+              label="i-WMS 템플릿 가져오기"
+              busy={importing}
+              busyLabel="가져오는 중"
+              disabled={!designated.length}
               onClick={() => void importTemplates()}
             />
           </div>
@@ -162,15 +164,15 @@ function SampleRow({
         style={{ display: "flex", alignItems: "center", gap: 7, minHeight: 26, fontSize: 12, cursor: "pointer" }}
         hover={{ background: "#faf9f6" }}
       >
-        <span style={{ fontSize: 10.5, color: d.priceType === "O" ? "#2f5cbb" : "#6a54c6", whiteSpace: "nowrap" }}>
+        <span style={{ fontSize: 11, color: d.priceType === "O" ? "#2f5cbb" : "#4e4a43", whiteSpace: "nowrap" }}>
           {PRICE_LABEL[d.priceType as Price] ?? d.priceType}
         </span>
         <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {d.ciName} › {d.task}
         </span>
         <span style={{ flex: 1 }} />
-        <span style={{ ...hintStyle, fontSize: 10.5 }}>샘플 {d.samples.length}</span>
-        <span style={{ fontSize: 9, color: "#a09a8f" }}>{open ? "▲" : "▼"}</span>
+        <span style={{ ...hintStyle, fontSize: 11 }}>샘플 {d.samples.length}</span>
+        <span style={{ fontSize: 9, color: "#6a665e" }}>{open ? "▲" : "▼"}</span>
       </Box>
       {open && (
         <div style={{ padding: "4px 0 10px 0", display: "flex", flexDirection: "column", gap: 5 }}>
@@ -191,7 +193,7 @@ function SampleRow({
                   commit(next);
                 }}
                 title="이 샘플을 지웁니다"
-                style={{ color: "#a09a8f", cursor: "pointer", padding: "4px" }}
+                style={{ color: "#6a665e", cursor: "pointer", padding: "4px" }}
                 hover={{ color: "#4e4a43" }}
               >
                 ✕
@@ -276,7 +278,7 @@ function TryOut() {
         />
         <Chip on={price === "O"} label="대가포함" onClick={() => setPrice("O")} />
         <Chip on={price === "N"} label="대가미포함" onClick={() => setPrice("N")} />
-        <Btn label={busy ? "정제 중…" : "시험"} disabled={busy || !title.trim()} onClick={() => void run()} />
+        <Btn label="시험" busy={busy} busyLabel="정제 중" ai disabled={!title.trim()} onClick={() => void run()} />
       </div>
       <Input
         value={body}
@@ -292,12 +294,12 @@ function TryOut() {
             <>
               <div>
                 <b>카테고리</b> {result.draft.category ? `${result.draft.category.ciName} › ${result.draft.category.path} > ${result.draft.category.task}` : "(고르지 못함)"}
-                {result.draft.confidence !== null && <span style={{ color: "#a09a8f" }}> · 확신도 {result.draft.confidence}</span>}
+                {result.draft.confidence !== null && <span style={{ color: "#6a665e" }}> · 확신도 {result.draft.confidence}</span>}
               </div>
               <div style={{ whiteSpace: "pre-wrap" }}>
                 <b>상세내용</b> {result.draft.note}
               </div>
-              <div style={{ color: "#a09a8f" }}>분은 실제 입력 때 그날 고른 업무들 사이에서 다시 나눕니다.</div>
+              <div style={{ color: "#6a665e" }}>분은 실제 입력 때 그날 고른 업무들 사이에서 다시 나눕니다.</div>
             </>
           )}
         </div>

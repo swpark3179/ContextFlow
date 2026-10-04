@@ -185,7 +185,7 @@ export default function TabMenu() {
                 {i.badge}
               </span>
               <span style={{ fontSize: 12, color: "#3a3630", flex: 1 }}>{i.label}</span>
-              <span style={{ fontSize: 10.5, color: "#b5afa2" }}>{i.hint}</span>
+              <span style={{ fontSize: 11, color: "#6a665e" }}>{i.hint}</span>
             </Box>
           </div>
         ))}

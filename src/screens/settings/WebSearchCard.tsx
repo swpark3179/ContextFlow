@@ -183,9 +183,11 @@ export default function WebSearchCard() {
         </div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
           <Btn
-            label={probe?.running ? "검색 중…" : "검색 테스트"}
+            label="검색 테스트"
+            busy={!!probe?.running}
+            busyLabel="검색 중"
             onClick={test}
-            disabled={!!probe?.running || found?.source === "not-found"}
+            disabled={found?.source === "not-found"}
           />
           {found?.running && (
             <Btn label="브라우저 닫기" onClick={() => void api.browserClose().then(detect).catch(() => {})} />
@@ -198,7 +200,7 @@ export default function WebSearchCard() {
             {probe.secs != null && ` · ${probe.secs.toFixed(1)}초`}
             {probe.results?.map((r) => (
               <div key={r.url} style={{ color: "#4e4a43" }}>
-                · {r.title} <span style={{ color: "#a09a8f" }}>{r.url}</span>
+                · {r.title} <span style={{ color: "#6a665e" }}>{r.url}</span>
               </div>
             ))}
           </div>
@@ -206,7 +208,7 @@ export default function WebSearchCard() {
         <div
           style={{
             ...hintStyle,
-            color: "#a09a8f",
+            color: "#6a665e",
             paddingTop: 6,
             borderTop: "1px dashed #eae6de",
           }}

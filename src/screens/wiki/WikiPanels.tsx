@@ -37,7 +37,7 @@ export function KindChip({ kind }: { kind: api.WikiKind }) {
     <span
       style={{
         flex: "0 0 auto",
-        fontSize: 10.5,
+        fontSize: 11,
         color: c.fg,
         background: c.bg,
         borderRadius: 3,
@@ -64,7 +64,7 @@ export const smallBtn: React.CSSProperties = {
   whiteSpace: "nowrap",
 };
 
-const hint: React.CSSProperties = { fontSize: 11.5, color: "#8a857c", lineHeight: 1.6 };
+const hint: React.CSSProperties = { fontSize: 11.5, color: "#6a665e", lineHeight: 1.6 };
 
 /** 안정된 빈 목록 — 스토어 셀렉터의 기본값으로 쓴다. */
 export const NO_PAGES: api.WikiPageMeta[] = [];
@@ -204,9 +204,9 @@ export function PagePanel({
                 title={[...cat.chips, ...cat.rest].map((c) => label(c.path)).join("\n")}
                 style={{
                   flex: "0 0 auto",
-                  fontSize: 10.5,
+                  fontSize: 11,
                   lineHeight: "16px",
-                  color: "#a09a8f",
+                  color: "#6a665e",
                   whiteSpace: "nowrap",
                 }}
               >
@@ -218,7 +218,7 @@ export function PagePanel({
         <span style={{ fontSize: 12.5, fontWeight: 600, minWidth: 0, flex: 1 }}>
           {meta?.title ?? path}
           {meta?.updated && (
-            <span style={{ fontWeight: 400, color: "#a09a8f", marginLeft: 8, fontSize: 11 }}>
+            <span style={{ fontWeight: 400, color: "#6a665e", marginLeft: 8, fontSize: 11 }}>
               갱신 {meta.updated}
             </span>
           )}
@@ -555,7 +555,7 @@ export function LintPanel({ onOpen }: { onOpen: (path: string) => void }) {
                       onClick={() => p && onOpen(p.path)}
                       style={{
                         fontSize: 11.5,
-                        color: p ? "#2f5cbb" : "#8a857c",
+                        color: p ? "#2f5cbb" : "#6a665e",
                         cursor: p ? "pointer" : "default",
                       }}
                     >

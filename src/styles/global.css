@@ -26,6 +26,10 @@ body {
 }
 body {
   font-family: "Noto Sans KR", system-ui, sans-serif;
+  /* 한글은 낱말 중간에서 줄을 바꾸지 않는다("낮\n아", "접\n힙니다"). 줄에 다 못 들어가는
+     긴 낱말만 마지막 수단으로 끊는다. 경로처럼 끊어야 하는 곳은 저마다 break-all 을 준다. */
+  word-break: keep-all;
+  overflow-wrap: break-word;
   -webkit-font-smoothing: antialiased;
   color: #23211e;
   overflow: hidden;
@@ -227,14 +231,46 @@ body {
 .cf-up {
   animation: cfUp 0.3s ease-out;
 }
-/* 동작 줄이기 — 움직임은 전부 느린 깜빡임 하나로 접는다. 신호 자체는 남겨야 멈춘 것과 갈린다. */
+@keyframes cfDot {
+  0%,
+  80%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.35;
+  }
+  40% {
+    transform: translateY(-3px);
+    opacity: 1;
+  }
+}
+@keyframes cfSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.cf-dot {
+  animation: cfDot 1.2s ease-in-out infinite;
+}
+.cf-orbit {
+  animation: cfSpin 1.1s linear infinite;
+}
+/*
+ * 동작 줄이기 — 움직임은 전부 느린 깜빡임 하나로 접는다. 신호 자체는 남겨야 멈춘 것과 갈린다.
+ * OS 설정(`prefers-reduced-motion`)과 앱 설정(설정 → AI 작업 표시 → 항상 줄이기,
+ * 루트의 `data-motion="reduce"`)이 같은 규칙을 쓴다.
+ */
 @media (prefers-reduced-motion: reduce) {
   .cf-ring {
     display: none;
   }
   .cf-pulse,
-  .cf-skel {
+  .cf-skel,
+  .cf-orbit {
     animation: cfFade 2s ease-in-out infinite;
+  }
+  .cf-dot {
+    animation: cfFade 2s ease-in-out infinite;
+    animation-delay: 0s !important;
   }
   .cf-shim {
     animation: none;
@@ -247,6 +283,29 @@ body {
   .cf-up {
     animation: none;
   }
+}
+:root[data-motion="reduce"] .cf-ring {
+  display: none;
+}
+:root[data-motion="reduce"] .cf-pulse,
+:root[data-motion="reduce"] .cf-skel,
+:root[data-motion="reduce"] .cf-orbit {
+  animation: cfFade 2s ease-in-out infinite;
+}
+:root[data-motion="reduce"] .cf-dot {
+  animation: cfFade 2s ease-in-out infinite;
+  animation-delay: 0s !important;
+}
+:root[data-motion="reduce"] .cf-shim {
+  animation: none;
+  background-position: 0 0;
+}
+:root[data-motion="reduce"] .cf-rail {
+  width: 100%;
+  animation: cfFade 2s ease-in-out infinite;
+}
+:root[data-motion="reduce"] .cf-up {
+  animation: none;
 }
 
 /* Native window chrome is disabled; this makes the custom title bar draggable. */

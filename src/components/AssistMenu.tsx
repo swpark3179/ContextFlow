@@ -81,7 +81,7 @@ export default function AssistMenu({ folder }: { folder: string }) {
               >
                 <div style={{ width: 7, height: 7, borderRadius: "50%", background: VIOLET }} />
                 <span style={{ flex: 1, whiteSpace: "nowrap" }}>{label}</span>
-                <span style={{ fontSize: 11, color: "#a09a8f", whiteSpace: "nowrap" }}>{hint}</span>
+                <span style={{ fontSize: 11, color: "#6a665e", whiteSpace: "nowrap" }}>{hint}</span>
               </Box>
             ))}
           </div>

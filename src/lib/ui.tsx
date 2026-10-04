@@ -7,6 +7,7 @@ import {
   forwardRef,
   useEffect,
   useState,
+  useSyncExternalStore,
   type CSSProperties,
   type HTMLAttributes,
   type ReactNode,
@@ -14,7 +15,7 @@ import {
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
 } from "react";
-import { AI } from "./design";
+import { AI, TEXT, type AiSignalKind } from "./design";
 
 type BoxProps = HTMLAttributes<HTMLDivElement> & {
   style?: CSSProperties;
@@ -131,8 +132,94 @@ export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
 // 구분되지 않았다. 여기 여섯 요소로 통일한다. 움직임은 `global.css` 의 `cf-*` 클래스가
 // 맡고, 동작 줄이기(`prefers-reduced-motion`)도 거기서 한 번에 접는다.
 
-/** ① 신호 점 — 숨쉬는 점 + 퍼지는 링. `color` 를 흰색으로 주면 진한 단추 위에 쓴다. */
-export function AiSignal({ size = 7, color = AI.dot }: { size?: number; color?: string }) {
+/**
+ * 고른 모양은 모듈에 하나 둔다. 신호 점은 앱 곳곳의 작은 조각이라 스토어를 끌어오지 않고,
+ * 설정이 바뀌면 `App` 이 여기에 알린다(`setAiSignalKind`).
+ */
+let signalKind: AiSignalKind = "pulse";
+const signalSubs = new Set<() => void>();
+
+export function setAiSignalKind(kind: AiSignalKind): void {
+  if (kind === signalKind) return;
+  signalKind = kind;
+  signalSubs.forEach((f) => f());
+}
+
+function useAiSignalKind(): AiSignalKind {
+  return useSyncExternalStore(
+    (f) => {
+      signalSubs.add(f);
+      return () => signalSubs.delete(f);
+    },
+    () => signalKind,
+  );
+}
+
+/**
+ * ① 신호 점 — 모든 AI 대기의 공통 표시. 기본은 숨쉬는 점 + 퍼지는 링이고, 설정에서 세 점 ·
+ * 궤도로 바꿀 수 있다(`kind` 를 주면 그 모양으로 고정 — 설정 화면의 미리보기). `color` 를
+ * 흰색으로 주면 진한 단추 위에 쓴다.
+ */
+export function AiSignal({
+  size = 7,
+  color = AI.dot,
+  kind,
+}: {
+  size?: number;
+  color?: string;
+  kind?: AiSignalKind;
+}) {
+  const chosen = useAiSignalKind();
+  const k = kind ?? chosen;
+  if (k === "dots") {
+    const d = Math.max(4, Math.round(size * 0.62));
+    return (
+      <span
+        aria-hidden
+        style={{ display: "inline-flex", alignItems: "center", gap: Math.max(2, Math.round(d * 0.5)), height: size + 4 }}
+      >
+        {[0, 1, 2].map((i) => (
+          <span
+            key={i}
+            className="cf-dot"
+            style={{ width: d, height: d, borderRadius: "50%", background: color, animationDelay: `${i * 0.16}s` }}
+          />
+        ))}
+      </span>
+    );
+  }
+  if (k === "orbit") {
+    const o = Math.round(size * 1.7);
+    return (
+      <span
+        aria-hidden
+        className="cf-orbit"
+        style={{
+          position: "relative",
+          display: "inline-block",
+          width: o,
+          height: o,
+          flex: `0 0 ${o}px`,
+          borderRadius: "50%",
+          border: `1.5px solid ${color === "#fff" ? "rgba(255,255,255,.35)" : "#e4dcf8"}`,
+          boxSizing: "border-box",
+        }}
+      >
+        <span
+          style={{
+            position: "absolute",
+            top: -3,
+            left: "50%",
+            marginLeft: -2.5,
+            width: 5,
+            height: 5,
+            borderRadius: "50%",
+            background: color,
+          }}
+        />
+      </span>
+    );
+  }
   return (
     <span
       aria-hidden
@@ -145,6 +232,15 @@ export function AiSignal({ size = 7, color = AI.dot }: { size?: number; color?: 
       <span className="cf-pulse" style={{ position: "absolute", inset: 0, borderRadius: "50%", background: color }} />
     </span>
   );
+}
+
+/**
+ * 움직임 줄이기 — `system` 이면 OS 설정(`prefers-reduced-motion`)을 따르고, `reduce` 면 늘
+ * 줄인다. 루트의 `data-motion` 으로 `global.css` 가 같은 규칙을 건다.
+ */
+export function applyMotion(mode: "system" | "reduce"): void {
+  if (mode === "reduce") document.documentElement.dataset.motion = "reduce";
+  else delete document.documentElement.dataset.motion;
 }
 
 /**
@@ -279,7 +375,7 @@ export function BusyLabel({
   idle,
 }: {
   busy: boolean;
-  /** 시작 시각. 주면 3초 뒤부터 경과 시간을 붙인다. */
+  /** 시작 시각. 없으면 바빠진 순간부터 잰다. 3초 뒤부터 경과 시간을 붙인다. */
   since?: number | null;
   ai?: boolean;
   color?: string;
@@ -288,13 +384,17 @@ export function BusyLabel({
   /** 바쁠 때의 글자(‘…’ 없이). */
   children: ReactNode;
 }) {
-  const ms = useElapsed(busy ? since : null);
+  // 시작 시각을 모르는 단추(스토어의 busy 깃발만 있는 곳)는 바빠진 순간을 스스로 잡는다.
+  const [own, setOwn] = useState<number | null>(null);
+  useEffect(() => setOwn(busy ? Date.now() : null), [busy]);
+  const start = since ?? own;
+  const ms = useElapsed(busy ? start : null);
   if (!busy) return <>{idle}</>;
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 8, width: "100%", whiteSpace: "nowrap" }}>
       <AiSignal size={6} color={color ?? (ai ? AI.dot : "currentColor")} />
       <span>{children}</span>
-      {since && ms >= ELAPSED_AFTER_MS && (
+      {start && ms >= ELAPSED_AFTER_MS && (
         <span
           style={{
             marginLeft: "auto",
@@ -308,5 +408,102 @@ export function BusyLabel({
         </span>
       )}
     </span>
+  );
+}
+
+/**
+ * 기다리는 동안의 안내 띠 — 신호 점 · 흐르는 라벨 · 받은 글자 수(또는 생각 글자 수) · 경과 ·
+ * [취소]. 모달 본문 맨 위에 둔다. AI 가 아닌 대기(`ai={false}`, 파일 읽기 등)는 같은 모양을
+ * 회색으로 쓴다.
+ */
+export function AiWaitBar({
+  since,
+  label,
+  ai = true,
+  chars,
+  thinking,
+  onCancel,
+  style,
+}: {
+  since: number | null;
+  label: ReactNode;
+  ai?: boolean;
+  /** 받은 답의 글자 수. 있으면 생각 글자 수보다 앞선다. */
+  chars?: number | null;
+  /** 받은 생각 토큰의 글자 수 — 답이 오기 전에 추론 모델이 생각하는 동안. */
+  thinking?: number | null;
+  onCancel?: (() => void) | null;
+  style?: CSSProperties;
+}) {
+  const ms = useElapsed(since);
+  const count = chars
+    ? `${chars.toLocaleString()}자`
+    : thinking
+      ? `생각 ${thinking.toLocaleString()}자`
+      : null;
+  return (
+    <div
+      role="status"
+      style={{
+        margin: "9px 14px 2px",
+        display: "flex",
+        alignItems: "center",
+        gap: 9,
+        flexWrap: "wrap",
+        fontSize: 12.5,
+        fontWeight: 500,
+        padding: "6px 9px",
+        borderRadius: 6,
+        background: ai ? AI.soft : "#faf9f6",
+        border: `1px solid ${ai ? AI.softBd : "#ece8e0"}`,
+        ...style,
+      }}
+    >
+      <span style={{ width: 14, display: "flex", justifyContent: "center" }}>
+        <AiSignal color={ai ? AI.dot : "#8a857c"} />
+      </span>
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <AiStep tone={ai ? "ai" : "ink"}>{label}</AiStep>
+      </span>
+      {count && (
+        <span style={{ flex: "0 0 auto", fontFamily: "'Roboto Mono',monospace", fontSize: 11.5, color: TEXT.body }}>
+          {count}
+        </span>
+      )}
+      {since !== null && (
+        <span
+          style={{
+            flex: "0 0 auto",
+            fontFamily: "'Roboto Mono',monospace",
+            fontSize: 11.5,
+            color: ai ? AI.fg : TEXT.sub,
+          }}
+        >
+          {fmtSec(ms)}
+        </span>
+      )}
+      {onCancel && (
+        <Box
+          onClick={onCancel}
+          style={{
+            flex: "0 0 auto",
+            height: 22,
+            display: "inline-flex",
+            alignItems: "center",
+            padding: "0 8px",
+            borderRadius: 4,
+            border: "1px solid #ddd8cf",
+            background: "#fff",
+            fontSize: 11.5,
+            fontWeight: 400,
+            color: TEXT.ink,
+            cursor: "pointer",
+          }}
+          hover={{ background: "#f2efe9" }}
+        >
+          취소
+        </Box>
+      )}
+    </div>
   );
 }

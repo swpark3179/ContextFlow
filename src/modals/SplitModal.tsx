@@ -1,11 +1,11 @@
 import { useMemo } from "react";
-import { Box, Input, TextArea } from "../lib/ui";
-import { extOf, extStyle, VIOLET } from "../lib/design";
+import { Box, BusyLabel, Input, TextArea } from "../lib/ui";
+import { BLUE, extOf, extStyle } from "../lib/design";
 import { BSTORM_EXT } from "../lib/bstorm";
 import { sanitizeFolderName } from "../lib/vaultPaths";
 import { useStore } from "../store/useStore";
 import CategoryPicker from "../components/CategoryPicker";
-import { GhostButton, inputFocus, inputStyle, labelStyle, Modal, ModalFooter } from "./Modal";
+import { GhostButton, PrimaryButton, inputFocus, inputStyle, labelStyle, Modal, ModalFooter } from "./Modal";
 
 /** 트리와 같은 확장자 배지. `.bs.md` 는 `md` 가 아니라 BS 로 가른다(`Explorer` 와 같다). */
 function badgeFor(path: string, dir: boolean): { label: string; fg: string; bg: string } {
@@ -87,7 +87,7 @@ export default function SplitModal() {
         }}
       >
         <span style={{ fontSize: 14, fontWeight: 600 }}>업무 분할</span>
-        <span style={{ fontSize: 11.5, color: "#8a857c" }}>
+        <span style={{ fontSize: 11.5, color: "#6a665e" }}>
           고른 최상위 항목을 새 업무로 옮깁니다 · 폴더는 하위 전체가 함께 갑니다
         </span>
         <div style={{ flex: 1 }} />
@@ -148,7 +148,7 @@ export default function SplitModal() {
                 style={{
                   padding: "20px 12px",
                   fontSize: 12,
-                  color: "#a09a8f",
+                  color: "#8a857c",
                   textAlign: "center",
                   lineHeight: 1.7,
                 }}
@@ -184,8 +184,8 @@ export default function SplitModal() {
                       height: 14,
                       borderRadius: 3,
                       flex: "0 0 14px",
-                      border: `1px solid ${on ? VIOLET : "#cfcabf"}`,
-                      background: on ? VIOLET : "#fff",
+                      border: `1px solid ${on ? BLUE : "#cfcabf"}`,
+                      background: on ? BLUE : "#fff",
                       color: "#fff",
                       fontSize: 11,
                       lineHeight: "13px",
@@ -225,8 +225,8 @@ export default function SplitModal() {
                   <span
                     style={{
                       fontFamily: "'Roboto Mono',monospace",
-                      fontSize: 10.5,
-                      color: "#a09a8f",
+                      fontSize: 11.5,
+                      color: "#6a665e",
                       flex: "0 0 auto",
                     }}
                   >
@@ -245,7 +245,7 @@ export default function SplitModal() {
                   marginTop: 3,
                   borderTop: "1px solid #f0ede7",
                   fontSize: 11.5,
-                  color: "#a09a8f",
+                  color: "#6a665e",
                 }}
               >
                 <span style={{ flex: 1, minWidth: 0 }}>index.md</span>
@@ -286,7 +286,7 @@ export default function SplitModal() {
               style={{
                 fontFamily: "'Roboto Mono',monospace",
                 fontSize: 11,
-                color: "#8a857c",
+                color: "#6a665e",
                 marginTop: 6,
                 wordBreak: "break-all",
               }}
@@ -334,7 +334,7 @@ export default function SplitModal() {
               onCommit={(v) => s.set({ split: { ...split, category: v ?? "", error: "" } })}
             />
           </div>
-          <div style={{ fontSize: 11.5, color: "#8a857c", lineHeight: 1.65 }}>
+          <div style={{ fontSize: 11.5, color: "#6a665e", lineHeight: 1.65 }}>
             원본 업무: {source?.title ?? ""} · 고른 항목은 <b>복사가 아니라 이동</b>이며,
             파일이 다른 프로그램에서 열려 있으면 아무것도 옮기지 않고 실패합니다.
           </div>
@@ -359,30 +359,17 @@ export default function SplitModal() {
       )}
 
       <ModalFooter>
-        <span style={{ fontSize: 11.5, color: "#8a857c", flex: 1, minWidth: 0 }}>
+        <span style={{ fontSize: 11.5, color: "#6a665e", flex: 1, minWidth: 0 }}>
           {picked.length
             ? `${picked.length}개 항목이 새 업무로 이동합니다`
             : "옮길 항목을 하나 이상 고르세요"}
         </span>
         <GhostButton onClick={() => !split.busy && s.set({ split: null })}>취소</GhostButton>
-        <Box
-          onClick={() => ready && void s.doSplit()}
-          style={{
-            height: 28,
-            padding: "0 15px",
-            display: "flex",
-            alignItems: "center",
-            borderRadius: 5,
-            fontSize: 12.5,
-            fontWeight: 600,
-            background: ready ? VIOLET : "#e6e2da",
-            color: ready ? "#fff" : "#a09a8f",
-            cursor: ready ? "pointer" : "not-allowed",
-          }}
-          hover={ready ? { background: "#5a44b4" } : undefined}
-        >
-          {split.busy ? "옮기는 중…" : "분할 실행"}
-        </Box>
+        <PrimaryButton onClick={() => void s.doSplit()} disabled={!title || picked.length === 0} busy={split.busy} minWidth={110}>
+          <BusyLabel busy={split.busy} color="#fff" idle="분할 실행">
+            옮기는 중
+          </BusyLabel>
+        </PrimaryButton>
       </ModalFooter>
     </Modal>
   );

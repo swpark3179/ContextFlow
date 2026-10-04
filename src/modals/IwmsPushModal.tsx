@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { AiRail, AiSignal, AiStep, Box, BusyLabel, Skeleton, TextArea, fmtSec, useElapsed } from "../lib/ui";
+import { AiRail, AiSignal, AiWaitBar, Box, BusyLabel, Skeleton, TextArea, fmtSec } from "../lib/ui";
 import { AI, TEXT } from "../lib/design";
 import * as api from "../lib/api";
 import * as iwmsApi from "../lib/iwms/api";
@@ -70,6 +70,8 @@ function PushView({ day }: { day: string }) {
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [table, setTable] = useState<CodeTable | null>(null);
   const [partial, setPartial] = useState(0);
+  /** 정제 모델이 답 전에 생각한 글자 수 — 추론 모델은 한참 생각만 한다. */
+  const [thought, setThought] = useState(0);
   /** 읽기 · 정제를 시작한 시각(경과 표시) · 정제에 걸린 시간(끝난 뒤 한 줄로). */
   const [busyAt, setBusyAt] = useState<number>(() => Date.now());
   const [refineMs, setRefineMs] = useState<number | null>(null);
@@ -91,6 +93,7 @@ function PushView({ day }: { day: string }) {
       setPhase("refining");
       setAiError("");
       setPartial(0);
+      setThought(0);
       setRefineMs(null);
       const startedAt = Date.now();
       setBusyAt(startedAt);
@@ -111,7 +114,7 @@ function PushView({ day }: { day: string }) {
             examples,
             inject: injectionFor("iwms.refine", ai.packs, ai.settings),
           },
-          { signal: ctl.signal, onPartial: (t) => setPartial(t.length) },
+          { signal: ctl.signal, onPartial: (t) => setPartial(t.length), onThinking: (n) => setThought(n) },
         );
         if (ctl.signal.aborted) return;
         setTable(res.table);
@@ -292,7 +295,7 @@ function PushView({ day }: { day: string }) {
           ← 오늘의 한일
         </Box>
         <span style={{ fontSize: 14, fontWeight: 600 }}>i-WMS 업무량 입력</span>
-        <span style={{ fontFamily: "'Roboto Mono',monospace", fontSize: 11.5, color: "#8a857c" }}>
+        <span style={{ fontFamily: "'Roboto Mono',monospace", fontSize: 11.5, color: "#6a665e" }}>
           {day} ({wd})
         </span>
         <div style={{ flex: 1 }} />
@@ -305,8 +308,17 @@ function PushView({ day }: { day: string }) {
             i-WMS 에서 보기 ↗
           </Box>
         )}
-        <span style={{ fontSize: 11, color: iw.status?.connected ? "#2f7f57" : "#a09a8f" }}>
-          {iw.connecting ? "i-WMS 연결 중…" : iw.status?.connected ? `● ${iw.status.user?.userId}` : "○ 연결 안 됨"}
+        <span
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            fontSize: 11.5,
+            color: iw.connecting ? TEXT.body : iw.status?.connected ? "#2f7f57" : TEXT.sub,
+          }}
+        >
+          {iw.connecting && <AiSignal size={6} color="#8a857c" />}
+          {iw.connecting ? "i-WMS 연결 중" : iw.status?.connected ? `● ${iw.status.user?.userId}` : "○ 연결 안 됨"}
         </span>
       </div>
       {/* 진행선 — 읽기는 AI 가 아니지만 같은 기다림이라 같은 자리에 둔다. */}
@@ -320,15 +332,18 @@ function PushView({ day }: { day: string }) {
         {error && <Notice tone="error">{error}</Notice>}
         {aiError && <Notice tone="warn">{aiError}</Notice>}
         {waiting && (
-          <WaitBar
+          <AiWaitBar
             since={busyAt}
             label={
               phase === "loading"
                 ? "기록과 i-WMS 현황을 읽는 중"
-                : `${ai.name ?? "AI"} 가 ${rows.length}줄을 정제하는 중`
+                : !partial && thought
+                  ? `${ai.name ?? "AI"} 가 생각하는 중`
+                  : `${ai.name ?? "AI"} 가 ${rows.length}줄을 정제하는 중`
             }
             ai={phase === "refining"}
-            chars={phase === "refining" && partial ? `${partial.toLocaleString()}자` : null}
+            chars={phase === "refining" ? partial : null}
+            thinking={phase === "refining" ? thought : null}
             onCancel={phase === "refining" ? () => abort.current?.abort() : null}
           />
         )}
@@ -425,7 +440,12 @@ function PushView({ day }: { day: string }) {
             </span>
             <div style={{ flex: 1 }} />
             <GhostButton onClick={() => !busy && iw.closePush(false)}>닫기</GhostButton>
-            <PrimaryButton onClick={() => void doPreview()} disabled={busy || problems.length > 0}>
+            <PrimaryButton
+              onClick={() => void doPreview()}
+              disabled={busy || problems.length > 0}
+              busy={phase === "previewing"}
+              minWidth={112}
+            >
               <BusyLabel busy={phase === "previewing"} since={actAt} color="#fff" idle="미리보기 →">
                 미리보는 중
               </BusyLabel>
@@ -439,7 +459,13 @@ function PushView({ day }: { day: string }) {
               아직 i-WMS 에 쓰지 않았습니다 · 확정하면 그날 그 카테고리에 덧붙입니다(이미 있는 행은 그대로)
             </span>
             <div style={{ flex: 1 }} />
-            <PrimaryButton onClick={() => void doCommit()} disabled={phase === "saving"} bg="#2f7f57" hoverBg="#26694a">
+            <PrimaryButton
+              onClick={() => void doCommit()}
+              busy={phase === "saving"}
+              bg="#2f7f57"
+              hoverBg="#26694a"
+              minWidth={112}
+            >
               <BusyLabel busy={phase === "saving"} since={actAt} color="#fff" idle="최종 확정">
                 저장하는 중
               </BusyLabel>
@@ -503,13 +529,13 @@ function DayBar({
       <span>이미 입력 {day.totalMinutes}분</span>
       <span>남은 시간 {remaining}분</span>
       <span style={{ fontWeight: 600, color: "#3a3630" }}>이번 입력 {thisRun}분</span>
-      <span style={{ color: diff === 0 ? "#2f7f57" : "#b07520" }}>
+      <span style={{ color: diff === 0 ? "#2f7f57" : "#8f5d17" }}>
         합계 {after}분{diff === 0 ? " ✓" : diff > 0 ? ` (기준보다 ${diff}분 많음)` : ` (기준보다 ${-diff}분 적음)`}
       </span>
-      {!settings.fillToStandard && <span style={{ color: "#a09a8f" }}>남은 시간을 채우지 않는 설정</span>}
+      {!settings.fillToStandard && <span style={{ color: "#6a665e" }}>남은 시간을 채우지 않는 설정</span>}
       {day.approved && <span style={{ color: "#9b4b42" }}>결재가 끝난 날이라 입력할 수 없습니다</span>}
       {blockedTabs.map((t) => (
-        <span key={t.ciKey} style={{ color: "#b07520" }}>
+        <span key={t.ciKey} style={{ color: "#8f5d17" }}>
           {t.ciName}: {t.blocked}
         </span>
       ))}
@@ -542,7 +568,7 @@ function PreviewPane({ p }: { p: IwmsPreview }) {
         </span>
       </div>
       {p.warnings.map((w) => (
-        <div key={w} style={{ fontSize: 11.5, color: "#b07520" }}>
+        <div key={w} style={{ fontSize: 11.5, color: "#8f5d17" }}>
           {w}
         </div>
       ))}
@@ -558,7 +584,7 @@ function PreviewPane({ p }: { p: IwmsPreview }) {
               </span>
             </div>
             {kept.map((r) => (
-              <div key={`k${r.rowSeq}`} style={{ ...rowLine, color: "#a09a8f" }}>
+              <div key={`k${r.rowSeq}`} style={{ ...rowLine, color: "#6a665e" }}>
                 <span style={{ flex: "0 0 34px" }}>유지</span>
                 <span style={{ flex: "0 0 44px", fontFamily: "'Roboto Mono',monospace" }}>{r.minutes}분</span>
                 <NoteText text={r.note} />
@@ -645,84 +671,6 @@ function Notice({ tone, children }: { tone: "error" | "warn" | "muted"; children
   );
 }
 
-/** 읽기 · 정제 중의 안내 띠 — 신호 점 · 흐르는 라벨 · 받은 글자 수 · 경과 · [취소]. */
-function WaitBar({
-  since,
-  label,
-  ai,
-  chars,
-  onCancel,
-}: {
-  since: number;
-  label: string;
-  ai: boolean;
-  chars: string | null;
-  onCancel: (() => void) | null;
-}) {
-  const ms = useElapsed(since);
-  return (
-    <div
-      style={{
-        margin: "9px 14px 2px",
-        display: "flex",
-        alignItems: "center",
-        gap: 9,
-        flexWrap: "wrap",
-        fontSize: 12.5,
-        fontWeight: 500,
-        padding: "6px 9px",
-        borderRadius: 6,
-        background: ai ? AI.soft : "#faf9f6",
-        border: `1px solid ${ai ? AI.softBd : "#ece8e0"}`,
-      }}
-    >
-      <span style={{ width: 14, display: "flex", justifyContent: "center" }}>
-        <AiSignal color={ai ? AI.dot : "#8a857c"} />
-      </span>
-      <span style={{ flex: 1, minWidth: 0 }}>
-        <AiStep tone={ai ? "ai" : "ink"}>{label}</AiStep>
-      </span>
-      {chars && (
-        <span style={{ flex: "0 0 auto", fontFamily: "'Roboto Mono',monospace", fontSize: 11.5, color: TEXT.body }}>
-          {chars}
-        </span>
-      )}
-      <span
-        style={{
-          flex: "0 0 auto",
-          fontFamily: "'Roboto Mono',monospace",
-          fontSize: 11.5,
-          color: ai ? AI.fg : TEXT.sub,
-        }}
-      >
-        {fmtSec(ms)}
-      </span>
-      {onCancel && (
-        <Box
-          onClick={onCancel}
-          style={{
-            flex: "0 0 auto",
-            height: 22,
-            display: "inline-flex",
-            alignItems: "center",
-            padding: "0 8px",
-            borderRadius: 4,
-            border: "1px solid #ddd8cf",
-            background: "#fff",
-            fontSize: 11.5,
-            fontWeight: 400,
-            color: TEXT.ink,
-            cursor: "pointer",
-          }}
-          hover={{ background: "#f2efe9" }}
-        >
-          취소
-        </Box>
-      )}
-    </div>
-  );
-}
-
 /** 경고 한 줄 — 아이콘 · 옅은 바탕 · 바로 할 수 있는 행동을 묶는다. 글자색만으로는 행 사이에 묻혔다. */
 function WarnLine({ children, action }: { children: ReactNode; action?: { label: string; run: () => void } }) {
   return (
@@ -749,7 +697,7 @@ function WarnLine({ children, action }: { children: ReactNode; action?: { label:
           borderRadius: "50%",
           background: "#b07520",
           color: "#fff",
-          fontSize: 10.5,
+          fontSize: 11,
           fontWeight: 700,
           display: "flex",
           alignItems: "center",
@@ -808,7 +756,7 @@ function AiMark() {
         position: "absolute",
         right: 22,
         top: 6,
-        fontSize: 10.5,
+        fontSize: 11,
         fontWeight: 700,
         color: AI.fg,
         background: AI.bg,
