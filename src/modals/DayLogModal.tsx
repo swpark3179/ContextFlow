@@ -3,6 +3,11 @@ import { Box, Input, TextArea } from "../lib/ui";
 import * as api from "../lib/api";
 import type { DayEntry } from "../lib/daylog";
 import { shortStamp, today } from "../lib/format";
+import * as iwmsApi from "../lib/iwms/api";
+import { markMap, pushesByEntry, withMark } from "../lib/iwms/marks";
+import type { IwmsMark, IwmsPush, Price } from "../lib/iwms/types";
+import IwmsPriceSwitch from "../components/IwmsPriceSwitch";
+import { useIwms } from "../store/iwmsStore";
 import { useStore } from "../store/useStore";
 import { GhostButton, Modal, ModalFooter, PrimaryButton, inputFocus, inputStyle } from "./Modal";
 
@@ -39,6 +44,9 @@ export default function DayLogModal() {
   /** 펼쳐서 내용을 보고 있는 줄. 한 번에 하나다. */
   const [open, setOpen] = useState<number | null>(null);
   const [adding, setAdding] = useState<{ title: string; body: string } | null>(null);
+  /** i-WMS 업무량 입력 — 줄마다 고른 대가 구분과 이미 넣은 행(`docs/IWMS-ROADMAP.md`). */
+  const [marks, setMarks] = useState<IwmsMark[]>([]);
+  const [pushes, setPushes] = useState<IwmsPush[]>([]);
 
   const vault = s.settings.vault;
 
@@ -71,18 +79,40 @@ export default function DayLogModal() {
     [vault],
   );
 
+  /**
+   * i-WMS 표시는 곁가지다 — 못 읽어도 기록 화면은 그대로 쓸 수 있어야 하므로 실패는 빈 목록으로 접는다.
+   */
+  const reloadIwms = useCallback(
+    async (target: string) => {
+      const [m, p] = await Promise.all([
+        iwmsApi.iwmsMarks(vault, target).catch(() => [] as IwmsMark[]),
+        iwmsApi.iwmsPushes(target).catch(() => [] as IwmsPush[]),
+      ]);
+      setMarks(m);
+      setPushes(p);
+    },
+    [vault],
+  );
+
   // 열릴 때와 날짜를 바꿀 때 읽는다. 닫힌 동안은 아무것도 하지 않는다.
   useEffect(() => {
     if (!day) return;
     setOpen(null);
     setAdding(null);
+    setMarks([]);
+    setPushes([]);
     void reloadDays();
     void reloadEntries(day);
-  }, [day, reloadDays, reloadEntries]);
+    void reloadIwms(day);
+  }, [day, reloadDays, reloadEntries, reloadIwms]);
 
   if (!day) return null;
 
   const close = () => s.set({ dayLogOpen: null });
+  const priceOf = markMap(marks);
+  const pushedOf = pushesByEntry(pushes);
+  /** 대가 구분을 고른 줄 — 지금 보이는 줄만 센다(지운 줄의 선택은 이미 빠져 있다). */
+  const marked = entries.filter((e) => priceOf.has(e.id)).length;
 
   /** 오늘을 고쳤으면 도크도 따라가야 한다 — 같은 목록을 두 곳에서 보고 있는 셈이다. */
   const syncDock = () => {
@@ -95,10 +125,20 @@ export default function DayLogModal() {
     syncDock();
   };
 
+  const setPrice = async (id: number, price: Price | null) => {
+    try {
+      await iwmsApi.setIwmsMark(id, price);
+      setMarks((prev) => withMark(prev, id, price));
+    } catch (e) {
+      setErr(api.errMessage(e));
+    }
+  };
+
   const remove = async (id: number) => {
     // 확인을 묻지 않는다. 모달 위에 모달을 겹치는 것은 이 앱에서 하지 않고, 도크의 ✕ 에도
     // 확인이 없다 — 지우는 것은 파일이 아니라 기록 한 줄이다.
     setEntries((prev) => prev.filter((e) => e.id !== id));
+    setMarks((prev) => withMark(prev, id, null));
     try {
       await api.removeDayEntry(id);
       await reloadDays();
@@ -228,6 +268,9 @@ export default function DayLogModal() {
               <EntryRow
                 key={e.id}
                 entry={e}
+                price={priceOf.get(e.id) ?? null}
+                pushed={pushedOf.get(e.id) ?? []}
+                onPrice={(p) => void setPrice(e.id, p)}
                 open={open === e.id}
                 onToggle={() => setOpen(open === e.id ? null : e.id)}
                 onRemove={() => void remove(e.id)}
@@ -295,6 +338,11 @@ export default function DayLogModal() {
           {entries.length}건 · 제목을 누르면 내용이 열립니다
         </span>
         <div style={{ flex: 1 }} />
+        {marked > 0 && (
+          <GhostButton onClick={() => useIwms.getState().openPush(day)}>
+            i-WMS 업무량 입력… ({marked})
+          </GhostButton>
+        )}
         <PrimaryButton onClick={close}>닫기</PrimaryButton>
       </ModalFooter>
     </Modal>
@@ -391,6 +439,9 @@ function DayRow({
  */
 function EntryRow({
   entry,
+  price,
+  pushed,
+  onPrice,
   open,
   onToggle,
   onRemove,
@@ -398,6 +449,11 @@ function EntryRow({
   onError,
 }: {
   entry: DayEntry;
+  /** i-WMS 대가 구분. `null` = 입력 안 함. */
+  price: Price | null;
+  /** 이 줄로 i-WMS 에 넣은 행(되돌리지 않은 것). */
+  pushed: IwmsPush[];
+  onPrice: (next: Price | null) => void;
   open: boolean;
   onToggle: () => void;
   onRemove: () => void;
@@ -490,6 +546,24 @@ function EntryRow({
             ●
           </span>
         )}
+        {pushed.length > 0 && (
+          <span
+            style={{
+              fontSize: 9.5,
+              color: "#2f7f57",
+              background: "#e9f5ee",
+              borderRadius: 3,
+              padding: "0 4px",
+              lineHeight: "14px",
+              flex: "0 0 auto",
+              whiteSpace: "nowrap",
+            }}
+            title={pushed.map((p) => `${p.ciName} › ${p.task} · ${p.minutes}분\n${p.note}`).join("\n\n")}
+          >
+            i-WMS ✓ {pushed.reduce((n, p) => n + p.minutes, 0)}분
+          </span>
+        )}
+        <IwmsPriceSwitch value={price} onChange={onPrice} />
         <span style={{ fontSize: 9, color: "#a09a8f", flex: "0 0 auto" }}>{open ? "▲" : "▼"}</span>
         <Box
           onClick={(ev) => {

@@ -15,6 +15,7 @@ import Wiki from "./screens/Wiki";
 import NewTaskModal from "./modals/NewTaskModal";
 import MergeModal from "./modals/MergeModal";
 import DayLogModal from "./modals/DayLogModal";
+import IwmsPushModal from "./modals/IwmsPushModal";
 import DeleteModal from "./modals/DeleteModal";
 import ImportModal from "./modals/ImportModal";
 import OpenWithModal from "./modals/OpenWithModal";
@@ -27,6 +28,7 @@ import { Box } from "./lib/ui";
 import { emptyNewTask, lastReloadAt, useStore } from "./store/useStore";
 import { RELOAD_DELAY_MS, shouldReload } from "./lib/focus";
 import { useAi } from "./store/aiStore";
+import { useIwms } from "./store/iwmsStore";
 import { useWiki } from "./store/wikiStore";
 import { startIndexSync } from "./store/indexSync";
 
@@ -151,6 +153,9 @@ export default function App() {
           if (st.catMgr.busy) return;
           if (st.catMgr.edit) st.setCatEdit(null);
           else st.set({ catMgr: null });
+        } else if (useIwms.getState().push) {
+          // 정제 · 저장이 도는 중에는 닫지 않는다 — 실패 사유를 적을 자리가 사라진다.
+          if (!useIwms.getState().pushBusy) useIwms.getState().closePush(false);
         } else if (st.dayLogOpen) st.set({ dayLogOpen: null });
         // 옮기기가 도는 중에는 닫지 않는다 — 대화상자를 치워도 이동은 멈추지 않고,
         // 실패 사유를 적을 자리만 사라진다.
@@ -322,6 +327,7 @@ export default function App() {
       <CategoryModal />
       <MergeModal />
       <DayLogModal />
+      <IwmsPushModal />
       <Toasts />
     </div>
   );

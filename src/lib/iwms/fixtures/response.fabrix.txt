@@ -1,0 +1,11 @@
+## 판단 근거
+
+- **101**: 서버 기동 및 배포스크립트 적용 → 비정기 인프라 작업/지원(O2)이 적합. 20분.
+- **102**: 화면 미조회 현상 조사 후 배치 실행으로 조치 → 요청조사/조치/종료(O1). 30분.
+- **103**: 대가미포함. 내부 서비스 기동 → 애플리케이션 운영(N1). 10분.
+
+합계: 20+30+10 = 60 ✓
+
+```iwms
+{"items":[{"entryId":101,"category":"O2","minutes":20,"note":"샘플시스템 Standalone 서버 기동\n- 프론트엔드 build-standalone 배포스크립트 적용\n- 백엔드 standalone 옵션 추가","confidence":70,"alternatives":["O1","O3"]},{"entryId":102,"category":"O1","minutes":30,"note":"협력사 임직원 등록현황 확인 / - 임직원관리 화면 데이터 미조회 현상 확인 / - 배치프로그램 실행 조치","confidence":80,"alternatives":["O3"]},{"entryId":103,"category":"N1","minutes":10,"note":"이력 기록 서비스 기동\n- 이력 기록 서비스 기동 수행","confidence":75,"alternatives":["N9"]}]}
+```
