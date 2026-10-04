@@ -92,6 +92,17 @@ export default function Settings() {
   const s = useStore();
   const { settings } = s;
   const [vaultDraft, setVaultDraft] = useState(settings.vault);
+  /**
+   * 끄는 동안의 임계값(`null` = 끄고 있지 않음). 설정 저장은 디스크에 다 쓰기(fsync)까지 기다리는
+   * 원자적 쓰기라 눈금마다 쓰지 않고 손을 뗄 때 한 번 쓴다. 키보드로 옮긴 값은 키를 뗄 때 쓴다.
+   */
+  const [thrDraft, setThrDraft] = useState<number | null>(null);
+  const threshold = thrDraft ?? settings.threshold;
+  const commitThreshold = () => {
+    if (thrDraft === null) return;
+    if (thrDraft !== settings.threshold) s.patchSettings({ threshold: thrDraft });
+    setThrDraft(null);
+  };
 
   return (
     <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "18px 22px", background: "#fdfcfa" }}>
@@ -273,7 +284,7 @@ export default function Settings() {
                   color: VIOLET,
                 }}
               >
-                {settings.threshold}%
+                {threshold}%
               </span>
               <span style={{ fontSize: 11.5, color: "#a09a8f" }}>
                 새 업무 추가 시 추천 클러스터를 접는 기준
@@ -284,8 +295,11 @@ export default function Settings() {
               min={70}
               max={95}
               step={1}
-              value={settings.threshold}
-              onChange={(e) => s.patchSettings({ threshold: parseInt(e.target.value, 10) })}
+              value={threshold}
+              onChange={(e) => setThrDraft(parseInt(e.target.value, 10))}
+              onPointerUp={commitThreshold}
+              onKeyUp={commitThreshold}
+              onBlur={commitThreshold}
               style={{ width: "100%", accentColor: VIOLET }}
             />
             <div

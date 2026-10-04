@@ -18,6 +18,10 @@ const calls: { cmd: string; args: Record<string, unknown> }[] = [];
 /** 다음 `run_agent` 들이 차례로 돌려줄 답. */
 let replies: string[] = [];
 let searchFails = false;
+/** `wiki_status` 의 페이지. 모의 커맨드가 그대로 돌려줄 뿐이라 모양은 따지지 않는다. */
+let wikiPages: unknown[] = [];
+/** 주면 `wiki_search` 가 이것으로 답한다 — 받은 `limit` 대로 자르는 것까지. */
+let search: ((query: string, limit: number) => unknown[]) | null = null;
 
 const meta = (path: string, title: string, kind = "procedure") => ({
   path,
@@ -45,9 +49,10 @@ vi.mock("@tauri-apps/api/core", () => ({
     calls.push({ cmd, args });
     switch (cmd) {
       case "wiki_status":
-        return { dir: "/v/Wiki", exists: true, pages: PAGES, tasks: [], orphans: [], moved: [], logTail: [] };
+        return { dir: "/v/Wiki", exists: true, pages: wikiPages, tasks: [], orphans: [], moved: [], logTail: [] };
       case "wiki_search": {
         const q = String(args.query);
+        if (search) return search(q, Number(args.limit));
         // 이어지는 질문("두 번째 단계는?")은 그것만으로는 아무것도 안 걸린다.
         if (!/배포|Jenkins/.test(q)) return [];
         return [{ path: "procedures/QA 배포.md", stem: "QA 배포", kind: "procedure", title: "QA 배포", summary: "", snippet: "", score: 1 }];
@@ -105,6 +110,8 @@ beforeEach(() => {
   calls.length = 0;
   replies = [];
   searchFails = false;
+  wikiPages = PAGES;
+  search = null;
 });
 
 describe("askWiki — conversation", () => {
@@ -219,5 +226,108 @@ describe("askWiki — web search", () => {
     expect(calls.filter((c) => c.cmd === "web_read")).toHaveLength(2);
     expect(out.webErrors).toEqual(["새 검색 결과가 없습니다 — 앞서 찾은 페이지와 같습니다"]);
     expect(out.webCited.map((s) => s.n)).toEqual([1]);
+  });
+});
+
+describe("askWiki — 카테고리 범위", () => {
+  /** 업무에 이어진 페이지. 소스 페이지는 `taskId` 로, 그 밖은 `sources` 로 카테고리에 든다. */
+  const page = (path: string, title: string, kind: string, sources: string[], taskId: string | null = null) => ({
+    ...meta(path, title, kind),
+    sources,
+    taskId,
+  });
+  const TASKS = [
+    { id: "t-a", category: "A/B" },
+    { id: "t-c", category: "c" },
+    { id: "t-u", category: null },
+    // 업무만 있고 페이지가 없는 카테고리.
+    { id: "t-o", category: "운영" },
+  ];
+  const OUT = ["C1", "C2", "C3", "C4", "C5"].map((n) => page(`topics/${n}.md`, n, "topic", ["t-c"]));
+  const UNCAT = page("topics/U.md", "U", "topic", ["t-u"]);
+  const IN = [
+    page("procedures/A 절차.md", "A 절차", "procedure", ["t-a"]),
+    page("sources/t-a.md", "A 업무", "source", [], "t-a"),
+    // 두 카테고리에 다 든다 — 검색에는 걸리지 않아 목록으로만 간다.
+    page("topics/A 주제.md", "A 주제", "topic", ["t-c", "t-a"]),
+  ];
+  const ALL = [...OUT, UNCAT, ...IN];
+  /** 관련도 순 — 범위 밖 여섯 장이 앞선다. */
+  const HITS = [...OUT, UNCAT, IN[0]!, IN[1]!].map((p) => ({ ...p, summary: "", snippet: "", score: 1 }));
+  // 키는 소문자(`keyOf`), 이름은 표시 철자다.
+  const SCOPE = { key: "a/b", label: "A › B", tasks: TASKS };
+  const limits = () => calls.filter((c) => c.cmd === "wiki_search").map((c) => c.args.limit);
+
+  beforeEach(() => {
+    wikiPages = ALL;
+    search = (_q, limit) => HITS.slice(0, limit);
+  });
+
+  it("범위 밖이 앞서는 검색 결과에서 범위 안만 used 에 든다 — 두 검색 모두 전부 받아 거른다", async () => {
+    replies = ["답 [[A 절차]]"];
+    const out = await askWiki({
+      root: "/v",
+      question: "A 배포?",
+      route: QUERY,
+      ai: AI,
+      history: [{ question: "앞선 질문", answer: "앞선 답" }],
+      scope: SCOPE,
+    });
+    expect(out.used.map((p) => p.path)).toEqual(["procedures/A 절차.md", "sources/t-a.md"]);
+    // 6건만 받으면 범위 안 결과가 하나도 없다 — 전체 페이지 수만큼 받는다.
+    expect(limits()).toEqual([ALL.length, ALL.length]);
+    expect(runs[0]!.prompt).toContain("# 지금 질문 (앞선 대화에 이어서 · 카테고리 ‘A › B’ 안에서)");
+  });
+
+  it("앞선 인용(carry)은 거른 뒤에 셋까지 — 넷째 자리의 범위 안 페이지도 든다", async () => {
+    search = () => [];
+    const out = await askWiki({
+      root: "/v",
+      question: "그럼 두 번째는?",
+      route: QUERY,
+      ai: AI,
+      history: [{ question: "앞선 질문", answer: "앞선 답" }],
+      carry: ["topics/C1.md", "topics/C2.md", "topics/U.md", "procedures/A 절차.md", "topics/C3.md", "topics/A 주제.md"],
+      scope: SCOPE,
+    });
+    expect(out.used.map((p) => p.path)).toEqual(["procedures/A 절차.md", "topics/A 주제.md"]);
+  });
+
+  it("목록에는 범위 안 페이지만 싣는다", async () => {
+    await askWiki({ root: "/v", question: "A 배포?", route: QUERY, ai: AI, scope: SCOPE });
+    const p = runs[0]!.prompt;
+    expect(p).toContain("# 질문 (카테고리 ‘A › B’ 안에서)");
+    expect(p).toContain("# 이 카테고리의 다른 페이지 목록 (본문은 싣지 않음)\n- [[A 주제]]");
+    for (const stem of ["C1", "C5", "U"]) expect(p).not.toContain(`[[${stem}]]`);
+  });
+
+  it("인용은 전체 페이지로 푼다 — 범위 밖 [[링크]] 도 cited 에 든다", async () => {
+    replies = ["C 쪽은 [[C1]] 에, 이 카테고리는 [[A 절차]] 에 있습니다"];
+    const out = await askWiki({ root: "/v", question: "A 배포?", route: QUERY, ai: AI, scope: SCOPE });
+    expect(out.cited.map((p) => p.title)).toEqual(["C1", "A 절차"]);
+  });
+
+  it("범위에 페이지가 없으면 묻지 않고 오류 — 멤버십은 새로 읽은 페이지로 센다", async () => {
+    const empty = { key: "운영", label: "운영", tasks: TASKS };
+    await expect(askWiki({ root: "/v", question: "q", route: QUERY, ai: AI, scope: empty })).rejects.toThrow(
+      "‘운영’ 카테고리에 위키 페이지가 없습니다",
+    );
+    expect(runs).toHaveLength(0);
+    expect(limits()).toEqual([]);
+
+    // 화면이 알던 페이지가 아니라 지금의 위키로 센다 — 그사이 반영으로 생긴 페이지도 범위에 든다.
+    wikiPages = [...ALL, page("procedures/운영 절차.md", "운영 절차", "procedure", ["t-o"])];
+    const out = await askWiki({ root: "/v", question: "q", route: QUERY, ai: AI, scope: empty });
+    expect(runs[0]!.prompt).toContain("- [[운영 절차]]");
+    expect(out.used).toEqual([]);
+  });
+
+  it("범위가 없으면 지금과 같다 — 프롬프트 · 검색 수 그대로", async () => {
+    await askWiki({ root: "/v", question: "A 배포?", route: QUERY, ai: AI });
+    await askWiki({ root: "/v", question: "A 배포?", route: QUERY, ai: AI, scope: null });
+    expect(runs[0]!.prompt).toBe(runs[1]!.prompt);
+    expect(limits()).toEqual([6, 6]);
+    expect(runs[0]!.prompt).not.toContain("카테고리");
+    expect(runs[0]!.prompt).toContain("# 그 밖의 페이지 목록 (본문은 싣지 않음)\n- [[A 절차]]");
   });
 });

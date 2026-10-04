@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { Box } from "../lib/ui";
 import { GREEN, VIOLET } from "../lib/design";
+import CategoryPicker, { CategoryChip } from "../components/CategoryPicker";
 import { useStore } from "../store/useStore";
 
 const GRID = "1fr 92px 128px 108px";
@@ -7,6 +9,8 @@ const GRID = "1fr 92px 128px 108px";
 export default function Templates() {
   const s = useStore();
   const { templates } = s;
+  /** 기본 카테고리를 고르는 중인 템플릿과 입력칸 그대로의 값. */
+  const [catEdit, setCatEdit] = useState<{ id: string; text: string } | null>(null);
 
   const stats = [
     {
@@ -54,6 +58,7 @@ export default function Templates() {
                 fromTask: false,
                 mode: "sections",
                 src: "",
+                category: "",
               },
             })
           }
@@ -257,6 +262,67 @@ export default function Templates() {
                     padding: "8px 12px 10px 32px",
                   }}
                 >
+                  {/* 새 업무 대화상자에서 이 템플릿을 고르면 카테고리 칸이 이 값으로 채워진다(`setNtTemplate`). */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 9, minWidth: 0 }}>
+                    <span
+                      style={{
+                        flex: "0 0 auto",
+                        fontSize: 11,
+                        fontWeight: 600,
+                        color: "#8a857c",
+                        letterSpacing: ".4px",
+                      }}
+                    >
+                      기본 카테고리
+                    </span>
+                    <CategoryChip
+                      category={tp.category}
+                      onClick={() => setCatEdit({ id: tp.id, text: tp.category ?? "" })}
+                    />
+                    <span
+                      style={{
+                        fontSize: 11,
+                        color: "#a09a8f",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      이 템플릿으로 새 업무를 만들면 미리 채워집니다
+                    </span>
+                  </div>
+                  {catEdit?.id === tp.id && (
+                    <>
+                      <div onClick={() => setCatEdit(null)} style={{ position: "fixed", inset: 0, zIndex: 25 }} />
+                      {/* 목록 틀이 `overflow: hidden` 이라 띄워 그리면 마지막 행에서 잘린다 — 자리를 차지해 그린다. */}
+                      <div
+                        style={{
+                          position: "relative",
+                          zIndex: 30,
+                          width: 300,
+                          marginBottom: 10,
+                          background: "#fff",
+                          border: "1px solid #d9d4ca",
+                          borderRadius: 6,
+                          boxShadow: "0 10px 26px rgba(35,33,30,.16)",
+                          padding: 8,
+                          animation: "pIn .12s ease-out",
+                        }}
+                      >
+                        <CategoryPicker
+                          popover
+                          autoFocus
+                          value={catEdit.text}
+                          onChange={(text) => setCatEdit({ id: tp.id, text })}
+                          onCommit={(v) => {
+                            setCatEdit(null);
+                            if (v !== tp.category) void s.setTemplateCategory(tp.id, v);
+                          }}
+                          onCancel={() => setCatEdit(null)}
+                        />
+                      </div>
+                    </>
+                  )}
                   <div
                     style={{
                       fontSize: 11,

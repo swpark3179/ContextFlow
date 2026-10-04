@@ -112,6 +112,8 @@ vi.mock("@tauri-apps/api/core", () => ({
         return scanned();
       case "path_exists":
         return !gone.some((f) => args.path === `${f}/index.md`);
+      case "scan_templates":
+        return [];
       default:
         return undefined;
     }
@@ -144,6 +146,7 @@ function open(node = "a/b", catClosed: string[] = [], archCat: string | null = n
     uiCache: {},
     archCat,
     wikiCat,
+    askCat: null,
     toasts: [],
   });
   st().openCatMgr(node, "all");
@@ -451,6 +454,25 @@ describe("moveCategoryNode — 경로 바꾸기", () => {
     ]);
   });
 
+  it("성공하면 템플릿 목록을 다시 읽는다 — 백엔드가 템플릿 기본 카테고리도 같이 옮겼다", async () => {
+    open();
+    await st().moveCategoryNode("a/b", "x", false);
+    expect(cmds().indexOf("scan_templates")).toBeGreaterThan(cmds().indexOf("move_category"));
+
+    calls.length = 0;
+    open();
+    await st().clearCategoryNode("a/c", "none");
+    expect(cmds()).toContain("scan_templates");
+
+    // 실패하면 다시 읽지 않는다 — 목록 다시 읽기는 오류 갈래가 따로 한다.
+    calls.length = 0;
+    open();
+    clash = true;
+    st().setCatEdit({ mode: "path", value: "a/z", confirmMerge: false });
+    await st().moveCategoryNode("a/b", "a/z", false);
+    expect(cmds()).not.toContain("scan_templates");
+  });
+
   it("바뀐 업무가 없으면 흐린 토스트", async () => {
     open();
     await st().moveCategoryNode("a/b", "a/b", false);
@@ -552,5 +574,44 @@ describe("clearCategoryNode — 해제", () => {
 
     await st().clearCategoryNode("a/b", "parent");
     expect(argsOf("move_category", 1).allowMerge).toBe(true);
+  });
+});
+
+describe("묻기 범위(askCat) — 고정한 키만 따라간다", () => {
+  // `null` 은 화면 거르기를 따라가는 중이라 옮길 것이 없고, `{ key: null }` 은 고정된 전체다.
+  it.each([
+    [{ key: "a/b/c" }, { key: "x/c" }],
+    [{ key: "a/b" }, { key: "x" }],
+    [{ key: "a/c" }, { key: "a/c" }],
+    [{ key: null }, { key: null }],
+    [null, null],
+  ])("경로 바꾸기 a/b → x: %j → %j", async (before, after) => {
+    open();
+    useStore.setState({ askCat: before });
+    await st().moveCategoryNode("a/b", "x", false);
+    expect(st().askCat).toEqual(after);
+  });
+
+  it("모두 미분류로는 미분류 \"\" 로 고정한다", async () => {
+    open();
+    useStore.setState({ askCat: { key: "a/b/c" } });
+    await st().clearCategoryNode("a/b", "none");
+    expect(st().askCat).toEqual({ key: "" });
+  });
+
+  it("최상위에서 올려 키가 비면 고정된 전체다 — 화면 거르기를 따라가는 null 로 돌아가지 않는다", async () => {
+    vault = [task(A, "결제 점검", "a"), task(B, "결제 설계", "a/x", true), task(D, "문서 정리", "y")];
+    open("a");
+    useStore.setState({ askCat: { key: "a" } });
+    await st().clearCategoryNode("a", "parent");
+    expect(st().askCat).toEqual({ key: null });
+  });
+
+  it("하위 키는 올라간 경로로 따라간다", async () => {
+    vault = [task(A, "결제 점검", "a"), task(B, "결제 설계", "a/x", true)];
+    open("a");
+    useStore.setState({ askCat: { key: "a/x" } });
+    await st().clearCategoryNode("a", "parent");
+    expect(st().askCat).toEqual({ key: "x" });
   });
 });

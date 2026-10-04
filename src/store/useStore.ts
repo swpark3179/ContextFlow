@@ -36,6 +36,7 @@ import { BSTORM_EXT, seedBstorm } from "../lib/bstorm";
 import { reorderedList } from "../lib/reorder";
 import { keepTabs, tabKey } from "../lib/tabs";
 import { sanitizeFolderName } from "../lib/vaultPaths";
+import { templatePrefill } from "../lib/templates";
 import { aiRecommend } from "../lib/aiRecommend";
 import { activeRun, routeRun, useAi } from "./aiStore";
 import { useWiki } from "./wikiStore";
@@ -197,11 +198,22 @@ export function browserOptions(s: Settings): api.BrowserOptions {
   return { path: s.webBrowser.trim() || null, show: s.webShow, engine: s.webEngine };
 }
 
+/** 토스트 안의 단추 하나(예: [되돌리기]). */
+export interface ToastAction {
+  label: string;
+  run: () => void;
+}
+
 export interface Toast {
   id: number;
   title: string;
   sub: string;
   color: string;
+  /**
+   * 있으면 그 토스트만 눌린다(`Toasts.tsx`). 스토어가 감싼 것이라 누르면 토스트를 먼저 닫고,
+   * 두 번 눌러도 한 번만 돈다(`toast`).
+   */
+  action?: ToastAction;
 }
 
 export interface CtxTarget {
@@ -387,17 +399,32 @@ export interface TaskDrag {
   /** 끌고 있는 업무의 폴더 경로. */
   folder: string;
   /**
-   * 카테고리로 묶어 보일 때 끄는 업무가 든 묶음의 키(미분류 `""`). 그때는 그 묶음 안에서만
-   * 옮긴다. 묶지 않은 평평한 목록이면 없다.
+   * 카테고리로 묶어 보일 때 끄는 업무가 든 묶음의 키(미분류 `""`). 그때 순서는 그 묶음
+   * 안에서만 바꾸고, 다른 묶음으로는 그 머리에 놓아 카테고리를 바꾼다(`over`). 묶지 않은
+   * 평평한 목록이면 없다.
    */
   group?: string;
+  /** 포인터 좌표. `x` 는 포인터 아래의 묶음 머리를 찾는 데만 쓴다. */
+  x: number;
   y: number;
   /**
    * 놓으면 들어갈 자리 — 화면에 보이는 목록 기준의 삽입 인덱스다. `0` 은 맨 위,
    * 목록 길이는 맨 아래를 뜻한다. `group` 이 있으면 **그 묶음 안**의 자리이고, 묶음 밖이면
-   * `-1` 이다(놓으면 취소).
+   * `-1` 이다. 다른 묶음 머리에 머물러 카테고리 바꾸기가 켜지면(`over.armed`) 이 자리보다
+   * 그것이 먼저다(`dropKind`).
    */
   at: number;
+  /**
+   * 포인터 아래의 묶음 머리 — 키(미분류 `""`)와 놓으면 쓸 표시 철자. 머리 위가 아니면 `null`.
+   * `since` 는 그 머리에 들어선 시각이라 키가 바뀔 때만 새로 잡고, 거기 `HEAD_DWELL_MS` 를
+   * 머물면 `armed` 가 켜진다. 자기 묶음의 머리도 들지만 놓을 곳은 아니다.
+   */
+  over: { key: string; path: string; since: number; armed: boolean } | null;
+  /**
+   * Esc 로 취소했다. 끌기를 지우지 않고 손을 뗄 때까지 남겨 둔다 — 지우면 뒤따르는 pointerup ·
+   * click 이 평범한 클릭이 되어 그 업무를 연다. 그동안의 움직임 · 자동 스크롤은 무시한다.
+   */
+  esc?: boolean;
 }
 
 export interface RenameState {
@@ -415,6 +442,11 @@ export interface TemplateDraft {
   mode: "sections" | "folder";
   /** 폴더 모드에서 고른 원본 폴더의 절대 경로. */
   src: string;
+  /**
+   * 입력칸 그대로의 기본 카테고리(빈 칸 = 없음). 정규화는 등록할 때 한다(`createTemplate`). 폴더
+   * 모드에서 업무 폴더를 고르면 그 업무의 카테고리로 미리 채운다.
+   */
+  category: string;
 }
 
 function emptyUi(): TaskUi {
@@ -504,6 +536,12 @@ interface State {
   archCat: string | null;
   /** 위키 화면 카테고리 거르기. null = 전체, "" = 미분류, 그 밖은 키 — 하위 포함. */
   wikiCat: string | null;
+  /**
+   * AI에게 묻기의 범위. `null` = 화면 거르기(`wikiCat`)를 따라감, `{ key: null }` = 고정된 전체,
+   * `{ key }` = 고정된 카테고리(키는 `wikiCat` 과 같다). 질문하면 그때의 범위로 고정한다 — 대화
+   * 중에 화면 칩을 눌러도 범위가 몰래 바뀌지 않게. [대화 초기화] · 위키 화면을 떠나면 `null` 이다.
+   */
+  askCat: { key: string | null } | null;
   /** 보관함 묶는 기준. */
   archGroup: "quarter" | "category";
   /**
@@ -577,7 +615,8 @@ interface State {
 
 interface Actions {
   boot: () => Promise<void>;
-  toast: (title: string, sub?: string, color?: string) => void;
+  /** `action` 이 있으면 단추를 그리고 더 오래 보인다. */
+  toast: (title: string, sub?: string, color?: string, opts?: { action?: ToastAction }) => void;
   dropToast: (id: number) => void;
   fail: (e: unknown, title?: string) => void;
 
@@ -601,6 +640,11 @@ interface Actions {
    * 못했으면 토스트를 띄우고 `false`.
    */
   setCategory: (folders: string[], category: string | null) => Promise<boolean>;
+  /**
+   * 업무 리스트에서 끌어 다른 묶음 머리에 놓았다 — 그 카테고리로 바꾸고 [되돌리기] 토스트를
+   * 띄운다. `path` 는 머리의 표시 철자이고 `""` · `null` 은 미분류 머리라 해제다.
+   */
+  dropOnCategory: (folder: string, path: string | null) => Promise<void>;
 
   /** 카테고리 관리 대화상자를 연다. `node` 는 고를 카테고리의 키(미분류 `""`). */
   openCatMgr: (node?: string, scope?: CatMgrState["scope"]) => void;
@@ -651,7 +695,8 @@ interface Actions {
   setUi: (patch: Partial<TaskUi>) => void;
   set: <K extends keyof State>(patch: Pick<State, K> | Partial<State>) => void;
 
-  refreshFiles: () => Promise<void>;
+  /** 열린 업무의 파일 트리를 다시 읽는다. `quiet` 면 실패를 토스트 대신 콘솔에만 남긴다. */
+  refreshFiles: (opts?: { quiet?: boolean }) => Promise<void>;
   openFile: (path: string, mode: TabMode) => Promise<void>;
   defaultOpen: (path: string, bin: boolean) => Promise<void>;
   setTabMode: (path: string, from: TabMode, to: TabMode) => Promise<void>;
@@ -674,6 +719,7 @@ interface Actions {
   appendImage: (path: string, img: ClipImage) => Promise<boolean>;
   /** 뷰어에서 이미지 크기 단계를 골랐다. `line` 은 **문서** 기준, `null` 은 원래 크기. */
   setImageWidth: (path: string, line: number, idx: number, width: number | null) => Promise<void>;
+  /** 버퍼 하나를 내려쓴다. 같은 경로의 저장은 앞 저장이 파일을 쓴 뒤에 돈다(`saveQueue`). */
   saveDoc: (path: string) => Promise<void>;
   saveAll: () => Promise<void>;
   persistSnapshot: (folder?: string) => Promise<void>;
@@ -682,6 +728,11 @@ interface Actions {
    * 버퍼를 디스크에 맞춘다. 스냅샷처럼 최선만 다하고 던지지 않는다.
    */
   resyncIndexDocs: (folders: string[]) => Promise<void>;
+  /**
+   * 창에 돌아왔을 때 디스크를 다시 읽는다 — Obsidian 에서 손으로 고친 업무 목록 · 열린 노트가 바로
+   * 보이게. 앱이 쓰는 중이면 건너뛴다. 조용히 돈다(오류는 콘솔에만).
+   */
+  refreshFromDisk: () => Promise<void>;
 
   commitMk: () => Promise<void>;
   commitFileRename: () => Promise<void>;
@@ -695,6 +746,8 @@ interface Actions {
   exportToDesktop: (rel: string, mode: "copy" | "link") => Promise<void>;
 
   runRecommend: () => Promise<void>;
+  /** 새 업무 대화상자에서 템플릿을 골랐다 — 카테고리 칸을 그 템플릿의 기본값으로 맞춘다(`templatePrefill`). */
+  setNtTemplate: (id: string) => void;
   createTask: () => Promise<void>;
   doMerge: () => Promise<void>;
 
@@ -707,8 +760,11 @@ interface Actions {
   /** 분할 실행 — 고른 최상위 항목을 새 업무로 옮긴다. */
   doSplit: () => Promise<void>;
 
-  reloadTemplates: () => Promise<void>;
+  /** 템플릿 목록을 다시 읽는다. `quiet` 면 실패를 토스트 대신 콘솔에만 남긴다. */
+  reloadTemplates: (opts?: { quiet?: boolean }) => Promise<void>;
   createTemplate: () => Promise<void>;
+  /** 템플릿의 기본 카테고리를 바꾼다(`null` = 해제). 바뀐 값은 목록에 보이므로 성공은 알리지 않는다. */
+  setTemplateCategory: (id: string, category: string | null) => Promise<void>;
 
   /** 오늘의 한일에 이 업무를 올린다(같은 업무는 한 줄, 시각만 갱신). */
   noteToday: (folder?: string, title?: string) => void;
@@ -815,6 +871,28 @@ let metaWrite: Promise<unknown> | null = null;
 let metaGen = 0;
 
 /**
+ * 경로마다의 저장 줄(`saveDoc`). 같은 파일의 저장은 앞 저장이 파일을 쓴 뒤에 돌고, 버퍼도 **그때**
+ * 읽는다 — 쓰기가 블로킹 풀에서 돌아(`write_text_file`) 먼저 보낸 저장이 나중에 끝날 수 있다. 줄을
+ * 세우지 않으면 낡은 글이 새 글을 덮어쓰고 `saved` 도 디스크와 엇갈린다.
+ *
+ * 키는 업무 폴더 기준 상대 경로다 — 저장은 늘 열린 업무의 것이다. 전역 한 줄로 세우지 않는 까닭은
+ * index.md 저장이 `metaWrite` 를 기다리는 동안 다른 노트의 저장까지 막히기 때문이다.
+ */
+const saveQueue = new Map<string, Promise<void>>();
+/**
+ * 시작해서 아직 끝나지 않은 저장의 수 — 줄에서 기다리는 것과 index.md 저장 뒤의 목록 다시 읽기까지
+ * 센다. 그동안은 디스크를 다시 읽지 않는다(`refreshFromDisk`).
+ */
+let saving = 0;
+/** 지난 다시 읽기(`refreshFromDisk`)를 시작한 시각. 건너뛴 다시 읽기는 올리지 않는다. */
+let reloadAt = 0;
+
+/** 지난 다시 읽기를 시작한 시각(ms) — 창 포커스 구독이 문턱(`shouldReload`)에 넘긴다. */
+export function lastReloadAt(): number {
+  return reloadAt;
+}
+
+/**
  * `run`(커맨드 → `tasks` 반영 → `resyncIndexDocs`)이 도는 동안 index.md 자동 저장을 붙든다.
  * `run` 안에서 index.md 를 저장하면(`saveAll`) 자기를 기다리게 되니, 내려쓰기는 먼저 한다.
  *
@@ -888,7 +966,7 @@ async function assignCategory(folders: string[], category: string | null): Promi
 }
 
 /**
- * 카테고리 `from` 의 업무가 옮겨 간 뒤의 화면 상태 — 보관함 · 위키 거르기와 관리 대화상자의 노드(`patch`),
+ * 카테고리 `from` 의 업무가 옮겨 간 뒤의 화면 상태 — 보관함 · 위키 거르기 · 묻기 범위와 관리 대화상자의 노드(`patch`),
  * 업무 리스트의 접힘(`closed`, 그대로면 `null`)을 새 키로 따라 옮긴다. `next` 는 서브트리 키의 새 키
  * (미분류 `""`), `before` 는 작업 전에 있던 노드의 키, `tasks` 는 작업 뒤의 업무 목록이다. `none` 은
  * 모두 미분류로 — 노드도 거르기도 업무가 간 미분류로 옮긴다.
@@ -925,6 +1003,7 @@ function followMove(
     patch: {
       ...(moved(s.archCat) && { archCat: next(s.archCat) || (none ? "" : null) }),
       ...(moved(s.wikiCat) && { wikiCat: next(s.wikiCat) || (none ? "" : null) }),
+      ...(s.askCat && moved(s.askCat.key) && { askCat: { key: next(s.askCat.key) || (none ? "" : null) } }),
       // 노드가 바뀌면 선택을 비운다 — 고른 줄이 다른 목록의 것이 된다.
       ...(mgr && node !== null && node !== mgr.node && { catMgr: { ...mgr, node, sel: [], last: null } }),
     },
@@ -1004,6 +1083,8 @@ async function changeCategoryNode(
       await useStore.getState().resyncIndexDocs(res.changed);
       return { ...res, unread };
     });
+    // 템플릿의 기본 카테고리도 백엔드가 같이 옮겼다 — 새 업무 대화상자 · 템플릿 화면이 옛 값을 채우지 않게.
+    void useStore.getState().reloadTemplates();
     // 읽지 못한 노트는 실패로 적어 [다시 시도] 가 함께 보내게 한다.
     const failed = [...res.failed, ...res.unread.map(({ folder, title }) => ({ folder, title, reason: SKIPPED }))];
     patchCatMgr({
@@ -1051,6 +1132,29 @@ async function changeCategoryNode(
   }
 }
 
+/**
+ * 업무 폴더의 경로가 바뀐 것을 화면 상태에 옮긴다 — 열어 둔 탭 · 미저장 버퍼(`uiCache` 의 키), 활성
+ * 업무, 오늘의 한일, 파일 트리. 업무명 변경(`renameTask`)과, Obsidian 에서 폴더 이름을 바꾼 업무를
+ * 따라갈 때(`refreshFromDisk`)가 함께 쓴다. 탭 · 버퍼는 폴더 기준 상대 경로라 키만 옮기면 그대로 산다.
+ */
+async function followFolder(from: string, to: string, title: string): Promise<void> {
+  const wasActive = useStore.getState().activeFolder === from;
+  useStore.setState((s) => {
+    const { [from]: moved, ...rest } = s.uiCache;
+    return {
+      uiCache: moved ? { ...rest, [to]: moved } : rest,
+      activeFolder: wasActive ? to : s.activeFolder,
+    };
+  });
+  await useStore.getState().relocateToday(from, to, title);
+  if (wasActive) await useStore.getState().refreshFiles();
+}
+
+/** 다시 읽기의 실패는 알리지 않는다 — 사용자가 누른 일이 아니고, 다음에 돌아올 때 다시 읽는다. */
+function warnReload(what: string, e: unknown): void {
+  console.warn(`디스크 다시 읽기 — ${what}:`, api.errMessage(e));
+}
+
 /** `runRecommend` 의 실행 번호. 마지막으로 시작한 실행의 결과만 화면에 남긴다. */
 let recommendSeq = 0;
 
@@ -1073,6 +1177,7 @@ export const useStore = create<State & Actions>((set, get) => ({
   archMonth: "all",
   archCat: null,
   wikiCat: null,
+  askCat: null,
   archGroup: "quarter",
   archOpen: "",
 
@@ -1133,10 +1238,24 @@ export const useStore = create<State & Actions>((set, get) => ({
    * 실패(`fail`), 눈에 보이지 않는 부수효과(클립보드 복사 · Obsidian 대신 탐색기로 폴백),
    * 그리고 되돌리기 어려운 조작(영구 삭제 · 병합 · Vault 교체 · 폴더 실제 이동).
    */
-  toast: (title, sub = "", color = TOAST.info) => {
+  toast: (title, sub = "", color = TOAST.info, opts = {}) => {
     const id = ++toastSeq;
-    set((s) => ({ toasts: [...s.toasts, { id, title, sub, color }] }));
-    window.setTimeout(() => get().dropToast(id), 2800);
+    // 단추는 감싸서 싣는다 — 누르면 토스트를 **먼저** 닫고, 닫히기 전의 두 번째 누름은 깃발로
+    // 거른다. 되돌리기가 두 번 돌면 되돌린 것을 다시 되돌린다.
+    let done = false;
+    const given = opts.action;
+    const action: ToastAction | undefined = given && {
+      label: given.label,
+      run: () => {
+        get().dropToast(id);
+        if (done) return;
+        done = true;
+        given.run();
+      },
+    };
+    set((s) => ({ toasts: [...s.toasts, { id, title, sub, color, ...(action && { action }) }] }));
+    // 단추가 있으면 읽고 누를 시간을 더 준다.
+    window.setTimeout(() => get().dropToast(id), action ? 6000 : 2800);
   },
   dropToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
   fail: (e, title = "작업을 완료하지 못했습니다") => {
@@ -1295,23 +1414,14 @@ export const useStore = create<State & Actions>((set, get) => ({
       await get().saveAll();
       await get().persistSnapshot(folder);
       const updated = await api.renameTask(get().settings.vault, folder, title);
-      const wasActive = get().activeFolder === folder;
-      set((s) => {
-        const { [folder]: moved, ...rest } = s.uiCache;
-        return {
-          uiCache: moved ? { ...rest, [updated.folder]: moved } : rest,
-          activeFolder: wasActive ? updated.folder : s.activeFolder,
-          ren: null,
-        };
-      });
+      set({ ren: null });
+      // 열린 탭 · 미저장 버퍼 · 오늘의 한일 · 파일 트리를 새 경로로 옮긴다.
+      await followFolder(folder, updated.folder, updated.title);
       // frontmatter 의 `title` 도 바뀌었다 — 열린 index.md 가 옛 제목으로 되돌리지 않게.
       await get().resyncIndexDocs([updated.folder]);
-      await get().relocateToday(folder, updated.folder, updated.title);
       get().noteToday(updated.folder, updated.title);
-      // 열린 탭 · 미저장 버퍼는 폴더 상대 경로라 그대로 살아 있다. 새 경로를 이미
-      // activeFolder 에 넣었으므로 재조회는 목록만 새로 읽고(keepActive) 파일 트리만 다시 센다.
+      // 새 경로를 이미 activeFolder 에 넣었으므로 재조회는 목록만 새로 읽는다(keepActive).
       await get().reloadVault(true);
-      if (wasActive) await get().refreshFiles();
       await get().reloadTemplates();
     } catch (e) {
       set({ ren: null });
@@ -1494,6 +1604,38 @@ export const useStore = create<State & Actions>((set, get) => ({
     }
   },
 
+  /**
+   * 끌어 놓은 카테고리 바꾸기. 칩으로 고를 때(`setCategory`)와 달리 성공도 알린다 — 업무가 손
+   * 밑에서 다른 묶음(접혀 있을 수도 있다)으로 옮겨 가 결과가 눈앞에서 사라지고, 손을 놓는 순간
+   * 바뀌어 잘못 놓은 것을 되돌릴 길이 있어야 한다.
+   *
+   * 지정 · 되돌리기 모두 `setCategory` 를 거친다(정규화 · 철자 맞춤 · 버퍼 보호). 그래서 되돌린
+   * 철자는 그때 가장 많이 쓴 것으로 맞춰지고, 손으로 접힌 30자 넘는 셋째 단계는 되돌리지 못할
+   * 수 있다. 되돌리기는 그 업무가 아직 있고 값이 놓은 그대로일 때만 한다 — 그사이 칩 · 관리
+   * 대화상자 · Obsidian 에서 고친 값을 옛것으로 덮지 않게. 접힌 묶음에 놓아도 펼치지 않는다.
+   */
+  dropOnCategory: async (folder, path) => {
+    const before = get().tasks.find((t) => t.folder === folder);
+    if (!before) return;
+    if (!(await get().setCategory([folder], path || null))) return;
+    // 알리는 값은 놓은 머리의 철자가 아니라 실제로 쓴 값이다.
+    const after = get().tasks.find((t) => t.folder === folder)?.category ?? null;
+    const undo = () => {
+      const now = get().tasks.find((t) => t.folder === folder);
+      if (!now || keyOf(now.category) !== keyOf(after)) {
+        get().toast("그사이 바뀌어 되돌리지 않았습니다", before.title, TOAST.muted);
+        return;
+      }
+      void get().setCategory([folder], before.category);
+    };
+    get().toast(
+      after ? "카테고리를 바꿨습니다" : "카테고리를 해제했습니다",
+      `${before.title} · ‘${label(before.category)}’ → ‘${label(after)}’`,
+      TOAST.ok,
+      { action: { label: "되돌리기", run: undo } },
+    );
+  },
+
   openCatMgr: (node = "", scope = "live") =>
     set({
       catMgr: {
@@ -1621,13 +1763,14 @@ export const useStore = create<State & Actions>((set, get) => ({
 
   // -------------------------------------------------------------------------
 
-  refreshFiles: async () => {
+  refreshFiles: async (opts) => {
     const folder = get().activeFolder;
     if (!folder) return set({ files: [] });
     try {
       set({ files: await api.listTaskFiles(folder) });
     } catch (e) {
-      get().fail(e, "파일 목록을 읽지 못했습니다");
+      if (opts?.quiet) warnReload("파일 목록", e);
+      else get().fail(e, "파일 목록을 읽지 못했습니다");
     }
   },
 
@@ -1787,29 +1930,45 @@ export const useStore = create<State & Actions>((set, get) => ({
   },
 
   saveDoc: async (path) => {
-    // 백엔드가 메타데이터를 고치는 중이면 끝나기를 기다린다. 버퍼는 그 **뒤의** 것을 쓴다.
-    if (path === "index.md") while (metaWrite) await metaWrite;
-    const { activeFolder, ui } = get();
-    const doc = ui.docs[path];
-    if (!activeFolder || !doc || doc.text === doc.saved) return;
+    // 같은 경로의 앞 저장 뒤에 줄을 선다. 버퍼는 차례가 왔을 때 읽는다 — 그사이 친 글자까지 간다.
+    // 차례는 파일을 쓰고 `saved` 를 맞춘 순간 넘긴다. index.md 의 목록 다시 읽기까지 기다리면 그
+    // 사이의 저장(대개 고칠 것이 없다)이 괜히 붙들린다. `saving` 은 그것까지 센다.
+    const prev = saveQueue.get(path);
+    let pass!: () => void;
+    const turn = new Promise<void>((r) => (pass = r));
+    saveQueue.set(path, turn);
+    saving++;
     try {
-      await api.writeTextFile(joinPath(activeFolder, path), doc.text);
-      const cur = get().ui;
-      const now = cur.docs[path];
-      get().setUi({ docs: { ...cur.docs, [path]: { text: now.text, saved: doc.text } } });
-      set({ snapAt: hhmm() });
-      // 파일이 실제로 쓰였다 — 오늘의 한일에서 가장 흔한 입구다.
-      get().noteToday(activeFolder);
-      // index.md carries the frontmatter, so its metadata may have changed.
-      if (path === "index.md") {
-        const gen = metaGen;
-        const tasks = await api.scanVault(get().settings.vault);
-        // 읽는 사이에 메타데이터 쓰기가 끝났거나 아직 돌면 이 목록이 그보다 낡았을 수 있다 —
-        // 그쪽이 반영한 `tasks` 를 둔다.
-        if (gen === metaGen && !metaWrite) set({ tasks });
+      if (prev) await prev;
+      // 백엔드가 메타데이터를 고치는 중이면 끝나기를 기다린다. 버퍼는 그 **뒤의** 것을 쓴다.
+      if (path === "index.md") while (metaWrite) await metaWrite;
+      const { activeFolder, ui } = get();
+      const doc = ui.docs[path];
+      if (!activeFolder || !doc || doc.text === doc.saved) return;
+      try {
+        await api.writeTextFile(joinPath(activeFolder, path), doc.text);
+        const cur = get().ui;
+        const now = cur.docs[path];
+        get().setUi({ docs: { ...cur.docs, [path]: { text: now.text, saved: doc.text } } });
+        pass();
+        set({ snapAt: hhmm() });
+        // 파일이 실제로 쓰였다 — 오늘의 한일에서 가장 흔한 입구다.
+        get().noteToday(activeFolder);
+        // index.md carries the frontmatter, so its metadata may have changed.
+        if (path === "index.md") {
+          const gen = metaGen;
+          const tasks = await api.scanVault(get().settings.vault);
+          // 읽는 사이에 메타데이터 쓰기가 끝났거나 아직 돌면 이 목록이 그보다 낡았을 수 있다 —
+          // 그쪽이 반영한 `tasks` 를 둔다.
+          if (gen === metaGen && !metaWrite) set({ tasks });
+        }
+      } catch (e) {
+        get().fail(e, "저장하지 못했습니다");
       }
-    } catch (e) {
-      get().fail(e, "저장하지 못했습니다");
+    } finally {
+      pass();
+      saving--;
+      if (saveQueue.get(path) === turn) saveQueue.delete(path);
     }
   },
 
@@ -1878,6 +2037,120 @@ export const useStore = create<State & Actions>((set, get) => ({
         /* 못 맞추면 버퍼가 그대로 남을 뿐이다 — 메타데이터를 고친 일 자체는 끝났다 */
       }
     }
+  },
+
+  /**
+   * 창에 돌아왔을 때의 다시 읽기(`App` 의 창 포커스 구독). 앱 밖 — 주로 Obsidian — 에서 고친 것을
+   * 다음 계기(저장 · 업무 전환)를 기다리지 않고 보이게 한다.
+   *
+   * **앱이 쓰는 중이면 건너뛴다**(메타데이터 쓰기 · 저장 · 카테고리 관리 · 편입 · 분할 · 업무 생성).
+   * 그 쓰기들은 끝나면서 스스로 목록과 버퍼를 맞추고, 그 사이에 읽은 것은 어느 쪽이 새것인지 가를
+   * 수 없다. 읽는 사이에 쓰기가 끼어들어도 이번 목록은 버린다. 건너뛴 다시 읽기는 간격(`lastReloadAt`)
+   * 에 세지 않는다 — 다음에 돌아올 때 곧바로 다시 읽는다.
+   *
+   * 버퍼는 저장하면 앱 쪽이 이긴다는 규칙을 지킨다 — 고치던 노트는 그대로 두고, index.md 는
+   * frontmatter 만 디스크를 따른다(`resyncIndexDocs`). 깨끗한 노트를 디스크 내용으로 바꾸면 편집기
+   * 커서가 끝으로 간다.
+   */
+  refreshFromDisk: async () => {
+    const s0 = get();
+    if (metaWrite || saving > 0 || s0.ntBusy || s0.catMgr?.busy || s0.absorb?.busy || s0.split?.busy) return;
+    reloadAt = Date.now();
+
+    // 1) 업무 목록. 같으면 그대로 둔다 — 새 배열을 넣으면 사이드바가 통째로 다시 그려진다.
+    const before = s0.tasks;
+    const gen = metaGen;
+    let tasks: TaskMeta[];
+    try {
+      tasks = await api.scanVault(s0.settings.vault);
+    } catch (e) {
+      return warnReload("업무 목록", e);
+    }
+    if (get().tasks !== before || metaGen !== gen || metaWrite || saving > 0) return;
+    if (JSON.stringify(tasks) !== JSON.stringify(before)) set({ tasks });
+
+    // 2) 열린 업무가 목록에서 사라졌고 index.md 도 없다 — 폴더 이름이 바뀌었거나 지워졌다. 그대로
+    //    두면 다음 자동 저장이 옛 경로에 폴더를 되살린다(`write_text_file` 은 상위 폴더를 만든다).
+    //    목록에서만 빠진 업무(읽지 못한 index.md)는 건드리지 않는다.
+    const folder = get().activeFolder;
+    if (folder && !tasks.some((t) => t.folder === folder)) {
+      const gone = !(await api.pathExists(joinPath(folder, "index.md")).catch(() => true));
+      // 기다리는 사이에 다른 업무를 열었거나 저장이 시작됐으면 손대지 않는다. 여기서부터 닫기까지는
+      // 한 틱이다 — 그 사이에 자동 저장이 끼어들 수 없다.
+      if (gone && get().activeFolder === folder && saving === 0) {
+        const old = before.find((t) => t.folder === folder);
+        const same = old ? tasks.filter((t) => t.id === old.id) : [];
+        if (old && same.length === 1) {
+          // 같은 id 의 업무가 딱 하나 다른 폴더에 있다 — Obsidian 에서 폴더 이름을 바꿨다.
+          await followFolder(folder, same[0].folder, same[0].title);
+          get().toast("업무 폴더가 옮겨져 따라갔습니다", `${old.relFolder} → ${same[0].relFolder}`, TOAST.muted);
+        } else if (Object.values(get().ui.docs).some((d) => d.text !== d.saved)) {
+          // 고치던 글은 버리지 않는다 — 저장하면 옛 자리에 다시 생긴다는 것을 알린다.
+          get().toast(
+            "업무 폴더를 찾을 수 없습니다",
+            `${old?.title ?? basename(folder)} · 저장하지 않은 글이 있어 창을 닫지 않았습니다 — 저장하면 옛 자리에 다시 만들어집니다`,
+            TOAST.warn,
+          );
+        } else {
+          window.clearTimeout(saveTimer);
+          set((s) => {
+            const { [folder]: _gone, ...rest } = s.uiCache;
+            return { uiCache: rest };
+          });
+          get().closeTask();
+          get().toast("업무 폴더가 사라져 창을 닫았습니다", old?.title ?? basename(folder), TOAST.muted);
+        }
+      }
+    }
+
+    // 3) 열린 업무의 버퍼. 탭이 없는 깨끗한 버퍼는 읽지 않고 버린다 — 다시 열 때 디스크에서 읽는다.
+    const active = get().activeFolder;
+    if (active) {
+      const ui = get().ui;
+      const shown = new Set(ui.openTabs.map((t) => t.path));
+      const keep = Object.entries(ui.docs).filter(([p, d]) => shown.has(p) || d.text !== d.saved);
+      if (keep.length !== Object.keys(ui.docs).length) get().setUi({ docs: Object.fromEntries(keep) });
+      if (get().ui.docs["index.md"]) await get().resyncIndexDocs([active]);
+      for (const [path, doc] of keep) {
+        if (path === "index.md" || doc.text !== doc.saved) continue;
+        try {
+          const disk = await api.readTextFile(joinPath(active, path));
+          // 읽는 사이에 친 글자 · 다른 업무로 옮겨 간 것은 지킨다 — 읽기 전과 **같은 버퍼**일 때만 바꾼다.
+          if (disk === doc.text || get().activeFolder !== active || get().ui.docs[path] !== doc) continue;
+          get().setUi({ docs: { ...get().ui.docs, [path]: { text: disk, saved: disk } } });
+        } catch (e) {
+          warnReload(path, e);
+        }
+      }
+    }
+
+    // 4) 다른 업무의 캐시. 깨끗한 버퍼는 버리고(다시 열 때 읽는다), 고치던 index.md 는 frontmatter 를 맞춘다.
+    const cur = get().activeFolder;
+    const others = Object.keys(get().uiCache).filter((f) => f !== cur);
+    const dirtyIndex = others.filter((f) => {
+      const d = get().uiCache[f].docs["index.md"];
+      return d && d.text !== d.saved;
+    });
+    set((s) => {
+      let changed = false;
+      const uiCache = { ...s.uiCache };
+      for (const f of others) {
+        const ui = uiCache[f];
+        if (!ui || f === s.activeFolder) continue;
+        const docs = Object.fromEntries(Object.entries(ui.docs).filter(([, d]) => d.text !== d.saved));
+        if (Object.keys(docs).length === Object.keys(ui.docs).length) continue;
+        uiCache[f] = { ...ui, docs };
+        changed = true;
+      }
+      return changed ? { uiCache } : {};
+    });
+    await get().resyncIndexDocs(dirtyIndex);
+
+    // 5) 그 밖. 허브 · MOC 는 업무 목록의 서명을 보고 indexSync 가 알아서 다시 쓴다.
+    if (get().activeFolder) await get().refreshFiles({ quiet: true });
+    if (get().screen === "wiki" && !useWiki.getState().running) await useWiki.getState().refresh();
+    // 템플릿은 Vault 를 통째로 훑어 센다 — 보이는 곳이 있을 때만.
+    if (get().screen === "templates" || get().newOpen) await get().reloadTemplates({ quiet: true });
   },
 
   // -------------------------------------------------------------------------
@@ -2246,6 +2519,12 @@ export const useStore = create<State & Actions>((set, get) => ({
     }
   },
 
+  setNtTemplate: (id) =>
+    set((s) => {
+      const def = (tid: string) => s.templates.find((t) => t.id === tid)?.category ?? null;
+      return { nt: { ...s.nt, template: id, category: templatePrefill(s.nt.category, def(s.nt.template), def(id)) } };
+    }),
+
   createTask: async () => {
     const { nt, settings, ntRefs, tasks, ntBusy } = get();
     const title = nt.title.trim();
@@ -2517,25 +2796,31 @@ export const useStore = create<State & Actions>((set, get) => ({
 
   // -------------------------------------------------------------------------
 
-  reloadTemplates: async () => {
+  reloadTemplates: async (opts) => {
     try {
       set({ templates: await api.scanTemplates(get().settings.vault) });
     } catch (e) {
-      get().fail(e, "템플릿을 읽지 못했습니다");
+      if (opts?.quiet) warnReload("템플릿", e);
+      else get().fail(e, "템플릿을 읽지 못했습니다");
     }
   },
 
   createTemplate: async () => {
-    const { tplNew, settings } = get();
+    const { tplNew, settings, tasks } = get();
     if (!tplNew?.name.trim()) return;
     if (tplNew.mode === "folder" && !tplNew.src) return;
+    // 업무의 카테고리와 같은 규칙으로 거르고 아는 철자로 맞춘다 — 그대로 새 업무에 채워질 값이다.
+    const cat = categoryInput(tplNew.category, tasks);
+    if (cat.error) return get().fail(cat.error, "등록하지 못했습니다");
     try {
       if (tplNew.mode === "folder") {
+        // 늘 고른 값으로 쓴다 — 비워 두면 업무 폴더에서 따라온 `category:` 를 지운다.
         await api.createTemplateFromFolder(
           settings.vault,
           tplNew.name.trim(),
           tplNew.desc,
           tplNew.src,
+          cat.value,
         );
       } else {
         await api.createTemplate(
@@ -2543,6 +2828,7 @@ export const useStore = create<State & Actions>((set, get) => ({
           tplNew.name.trim(),
           tplNew.desc,
           tplNew.sections,
+          cat.value,
         );
       }
       set({ tplNew: null });
@@ -2554,6 +2840,18 @@ export const useStore = create<State & Actions>((set, get) => ({
         api.errMessage(e),
         TOAST.warn,
       );
+    }
+  },
+
+  setTemplateCategory: async (id, category) => {
+    const { settings, tasks } = get();
+    const cat = categoryInput(category ?? "", tasks);
+    if (cat.error) return get().fail(cat.error, "기본 카테고리를 바꾸지 못했습니다");
+    try {
+      await api.setTemplateCategory(settings.vault, id, cat.value);
+      await get().reloadTemplates();
+    } catch (e) {
+      get().fail(e, "기본 카테고리를 바꾸지 못했습니다");
     }
   },
 

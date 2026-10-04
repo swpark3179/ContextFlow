@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Box, TextArea } from "../../lib/ui";
+import { Box, Select, TextArea } from "../../lib/ui";
 import { VIOLET } from "../../lib/design";
 import { mdParse } from "../../lib/markdown";
 import * as api from "../../lib/api";
 import { CANCELED } from "../../lib/runOnce";
+import { askScope } from "../../lib/wiki/categories";
 import { resolveLink } from "../../lib/wiki/links";
 import { askWiki, fileAnswer, type AskOutcome } from "../../lib/wiki/pipeline";
 import { inlineWebRefs, type WebSource } from "../../lib/wiki/web";
@@ -11,7 +12,7 @@ import MarkdownView, { WikiLinkContext } from "../../components/MarkdownView";
 import { browserOptions, useStore } from "../../store/useStore";
 import { routeInfo, useAi } from "../../store/aiStore";
 import { useWiki } from "../../store/wikiStore";
-import { NO_PAGES, openTask, smallBtn, useTaskById, wikiLinks } from "./WikiPanels";
+import { catLabel, NO_PAGES, openTask, smallBtn, useTaskById, wikiLinks, type WikiCats } from "./WikiPanels";
 
 const hint: React.CSSProperties = { fontSize: 11.5, color: "#8a857c", lineHeight: 1.6 };
 
@@ -28,6 +29,8 @@ interface Turn {
   out?: AskOutcome;
   /** [위키에 저장] 한 페이지 경로. */
   saved?: string;
+  /** 이 질문을 한정한 카테고리의 표시 이름(`a › b`). 전체에서 물었으면 `null`. */
+  scope: string | null;
 }
 
 const hostOf = (url: string) => {
@@ -53,8 +56,13 @@ const hostOf = (url: string) => {
  * [웹 검색] 을 켜 두면 위키만으로 답할 수 없을 때 AI 가 PC 의 브라우저로 웹을 찾는다
  * (`lib/wiki/web.ts`). 찾은 페이지는 "웹 검색" 연결의 모델이 먼저 추리고, 답에 `[웹n]` 으로
  * 인용된 출처가 칩으로 뜬다 — 누르면 사용자의 기본 브라우저로 연다.
+ *
+ * [범위] 로 카테고리를 고르면 그 카테고리(하위 포함)의 페이지만 근거로 찾는다(`askWiki` 의 `scope`).
+ * 고르지 않았으면 왼쪽의 카테고리 거르기를 따르다가, 질문하는 순간 그 범위로 고정한다(스토어
+ * `askCat`) — 대화 중에 페이지 칩을 눌러 화면 거르기가 바뀌어도 대화의 범위가 몰래 바뀌지 않게.
+ * 고정은 [대화 초기화] · 위키 화면을 떠날 때 풀린다. `cats` 는 위키 화면이 만든 카테고리 계산이다.
  */
-export function AskPanel({ onOpen }: { onOpen: (path: string) => void }) {
+export function AskPanel({ onOpen, cats }: { onOpen: (path: string) => void; cats: WikiCats }) {
   const s = useStore();
   const ai = useAi();
   const info = routeInfo(ai, "wiki.query");
@@ -72,7 +80,22 @@ export function AskPanel({ onOpen }: { onOpen: (path: string) => void }) {
   /** 사용자가 맨 아래를 보고 있는가 — 위로 올려 읽는 중에는 새 글이 와도 끌어내리지 않는다. */
   const stick = useRef(true);
   const input = useRef<HTMLTextAreaElement | null>(null);
-  useEffect(() => () => abort.current?.abort(), []);
+  useEffect(
+    () => () => {
+      abort.current?.abort();
+      // 대화가 이 패널과 함께 끝나므로 고정한 범위도 푼다.
+      useStore.getState().set({ askCat: null });
+    },
+    [],
+  );
+
+  /**
+   * 유효 범위 — 고정했으면 그 키, 아니면 화면 거르기. 렌더에서 계산할 뿐 스토어에 되쓰지 않으므로
+   * (effect 없음) 둘이 서로를 부르는 루프가 없다. 페이지가 없는 키면 전체(`null`)다.
+   */
+  const scope = askScope(s.askCat ? s.askCat.key : cats.effCat, cats.counts);
+  /** 범위 고르기가 보이는가 — 위키 화면의 카테고리 고르기와 같은 규칙. */
+  const pickable = cats.hasCats || scope !== null;
 
   const busy = turns.some((t) => t.state === "running");
   const canAsk = !!info.run && !!question.trim() && !busy;
@@ -109,9 +132,16 @@ export function AskPanel({ onOpen }: { onOpen: (path: string) => void }) {
       answer: inlineWebRefs(t.out!.answer, [...t.out!.webCited, ...t.out!.webUsed]),
     }));
     const carry = done[done.length - 1]?.out?.cited.map((p) => p.path) ?? [];
+    // 따라가던 범위는 이 질문에서 고정한다 — 다음 질문도 같은 범위다.
+    if (s.askCat === null) s.set({ askCat: { key: scope } });
+    const name = catLabel(cats, scope);
+    const range = scope === null || name === null ? null : { key: scope, label: name, tasks: s.tasks };
     const id = ++seq.current;
     stick.current = true;
-    setTurns((ts) => [...ts, { id, question: q, text: "", state: "running", step: "위키에서 찾는 중" }]);
+    setTurns((ts) => [
+      ...ts,
+      { id, question: q, text: "", state: "running", step: "위키에서 찾는 중", scope: name },
+    ]);
     setQuestion("");
     const web =
       webOn && webInfo.run
@@ -125,6 +155,7 @@ export function AskPanel({ onOpen }: { onOpen: (path: string) => void }) {
       history,
       carry,
       web,
+      scope: range,
       signal: ctl.signal,
       onPartial: (text) => live(id, { text, step: "" }),
       onStep: (step) => live(id, { step }),
@@ -141,6 +172,8 @@ export function AskPanel({ onOpen }: { onOpen: (path: string) => void }) {
     abort.current = null;
     setTurns([]);
     setQuestion("");
+    // 새 대화는 다시 화면 거르기를 따른다.
+    s.set({ askCat: null });
     input.current?.focus();
   };
 
@@ -305,6 +338,43 @@ export function AskPanel({ onOpen }: { onOpen: (path: string) => void }) {
             />
             웹 검색 {webOn ? "켜짐" : "꺼짐"}
           </Box>
+          {/* 카테고리를 쓰지 않는 Vault 에는 고를 범위가 없다 — 지금 화면 그대로. */}
+          {pickable && (
+            <span style={{ display: "flex", alignItems: "center", gap: 5, minWidth: 0 }}>
+              <span style={{ fontSize: 11, color: "#a09a8f" }}>범위</span>
+              <Select
+                // `*` 는 카테고리에 쓸 수 없는 글자라 어떤 키와도 겹치지 않는다(위키 화면과 같다).
+                value={scope ?? "*"}
+                onChange={(e) => s.set({ askCat: { key: e.target.value === "*" ? null : e.target.value } })}
+                title={
+                  s.askCat
+                    ? "이 카테고리(하위 포함)의 위키 페이지만 근거로 찾습니다 — 괄호는 페이지 수. [대화 초기화] 하면 다시 왼쪽 카테고리 거르기를 따릅니다"
+                    : "이 카테고리(하위 포함)의 위키 페이지만 근거로 찾습니다 — 괄호는 페이지 수. 지금은 왼쪽 카테고리 거르기를 따르고, 질문하면 이 범위로 고정됩니다"
+                }
+                style={{
+                  maxWidth: 220,
+                  minWidth: 0,
+                  height: 24,
+                  padding: "0 4px",
+                  border: "1px solid #ddd8cf",
+                  borderRadius: 4,
+                  background: "#fff",
+                  color: "#4e4a43",
+                  fontSize: 11.5,
+                  outline: "none",
+                  cursor: "pointer",
+                }}
+              >
+                <option value="*">전체 ({pages.length})</option>
+                {cats.opts.map((o) => (
+                  // option 은 앞의 ASCII 공백을 지우므로 들여쓰기는 NBSP 로. 미분류는 맨 끝이다.
+                  <option key={o.key} value={o.key}>
+                    {`${"\u00a0\u00a0".repeat(o.depth - 1)}${o.name} (${o.count})`}
+                  </option>
+                ))}
+              </Select>
+            </span>
+          )}
           <span style={{ ...hint, fontSize: 11, marginLeft: "auto", textAlign: "right" }}>
             {turns.length > 0 && `대화 ${turns.length}턴 · `}
             {info.run
@@ -358,6 +428,14 @@ function TurnView({
         }}
       >
         <span style={{ flex: "0 0 auto", fontSize: 11, fontWeight: 600, color: VIOLET }}>질문</span>
+        {turn.scope !== null && (
+          <span
+            title="이 카테고리(하위 포함)의 위키 페이지만 근거로 찾았습니다"
+            style={{ flex: "0 1 auto", minWidth: 0, fontSize: 11, color: "#8a857c", whiteSpace: "nowrap" }}
+          >
+            ‘{turn.scope}’ 안에서
+          </span>
+        )}
         <span style={{ fontSize: 13, lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
           {turn.question}
         </span>

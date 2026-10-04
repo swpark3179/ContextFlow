@@ -218,6 +218,51 @@ describe("integrate & query prompts", () => {
   });
 });
 
+describe("query prompt — 카테고리 범위", () => {
+  const base = {
+    question: "배포 어떻게 했지?",
+    pages: [{ stem: "배포 절차", title: "배포 절차", kind: "procedure" as const, content: "1. 단계" }],
+    catalog: PAGES,
+    inject: "",
+  };
+  const history = [{ question: "앞선 질문", answer: "앞선 답" }];
+  const web = { remaining: 1, findings: [] };
+
+  it("질문 머리에 범위를 밝힌다 — 이력이 있으면 '앞선 대화에 이어서' 뒤에", () => {
+    expect(buildQueryPrompt({ ...base, scope: "a › b" })).toContain("# 질문 (카테고리 ‘a › b’ 안에서)\n배포 어떻게 했지?");
+    expect(buildQueryPrompt({ ...base, history, scope: "a › b" })).toContain(
+      "# 지금 질문 (앞선 대화에 이어서 · 카테고리 ‘a › b’ 안에서)\n배포 어떻게 했지?",
+    );
+  });
+
+  it("목록 머리는 '이 카테고리의 다른 페이지'", () => {
+    const p = buildQueryPrompt({ ...base, scope: "a › b" });
+    expect(p).toContain("# 이 카테고리의 다른 페이지 목록 (본문은 싣지 않음)\n- [[Tauri]]");
+    expect(p).not.toContain("# 그 밖의 페이지 목록");
+  });
+
+  it("근거가 없을 때 — 웹 끔은 '이 카테고리의 위키에 없습니다', 웹 켬은 '이 카테고리에서 열어 볼 만한 페이지'", () => {
+    const off = buildQueryPrompt({ ...base, scope: "a › b" });
+    expect(off).toContain('근거가 없으면 "이 카테고리의 위키에 없습니다" 라고 하고');
+    expect(off).not.toContain('"위키에 없습니다"');
+    const on = buildQueryPrompt({ ...base, web, scope: "a › b" });
+    expect(on).toContain("둘 다 근거가 없으면 그렇다고 말하고, 이 카테고리에서 열어 볼 만한 페이지를 제안합니다.");
+    expect(on).not.toContain("위키에서 열어 볼 만한");
+  });
+
+  it("범위가 없으면 한 글자도 바뀌지 않는다", () => {
+    for (const v of [base, { ...base, history }, { ...base, web }, { ...base, history, web }]) {
+      const plain = buildQueryPrompt(v);
+      expect(buildQueryPrompt({ ...v, scope: undefined })).toBe(plain);
+      expect(plain).not.toContain("카테고리");
+      expect(plain).toMatch(/^(# 질문|# 지금 질문 \(앞선 대화에 이어서\))$/m);
+      expect(plain).toContain("# 그 밖의 페이지 목록 (본문은 싣지 않음)");
+    }
+    expect(buildQueryPrompt(base)).toContain('근거가 없으면 "위키에 없습니다" 라고 하고');
+    expect(buildQueryPrompt({ ...base, web })).toContain("그렇다고 말하고, 위키에서 열어 볼 만한 페이지를 제안합니다.");
+  });
+});
+
 describe("parseLint", () => {
   it("keeps known kinds with a detail, up to 15", () => {
     const issues = Array.from({ length: 20 }, (_, i) => ({ kind: "gap", pages: ["a"], detail: `d${i}` }));

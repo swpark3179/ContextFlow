@@ -4,7 +4,9 @@ import { BLUE, normalizeStatus, statusOf } from "../lib/design";
 import { useDropGuard, useLongPress } from "../lib/longPress";
 import { shortStamp, today } from "../lib/format";
 import {
+  dropKind,
   flattenSideRows,
+  HEAD_DWELL_MS,
   keyOf,
   knownCategories,
   label,
@@ -503,12 +505,17 @@ function TaskRow({
  * 카테고리 트리의 머리 행. 탐색기 폴더 행과 같은 치수다(폴더 아이콘만 없다) — 사이드바의
  * 두 트리가 같은 눈금으로 읽히게. 누르면 접고 편다. 검색 중에는 모두 펼쳐 보이므로 눌러도
  * 그대로다. 우클릭은 묶음 머리 메뉴(`CategoryMenu`)를 연다.
+ *
+ * 업무를 끄는 동안에는 놓을 곳이다 — 다른 묶음의 업무를 여기 머물렀다 놓으면 이 카테고리로
+ * 바뀐다. 끌기 쪽은 `data-cat-key` · `data-cat-path` 로 포인터 아래의 머리를 찾는다(`catAt`).
+ * 키 · 철자는 사용자가 지은 이름이라 셀렉터에 넣지 않고 dataset 으로 읽는다.
  */
 function CategoryRow({
   row,
   forceOpen,
   drag,
   dim,
+  target,
   onToggle,
   onNew,
   onMenu,
@@ -516,7 +523,10 @@ function CategoryRow({
   row: CategoryNode & { open: boolean };
   forceOpen: boolean;
   drag: boolean;
+  /** 끄는 업무가 든 묶음의 머리 — 놓아도 바뀔 것이 없다. */
   dim: boolean;
+  /** 지금 놓으면 이 카테고리로 바뀐다(머물러 켜졌다). */
+  target: boolean;
   onToggle: () => void;
   onNew: () => void;
   onMenu: (e: React.MouseEvent) => void;
@@ -524,6 +534,8 @@ function CategoryRow({
   const uncat = row.key === "";
   return (
     <Box
+      data-cat-key={row.key}
+      data-cat-path={row.path}
       onClick={onToggle}
       onContextMenu={onMenu}
       style={{
@@ -537,6 +549,9 @@ function CategoryRow({
         paddingRight: 6,
         paddingLeft: 6 + (row.depth - 1) * 13,
         opacity: dim ? 0.45 : 1,
+        // 탐색기에서 폴더 안으로 끌 때와 같은 강조.
+        background: target ? "#e6eefc" : "transparent",
+        outline: target ? `1px solid ${BLUE}` : "none",
       }}
       hover={drag || forceOpen ? undefined : { background: "#efece6" }}
     >
@@ -657,9 +672,24 @@ export default function Sidebar() {
    *
    * 검색 중에는 막는다. 검색 결과는 목록의 한 조각이 아니라 여기저기서 걷어 온 것이라,
    * 옆에 보이는 업무가 실제 이웃이라는 보장이 없어 놓은 자리가 곧 결과가 되지 않는다.
+   * 머리에 놓아 카테고리를 바꾸는 것도 같은 끌기라 함께 꺼진다.
    */
   const sortable = listActive && !query.trim();
   const drag = s.taskDrag;
+  /** 끄는 중이다. Esc 로 취소한 끌기는 손을 뗄 때까지 남아 있지만, 끌지 않는 모양으로 그린다. */
+  const dragOn = !!drag && !drag.esc;
+  /**
+   * 지금 놓으면 카테고리가 바뀔 머리의 키. 그때는 순서 선을 감추고 그 머리만 강조한다 — 판정은
+   * 놓을 때(`up`)와 같은 `dropKind` 다.
+   */
+  const dropCat =
+    dragOn &&
+    drag.over &&
+    dropKind({ at: drag.at, overKey: drag.over.key, group: drag.group, armed: drag.over.armed }) === "category"
+      ? drag.over.key
+      : null;
+  /** 순서 선을 그을 자리. 카테고리 바꾸기가 켜지면 감춘다. */
+  const lineAt = dragOn && dropCat === null ? drag.at : -1;
   /** 검색 중에는 접어 둔 묶음도 모두 펼쳐 보인다 — 찾은 업무가 접힌 머리 행 뒤에 숨지 않게. */
   const forceOpen = !!query.trim();
 
@@ -737,8 +767,9 @@ export default function Sidebar() {
   /**
    * 드롭 지점을 **삽입 인덱스**로 바꾼다. 행 중점을 넘었으면 그 아래 자리다.
    *
-   * 묶음 안에서 끌 때는 첫 행 위 · 끝 행 아래로 반 행 넘게 벗어나면 `-1`(묶음 밖)이다.
-   * 끌어서 카테고리를 바꾸지는 않으므로, 밖에 놓으면 아무것도 하지 않는다.
+   * 묶음 안에서 끌 때는 첫 행 위 · 끝 행 아래로 반 행 넘게 벗어나면 `-1`(묶음 밖)이다. 끝 행
+   * 아래 반 행은 바로 아래 묶음의 머리와 겹치므로, 놓을 때는 머리 판정이 먼저다(`dropKind`).
+   * 머리가 아닌 묶음 밖에 놓으면 아무것도 하지 않는다.
    */
   const insertAt = (y: number, group?: string): number => {
     const rows = rowsOnScreen(group);
@@ -754,8 +785,8 @@ export default function Sidebar() {
     return rows.length;
   };
 
-  const { startPress } = useLongPress<TaskPress>((press, { y }) => {
-    s.set({ taskDrag: { ...press, y, at: insertAt(y, press.group) } });
+  const { startPress } = useLongPress<TaskPress>((press, { x, y }) => {
+    s.set({ taskDrag: { ...press, x, y, at: insertAt(y, press.group), over: null } });
   });
   const { markDropped, justDropped } = useDropGuard();
 
@@ -774,15 +805,34 @@ export default function Sidebar() {
   useEffect(() => {
     if (!drag) return;
     // 최신 좌표는 ref 가 아니라 이 지역 값으로 든다. 자동 스크롤 타이머도 같은 값을 본다.
-    const pos = { y: drag.y };
+    const pos = { x: drag.x, y: drag.y };
+
+    /**
+     * 포인터 아래의 묶음 머리. 목록 안에서만 본다 — 목록 밖에 놓으면 카테고리는 그대로다.
+     * 포인터를 잡아 둔 동안에도 `elementFromPoint` 는 실제로 그 아래 있는 요소를 준다
+     * (탐색기의 `folderAt` 과 같다).
+     */
+    const catAt = (x: number, y: number): { key: string; path: string } | null => {
+      const hit = document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-cat-key]");
+      if (!hit || !listRef.current?.contains(hit)) return null;
+      return { key: hit.dataset.catKey ?? "", path: hit.dataset.catPath ?? "" };
+    };
 
     const sync = () => {
-      const d = useStore.getState().taskDrag;
-      if (d) {
-        useStore.getState().set({ taskDrag: { ...d, y: pos.y, at: insertAt(pos.y, d.group) } });
-      }
+      const st = useStore.getState();
+      const d = st.taskDrag;
+      if (!d || d.esc) return;
+      const hit = catAt(pos.x, pos.y);
+      // 머문 시각은 머리가 바뀔 때만 새로 잡는다 — 그 머리 안에서 움직여도 이어서 센다.
+      const over = !hit
+        ? null
+        : d.over?.key === hit.key
+          ? d.over
+          : { ...hit, since: Date.now(), armed: false };
+      st.set({ taskDrag: { ...d, x: pos.x, y: pos.y, at: insertAt(pos.y, d.group), over } });
     };
     const move = (e: PointerEvent) => {
+      pos.x = e.clientX;
       pos.y = e.clientY;
       sync();
     };
@@ -794,9 +844,21 @@ export default function Sidebar() {
       // 그 묶음의 행들이 곧 보이던 목록이다 — 다른 묶음의 업무는 있던 자리에 남는다.
       const scope = rowsOnScreen(d?.group).map((el) => el.getAttribute("data-task-folder") ?? "");
       st.set({ taskDrag: null });
+      // Esc 로 취소한 끌기도 여기까지 와서 뒤따르는 click 을 삼킨다.
       markDropped();
+      if (!d || d.esc) return;
+      const kind = dropKind({
+        at: d.at,
+        overKey: d.over?.key ?? null,
+        group: d.group,
+        armed: !!d.over?.armed,
+      });
+      if (kind === "category" && d.over) {
+        void st.dropOnCategory(d.folder, d.over.path);
+        return;
+      }
       // 묶음 밖에 놓았다 — 취소다(아무것도 쓰지 않는다).
-      if (!d || d.at < 0) return;
+      if (kind !== "reorder") return;
       // 제자리도 취소다. 보이던 목록 사이사이에 다른 묶음 · 걸러진 업무가 끼어 있으면, 그대로
       // 넘길 때 `reorderedList` 가 다음 이웃 바로 앞으로 당겨 순서를 다시 쓴다(아무것도 끼지
       // 않은 목록에서는 원래 null 이라 달라지는 것이 없다).
@@ -804,11 +866,30 @@ export default function Sidebar() {
       if (d.at === from || d.at === from + 1) return;
       void st.reorderTask(d.folder, d.at, scope);
     };
+    /**
+     * Esc 는 끌기를 취소한다. capture 단계에서 먼저 받아 `preventDefault()` 하므로, 겹친 레이어를
+     * 닫는 App 의 Esc 사슬은 `defaultPrevented` 를 보고 빠진다. 끌기는 지우지 않고 취소 표시만
+     * 남긴다(`TaskDrag.esc`) — 손을 뗄 때 `up` 이 뒤따르는 click 을 삼켜야 업무가 열리지 않는다.
+     */
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      const st = useStore.getState();
+      const d = st.taskDrag;
+      if (d && !d.esc) st.set({ taskDrag: { ...d, esc: true, at: -1, over: null } });
+    };
 
     // 목록 가장자리에서는 스스로 스크롤한다. 사이드바 목록은 스크롤 컨테이너라
     // 이게 없으면 화면 밖 자리로는 옮길 수 없다. pointermove 는 커서가 멈추면 오지
     // 않으므로, 가장자리에 대고 가만히 있어도 계속 밀리도록 타이머로 돌린다.
+    // 같은 까닭으로 머리 위에 가만히 머문 시간도 이 타이머가 잰다.
     const scroller = window.setInterval(() => {
+      const st = useStore.getState();
+      const d = st.taskDrag;
+      if (!d || d.esc) return;
+      if (d.over && !d.over.armed && Date.now() - d.over.since >= HEAD_DWELL_MS) {
+        st.set({ taskDrag: { ...d, over: { ...d.over, armed: true } } });
+      }
       const el = listRef.current;
       if (!el) return;
       const r = el.getBoundingClientRect();
@@ -824,11 +905,13 @@ export default function Sidebar() {
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
     window.addEventListener("pointercancel", up);
+    window.addEventListener("keydown", key, true);
     return () => {
       window.clearInterval(scroller);
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
       window.removeEventListener("pointercancel", up);
+      window.removeEventListener("keydown", key, true);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [!!drag]);
@@ -1163,11 +1246,11 @@ export default function Sidebar() {
               key={t.folder}
               task={t}
               on={listActive && t.folder === s.activeFolder}
-              drag={!!drag}
-              dragging={drag?.folder === t.folder}
+              drag={dragOn}
+              dragging={dragOn && drag.folder === t.folder}
               dim={false}
-              lineTop={drag?.at === i}
-              lineBottom={drag?.at === visible.length && i === visible.length - 1}
+              lineTop={lineAt === i}
+              lineBottom={lineAt === visible.length && i === visible.length - 1}
               indent={0}
               showCategory
               sortable={sortable}
@@ -1182,9 +1265,11 @@ export default function Sidebar() {
                 key={`cat:${r.key}`}
                 row={r}
                 forceOpen={forceOpen}
-                drag={!!drag}
-                // 머리 행은 놓을 곳이 아니다 — 끄는 동안 다른 묶음과 함께 흐리게.
-                dim={!!drag}
+                drag={dragOn}
+                // 다른 묶음의 머리는 놓을 곳이라 그대로 둔다. 자기 묶음의 머리만 흐리게 — 거기 놓아도
+                // 바뀔 것이 없다.
+                dim={dragOn && r.key === drag.group}
+                target={dropCat === r.key}
                 onToggle={() => {
                   if (justDropped() || forceOpen) return;
                   s.patchSettings({
@@ -1204,18 +1289,19 @@ export default function Sidebar() {
             );
           }
           const t = r.task;
-          // 놓을 수 있는 곳은 끄는 업무와 같은 묶음뿐이다. 선도 그 묶음 안의 자리로 긋는다.
-          const here = !!drag && drag.group === r.group;
+          // 업무 행 사이에 놓을 수 있는 곳은 끄는 업무와 같은 묶음뿐이다. 선도 그 묶음 안의 자리로
+          // 긋는다. 다른 묶음으로는 그 머리에 놓는다.
+          const here = dragOn && drag.group === r.group;
           return (
             <TaskRow
               key={t.folder}
               task={t}
               on={listActive && t.folder === s.activeFolder}
-              drag={!!drag}
-              dragging={drag?.folder === t.folder}
-              dim={!!drag && !here}
-              lineTop={here && drag.at === r.gi}
-              lineBottom={here && drag.at === r.glen && r.gi === r.glen - 1}
+              drag={dragOn}
+              dragging={dragOn && drag.folder === t.folder}
+              dim={dragOn && !here}
+              lineTop={here && lineAt === r.gi}
+              lineBottom={here && lineAt === r.glen && r.gi === r.glen - 1}
               indent={r.depth * 13}
               showCategory={false}
               group={r.group}

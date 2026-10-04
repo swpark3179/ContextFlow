@@ -11,6 +11,7 @@ import { segments } from "../category";
 import { injectionFor } from "../promptPacks";
 import { CANCELED, runWithRetry } from "../runOnce";
 import { guessSummary, parsePageBlocks } from "./blocks";
+import { inCategory, narrowHits, taskCategories, type CatTask } from "./categories";
 import { extractWikiLinks, resolveLink } from "./links";
 import {
   INTEGRATE_MAX_TOKENS,
@@ -254,11 +255,30 @@ export interface AskWeb {
 const QUERY_PAGES = 6;
 
 /**
+ * 묻기를 한정할 카테고리. `key` 는 거르기 키(미분류 `""`, 하위 포함), `label` 은 표시 이름(`a › b`),
+ * `tasks` 는 멤버십을 셀 전체 업무다.
+ */
+export interface AskScope {
+  key: string;
+  label: string;
+  tasks: CatTask[];
+}
+
+/**
  * 위키에 묻는다 — 로컬 검색으로 페이지를 고르고, 그 본문으로 답하게 한다.
  *
  * 대화를 이어 갈 때는 `history`(앞선 턴의 질문과 답)와 `carry`(앞선 답이 인용한 페이지
  * 경로)를 준다. 이어지는 질문은 그것만으로는 검색이 안 되므로, 앞선 질문과 합친 검색과
  * 앞선 인용을 함께 후보로 둔다(`pickContextPages`).
+ *
+ * `scope` 를 주면 그 카테고리의 페이지만 근거로 고른다. 멤버십은 화면이 센 것을 받지 않고 여기서
+ * 새로 읽은 페이지로 다시 센다 — 그사이 반영이 페이지를 더했을 수 있다. 검색은 모두 받아 거른 뒤에
+ * 자르고(`narrowHits`, 먼저 자르면 그 카테고리의 결과가 앞의 다른 결과에 밀려 사라진다), 앞선 인용과
+ * 목록도 범위 안만 싣는다. 걸러지지 않는 것은 셋이다.
+ *
+ * * 인용 풀이 — 답이 범위 밖 페이지를 `[[링크]]` 로 적어도(이력에서 왔거나 모델이 기억한 이름) 칩으로 연다.
+ * * 이력 — 앞선 질문과 답은 범위를 바꾸기 전의 것이라도 그대로 맥락이다.
+ * * 웹 검색 — 범위와 상관없다.
  */
 export async function askWiki(o: {
   root: string;
@@ -269,6 +289,8 @@ export async function askWiki(o: {
   carry?: string[];
   /** 주면 AI 가 웹 검색을 요청할 수 있다. */
   web?: AskWeb | null;
+  /** 주면 그 카테고리의 페이지만 근거로 고른다. */
+  scope?: AskScope | null;
   signal?: AbortSignal;
   onPartial?: (text: string) => void;
   /** 진행 단계 한 줄(웹 검색 · 페이지 읽기 · 정리). */
@@ -277,16 +299,24 @@ export async function askWiki(o: {
   const status = await api.wikiStatus(o.root, 0);
   const pages = status.pages;
   if (!pages.length) throw new Error("위키가 비어 있습니다 — 먼저 업무를 반영하세요");
+  const scope = o.scope ?? null;
+  let inScope = pages;
+  if (scope) {
+    const idx = taskCategories(scope.tasks);
+    inScope = pages.filter((p) => inCategory(p, scope.key, idx));
+    if (!inScope.length) throw new Error(`‘${scope.label}’ 카테고리에 위키 페이지가 없습니다`);
+  }
+  const scopePaths = scope ? new Set(inScope.map((p) => p.path)) : null;
+  const limit = scope ? Math.max(QUERY_PAGES, pages.length) : QUERY_PAGES;
+  const narrow = (hits: api.WikiHit[]) => (scopePaths ? narrowHits(hits, scopePaths, QUERY_PAGES) : hits);
   const history = o.history ?? [];
   const prev = history[history.length - 1]?.question;
   const [hits, ctxHits] = await Promise.all([
-    api.wikiSearch(o.root, o.question, QUERY_PAGES),
-    prev ? api.wikiSearch(o.root, `${o.question} ${prev}`, QUERY_PAGES) : Promise.resolve([]),
+    api.wikiSearch(o.root, o.question, limit).then(narrow),
+    prev ? api.wikiSearch(o.root, `${o.question} ${prev}`, limit).then(narrow) : Promise.resolve([]),
   ]);
-  const picked = pickContextPages(
-    [hits.map((h) => h.path), (o.carry ?? []).slice(0, 3), ctxHits.map((h) => h.path)],
-    QUERY_PAGES,
-  );
+  const carry = (o.carry ?? []).filter((p) => !scopePaths || scopePaths.has(p)).slice(0, 3);
+  const picked = pickContextPages([hits.map((h) => h.path), carry, ctxHits.map((h) => h.path)], QUERY_PAGES);
   const used = picked
     .map((path) => pages.find((p) => p.path === path))
     .filter((p): p is api.WikiPageMeta => !!p);
@@ -319,10 +349,11 @@ export async function askWiki(o: {
         prompt: buildQueryPrompt({
           question: o.question,
           pages: queryPages,
-          catalog: pages,
+          catalog: inScope,
           inject: injectionFor("wiki.query", o.ai.packs, o.ai.settings),
           history,
           web: o.web ? { remaining, findings } : null,
+          scope: scope?.label,
         }),
       },
       {
@@ -360,6 +391,7 @@ export async function askWiki(o: {
     findings.push(finding);
   }
 
+  // 인용은 범위와 상관없이 전체 페이지로 푼다.
   const cited: api.WikiPageMeta[] = [];
   for (const l of extractWikiLinks(answer)) {
     const p = resolveLink(l.target, pages);

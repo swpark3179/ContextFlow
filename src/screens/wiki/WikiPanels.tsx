@@ -76,13 +76,12 @@ export const NO_PAGES: api.WikiPageMeta[] = [];
 export type WikiCats = WikiCategoryView<api.WikiPageMeta>;
 
 /**
- * 거르는 카테고리의 표시 이름(`a › b`, 미분류는 `미분류`). 거르지 않으면 `null`. 철자는 전체 업무
- * 기준 노드의 것이다 — 허브 노트의 이름과 같다.
+ * 카테고리 키 `key`(기본은 거르는 카테고리)의 표시 이름(`a › b`, 미분류는 `미분류`). `null` 이면
+ * (거르지 않으면) `null`. 철자는 전체 업무 기준 노드의 것이다 — 허브 노트의 이름과 같다.
  */
-export function catLabel(cats: WikiCats): string | null {
-  const k = cats.effCat;
-  if (k === null) return null;
-  return label(k === "" ? null : (cats.byKey.get(k)?.path ?? k));
+export function catLabel(cats: WikiCats, key: string | null = cats.effCat): string | null {
+  if (key === null) return null;
+  return label(key === "" ? null : (cats.byKey.get(key)?.path ?? key));
 }
 
 /** 업무 id → 지금 경로의 업무. 보관 'move' 로 옮겨졌어도 id 로 찾는다. */

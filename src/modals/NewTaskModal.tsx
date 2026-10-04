@@ -203,7 +203,8 @@ export default function NewTaskModal() {
                 <div style={label}>표준 템플릿</div>
                 <select
                   value={nt.template}
-                  onChange={(e) => s.set({ nt: { ...nt, template: e.target.value } })}
+                  // 템플릿의 기본 카테고리로 카테고리 칸을 맞춘다 — 손으로 고친 값은 그대로 둔다.
+                  onChange={(e) => s.setNtTemplate(e.target.value)}
                   style={{
                     width: "100%",
                     height: 28,

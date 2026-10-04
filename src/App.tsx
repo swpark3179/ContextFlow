@@ -24,7 +24,8 @@ import AbsorbModal from "./modals/AbsorbModal";
 import SplitModal from "./modals/SplitModal";
 import CategoryModal from "./modals/CategoryModal";
 import { Box } from "./lib/ui";
-import { emptyNewTask, useStore } from "./store/useStore";
+import { emptyNewTask, lastReloadAt, useStore } from "./store/useStore";
+import { RELOAD_DELAY_MS, shouldReload } from "./lib/focus";
 import { useAi } from "./store/aiStore";
 import { useWiki } from "./store/wikiStore";
 import { startIndexSync } from "./store/indexSync";
@@ -68,6 +69,45 @@ export default function App() {
         unlisten = fn;
       });
     return () => unlisten?.();
+  }, []);
+
+  // 창에 돌아오면 디스크를 다시 읽는다 — Obsidian 에서 손으로 고친 카테고리 · 제목 · 노트가 다음 계기
+  // (저장 · 업무 전환)를 기다리지 않고 보이게. 신호는 OS 창의 포커스다: DOM 의 focus · visibility 는
+  // HTML 뷰어의 iframe 으로 포커스가 들어갈 때도 흐려지고, Alt-Tab 사이에도 문서는 보인다(`lib/focus.ts`).
+  //
+  // 흐려지면 고치던 글을 내려쓴다(`beforeunload` 와 같다) — 다른 앱이 읽는 것이 디스크다. 돌아오면
+  // 조금 기다렸다 다시 읽고, 그 사이에 다시 흐려지면 취소한다.
+  useEffect(() => {
+    // StrictMode 는 effect 를 두 번 돌린다. 구독은 비동기라 정리가 먼저 오면 아직 끊을 함수가 없다 —
+    // 깃발을 보고 늦게 온 구독을 그 자리에서 끊는다.
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    let blurredAt: number | null = null;
+    let timer: number | undefined;
+    void getCurrentWindow()
+      .onFocusChanged(({ payload: focused }) => {
+        const st = useStore.getState();
+        if (!focused) {
+          blurredAt = Date.now();
+          window.clearTimeout(timer);
+          void st.saveAll();
+          return;
+        }
+        const away = blurredAt;
+        blurredAt = null;
+        if (!st.ready || st.bootError || !shouldReload(away, Date.now(), lastReloadAt())) return;
+        window.clearTimeout(timer);
+        timer = window.setTimeout(() => void useStore.getState().refreshFromDisk(), RELOAD_DELAY_MS);
+      })
+      .then((fn) => {
+        if (disposed) fn();
+        else unlisten = fn;
+      });
+    return () => {
+      disposed = true;
+      window.clearTimeout(timer);
+      unlisten?.();
+    };
   }, []);
 
   // Save on Ctrl+S and flush everything before the window closes.

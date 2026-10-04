@@ -200,7 +200,10 @@ export type SideRow<T> =
       kind: "task";
       task: T;
       depth: number;
-      /** 이 업무가 직접 든 묶음의 키(미분류 `""`). 끌어 옮기기는 이 안에서만 한다. */
+      /**
+       * 이 업무가 직접 든 묶음의 키(미분류 `""`). 순서 바꾸기는 이 안에서만 한다 — 다른 묶음으로는
+       * 그 묶음 **머리**에 놓아 카테고리를 바꾼다(`dropKind`).
+       */
       group: string;
       /** 묶음 안의 순번과 묶음의 업무 수 — 놓을 자리 선을 묶음 기준으로 그린다. */
       gi: number;
@@ -254,6 +257,42 @@ export function flattenSideRows<T extends { category: string | null }>(
   const uncat = count.get("") ?? 0;
   if (uncat) push({ key: "", path: "", name: UNCAT_LABEL, depth: 1, count: uncat });
   return out;
+}
+
+/** 다른 묶음 머리 위에 이만큼 머물러야 놓았을 때 카테고리가 바뀐다 — 지나가다 놓은 것과 가른다. */
+export const HEAD_DWELL_MS = 300;
+
+/**
+ * 업무 리스트에서 끌던 업무를 놓았을 때 할 일.
+ *
+ * 놓을 곳은 **자기 묶음 안의 자리**(순서 바꾸기)와 **다른 묶음의 머리 행**(카테고리 바꾸기)뿐이다.
+ * 다른 묶음의 업무 행 사이는 놓을 곳이 아니다 — 묶음 안의 순서는 전체 목록의 부분열이라, 그
+ * 사이에 선을 그려도 놓은 자리를 지킬 수 없다.
+ *
+ * 머리 판정이 순서보다 먼저다. 끝 행 아래 반 행까지는 묶음 안의 맨 끝 자리로 치는데(`at >= 0`),
+ * 그 자리가 바로 아래 묶음의 머리와 겹친다. 다만 머리 위에 `HEAD_DWELL_MS` 를 머물기 전(`armed`
+ * 아님)에 놓은 넘침은 지금처럼 맨 끝으로 옮기기다. 자기 묶음의 머리는 바꿀 것이 없으니 머리가
+ * 아닌 것과 같다. `group` 이 없으면(평평한 목록) 머리도 없다.
+ *
+ * `overKey` · `group` 은 둘 다 키(`keyOf`)라 그대로 견준다 — 미분류는 `""` 라 거짓 값 검사를 쓰지 않는다.
+ */
+export function dropKind({
+  at,
+  overKey,
+  group,
+  armed,
+}: {
+  /** 자기 묶음 안의 삽입 인덱스. 묶음 밖이면 `-1`. */
+  at: number;
+  /** 포인터 아래 묶음 머리의 키. 머리 위가 아니면 `null`. */
+  overKey: string | null;
+  /** 끄는 업무가 든 묶음의 키. 묶지 않은 평평한 목록이면 없다. */
+  group?: string;
+  /** 그 머리 위에 `HEAD_DWELL_MS` 이상 머물렀다. */
+  armed: boolean;
+}): "category" | "reorder" | "cancel" {
+  if (armed && overKey !== null && group !== undefined && overKey !== group) return "category";
+  return at >= 0 ? "reorder" : "cancel";
 }
 
 /**

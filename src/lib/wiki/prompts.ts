@@ -394,6 +394,10 @@ export interface QueryWebState {
  * 질의 — 로컬 검색으로 고른 페이지 본문 + 나머지 페이지 목록. 답은 자유 마크다운.
  * `history` 가 있으면 앞선 대화에 이어지는 질문으로 묻는다. `web` 이 있으면 웹 검색을
  * 요청할 수 있음을 알리고(`web.ts`), 이미 찾은 결과를 함께 싣는다.
+ *
+ * `scope` 는 묻기를 한정한 카테고리의 표시 이름(`a › b`)이다. 그때는 페이지 · 목록이 그 카테고리의
+ * 것뿐이라고 밝히고, 근거가 없을 때도 "이 카테고리에" 없다고 말하게 한다 — 그냥 "위키에 없습니다"
+ * 라고 하면 다른 카테고리에 있는 것까지 없다고 읽힌다. 범위가 없으면 문구는 한 글자도 바뀌지 않는다.
  */
 export function buildQueryPrompt(i: {
   question: string;
@@ -402,6 +406,7 @@ export function buildQueryPrompt(i: {
   inject: string;
   history?: ChatTurnText[];
   web?: QueryWebState | null;
+  scope?: string;
 }): string {
   let used = 0;
   const bodies: string[] = [];
@@ -420,16 +425,22 @@ export function buildQueryPrompt(i: {
   const history = historyBlock(i.history ?? []);
   const web = i.web ?? null;
   const found = web ? webFindingsBlock(web.findings) : "";
+  const scope = i.scope ? `카테고리 ‘${i.scope}’ 안에서` : "";
+  const head = history
+    ? `# 지금 질문 (앞선 대화에 이어서${scope ? ` · ${scope}` : ""})`
+    : scope
+      ? `# 질문 (${scope})`
+      : "# 질문";
   return [
     history,
-    history ? "# 지금 질문 (앞선 대화에 이어서)" : "# 질문",
+    head,
     "",
     i.question.trim(),
     "",
     "# 관련 위키 페이지 (관련도 순)",
     "",
     bodies.length ? bodies.join("\n") : "(검색에 걸린 페이지가 없습니다)",
-    "# 그 밖의 페이지 목록 (본문은 싣지 않음)",
+    scope ? "# 이 카테고리의 다른 페이지 목록 (본문은 싣지 않음)" : "# 그 밖의 페이지 목록 (본문은 싣지 않음)",
     "",
     catalog.length ? catalog.join("\n") : "(없음)",
     "",
@@ -439,8 +450,8 @@ export function buildQueryPrompt(i: {
     "# 답변 형식",
     "",
     web
-      ? "- 위 위키 페이지와 웹 검색 결과에 적힌 내용에 근거해서만 답합니다. 둘 다 근거가 없으면 그렇다고 말하고, 위키에서 열어 볼 만한 페이지를 제안합니다."
-      : "- 위 페이지에 적힌 내용에 근거해서만 답합니다. 근거가 없으면 \"위키에 없습니다\" 라고 하고, 목록에서 열어 볼 만한 페이지를 제안합니다.",
+      ? `- 위 위키 페이지와 웹 검색 결과에 적힌 내용에 근거해서만 답합니다. 둘 다 근거가 없으면 그렇다고 말하고, ${scope ? "이 카테고리에서" : "위키에서"} 열어 볼 만한 페이지를 제안합니다.`
+      : `- 위 페이지에 적힌 내용에 근거해서만 답합니다. 근거가 없으면 "${scope ? "이 카테고리의 위키에 없습니다" : "위키에 없습니다"}" 라고 하고, 목록에서 열어 볼 만한 페이지를 제안합니다.`,
     found
       ? "- 웹 검색 결과에서 온 문장 끝에는 `[웹1]` 처럼 출처 번호를 붙입니다. 위키와 웹이 다르면 둘 다 밝히고, 업무에 관한 것은 위키를 앞세웁니다."
       : "",
