@@ -437,7 +437,7 @@ pub(crate) fn replace_text(path: &Path, text: &str) -> Result<()> {
 /// * 쓰기로 열리지 않는 파일 — 읽기 전용 · 다른 프로그램이 쥔 파일. 바꿔 끼우면 예전에 막히던
 ///   쓰기가 몰래 통과한다. 자르지 않고(`write(true)`) 열어 보기만 하고 곧바로 닫는다.
 /// * 하드 링크(Unix `nlink > 1`) — 바꿔 끼우면 다른 이름들이 옛 내용에 남는다.
-/// * 숨김 · 시스템 속성(Windows) — 바꿔 끼운 파일은 그 속성을 잃는다.
+/// * 숨김 · 시스템 · 암호화(EFS) 속성(Windows) — 바꿔 끼운 파일은 그 속성을 잃는다.
 fn swap_target(path: &Path) -> Option<fs::Metadata> {
     let meta = fs::symlink_metadata(path).ok()?;
     if meta.file_type().is_symlink() || !meta.is_file() {
@@ -456,7 +456,9 @@ fn swap_target(path: &Path) -> Option<fs::Metadata> {
         use std::os::windows::fs::MetadataExt;
         const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
         const FILE_ATTRIBUTE_SYSTEM: u32 = 0x4;
-        if meta.file_attributes() & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM) != 0 {
+        const FILE_ATTRIBUTE_ENCRYPTED: u32 = 0x4000;
+        let keep = FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM | FILE_ATTRIBUTE_ENCRYPTED;
+        if meta.file_attributes() & keep != 0 {
             return None;
         }
     }
@@ -506,9 +508,13 @@ fn swap_in(path: &Path, meta: &fs::Metadata, bytes: &[u8]) -> std::io::Result<()
 fn fill_tmp(mut file: fs::File, meta: &fs::Metadata, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
     file.write_all(bytes)?;
-    // 새 파일은 umask 기본 권한으로 생긴다. 0o640 같은 원래 권한 비트를 그대로 옮긴다.
+    // 새 파일은 쓰는 사람의 소유 · umask 기본 권한으로 생긴다. 원래 소유자를 먼저 옮기고(chown 이
+    // setuid 같은 비트를 지울 수 있어 권한보다 앞이다) 0o640 같은 권한 비트를 옮긴다. 남의 파일이라
+    // 소유자를 옮길 수 없으면 여기서 실패해 그 자리 쓰기로 돌아간다 — 소유자가 바뀌지 않는다.
     #[cfg(unix)]
     {
+        use std::os::unix::fs::MetadataExt;
+        std::os::unix::fs::fchown(&file, Some(meta.uid()), Some(meta.gid()))?;
         file.set_permissions(meta.permissions())?;
     }
     // 바꿔 끼운 파일은 새 파일이라 만든 시각이 지금이 된다. 그러면 Obsidian 의 "만든 시각" 정렬이
@@ -920,6 +926,27 @@ mod tests {
         assert_eq!(fs::read_to_string(&path).unwrap(), "{\"a\":1}");
     }
 
+    /// 바꿔 끼운 파일도 원래 소유자 그대로다. 남의 파일을 옮길 수 있는 건 루트뿐이라 루트일 때만 본다
+    /// (루트가 아니면 소유자를 옮길 일이 없다 — 남의 파일은 그 자리 쓰기로 돌아간다).
+    #[cfg(unix)]
+    #[test]
+    fn replace_text_keeps_the_owner() {
+        use std::os::unix::fs::MetadataExt;
+        let d = TempDir::new("replace-owner");
+        let path = d.path().join("노트.md");
+        fs::write(&path, "옛 내용").unwrap();
+        if std::os::unix::fs::chown(&path, Some(54321), Some(54322)).is_err() {
+            return;
+        }
+        let before = ino(&path);
+
+        replace_text(&path, "새 내용").unwrap();
+        let meta = fs::metadata(&path).unwrap();
+        assert_ne!(ino(&path), before, "바꿔 끼운 길을 지나야 소유자 복사를 시험한다");
+        assert_eq!((meta.uid(), meta.gid()), (54321, 54322));
+        assert_eq!(fs::read_to_string(&path).unwrap(), "새 내용");
+    }
+
     /// 하드 링크를 바꿔 끼우면 다른 이름이 옛 내용에 남는다 — 그 자리에서 쓴다.
     #[cfg(unix)]
     #[test]
@@ -968,8 +995,9 @@ mod tests {
     #[test]
     fn replace_text_falls_back_in_place_when_the_temp_name_is_too_long() {
         let d = TempDir::new("replace-long");
-        // 243 바이트 — 파일 이름으로는 되지만 `.{이름}.{pid}-{n}.tmp` 는 255 바이트를 넘는다.
-        let path = d.path().join(format!("{}.md", "가".repeat(80)));
+        // 249 바이트 — 파일 이름으로는 되지만 `.{이름}.{pid}-{n}.tmp` 는 pid · 일련번호가 한 자리여도
+        // 258 바이트라 255 를 넘는다(더 짧으면 pid 가 짧은 날에만 임시 이름이 들어가 흔들린다).
+        let path = d.path().join(format!("{}.md", "가".repeat(82)));
         fs::write(&path, "옛 내용").unwrap();
         #[cfg(unix)]
         let before = ino(&path);

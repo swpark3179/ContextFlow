@@ -902,11 +902,16 @@ export default function Sidebar() {
       if (el.scrollTop !== before) sync();
     }, 50);
 
+    // 휠로 목록을 굴리면 pointermove 없이 손 밑의 행 · 머리가 바뀐다. 다시 세지 않으면 이미 지나간
+    // 머리가 그대로 무르익어(`armed`) 손이 가리키지 않는 카테고리로 바뀐다.
+    const list = listRef.current;
+    list?.addEventListener("scroll", sync, { passive: true });
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
     window.addEventListener("pointercancel", up);
     window.addEventListener("keydown", key, true);
     return () => {
+      list?.removeEventListener("scroll", sync);
       window.clearInterval(scroller);
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);

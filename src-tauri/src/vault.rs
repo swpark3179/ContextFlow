@@ -1215,6 +1215,11 @@ pub fn scan_templates(root: &Path, tasks: &[TaskMeta]) -> Result<Vec<TemplateMet
         if path.file_name().is_some_and(|n| n.to_string_lossy().starts_with('.')) {
             continue;
         }
+        // 같은 이름의 폴더와 노트가 함께 있으면 폴더가 이긴다(`resolve_template`) — 노트까지 내면 같은
+        // id 가 둘이 되고, 고른 쪽과 다른 템플릿으로 업무가 만들어진다.
+        if !is_dir && path.file_stem().is_some_and(|s| dir.join(s).is_dir()) {
+            continue;
+        }
         let (stem, meta_path, kind, rel_path) = if is_dir {
             let stem = path.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
             let rel = format!("{}/{}/", TEMPLATES_DIR, stem);
@@ -1369,10 +1374,8 @@ pub fn create_template(
 /// * 값은 업무와 같은 쓰기 규칙으로 정규화하고 늘 큰따옴표로 쓴다(`category::write`).
 /// * 읽은 값이 이미 그 값이면 쓰지 않는다 — 손으로 쓴 주석 · 목록 모양이 남는다.
 pub fn set_template_category(root: &Path, id: &str, category: Option<&str>) -> Result<()> {
-    let bad = id.trim().is_empty()
-        || id.starts_with('.')
-        || id.contains(['/', '\\', ':'])
-        || id.contains("..");
+    // `..` 하나 · `../x` 는 `.` 시작 · `/` 검사로 막힌다. `1..2단계` 처럼 이름 안의 점 둘은 템플릿 이름이다.
+    let bad = id.trim().is_empty() || id.starts_with('.') || id.contains(['/', '\\', ':']);
     if bad {
         return Err(AppError::new("invalid", format!("잘못된 템플릿 이름입니다: {}", id)));
     }
@@ -3058,7 +3061,7 @@ pub(crate) mod tests {
         let before = fs::read_dir(root.join(TEMPLATES_DIR)).unwrap().count();
 
         for id in
-            ["", "  ", ".obsidian", "../Tasks/밖", "있는 것/x", "a\\b", "C:있는 것", "a..b", ".."]
+            ["", "  ", ".obsidian", "../Tasks/밖", "있는 것/x", "a\\b", "C:있는 것", ".."]
         {
             let err = set_template_category(root, id, Some("운영")).unwrap_err();
             assert_eq!(err.kind, "invalid", "{id:?}");
@@ -3098,6 +3101,28 @@ pub(crate) mod tests {
             "---\ncategory: \"기타\"\n---\n"
         );
         assert_eq!(fs::read_to_string(&note).unwrap(), "---\n---\n");
+        // 목록에도 폴더 하나만 나온다 — 같은 id 가 둘이면 고른 것과 다른 템플릿을 쓸 수 있다.
+        let same: Vec<_> = scan_templates(root, &[])
+            .unwrap()
+            .into_iter()
+            .filter(|t| t.id == "묶음")
+            .map(|t| t.kind)
+            .collect();
+        assert_eq!(same, ["folder"]);
+    }
+
+    /// 이름 안의 점 둘은 경로 벗어나기가 아니다 — 탐색기로 넣은 `1..2단계 점검.md` 도 기본값을 둔다.
+    #[test]
+    fn set_template_category_takes_a_name_with_two_dots_inside() {
+        let v = TempVault::new("tpl-cat-dots");
+        let root = v.path();
+        let path = root.join(TEMPLATES_DIR).join("1..2단계 점검.md");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, "---\ntemplate: 점검\n---\n## 배경\n").unwrap();
+
+        set_template_category(root, "1..2단계 점검", Some("운영")).unwrap();
+        assert_eq!(tpl_category(root, "1..2단계 점검").as_deref(), Some("운영"));
+        assert!(fs::read_to_string(&path).unwrap().ends_with("---\n## 배경\n"));
     }
 
     #[test]

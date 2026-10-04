@@ -2073,6 +2073,8 @@ export const useStore = create<State & Actions>((set, get) => ({
     //    두면 다음 자동 저장이 옛 경로에 폴더를 되살린다(`write_text_file` 은 상위 폴더를 만든다).
     //    목록에서만 빠진 업무(읽지 못한 index.md)는 건드리지 않는다.
     const folder = get().activeFolder;
+    /** 폴더를 잃은 업무를 고치던 글 때문에 열어 둔다 — 3) 에서 그 버퍼를 건드리지 않는다. */
+    let orphaned = false;
     if (folder && !tasks.some((t) => t.folder === folder)) {
       const gone = !(await api.pathExists(joinPath(folder, "index.md")).catch(() => true));
       // 기다리는 사이에 다른 업무를 열었거나 저장이 시작됐으면 손대지 않는다. 여기서부터 닫기까지는
@@ -2085,7 +2087,11 @@ export const useStore = create<State & Actions>((set, get) => ({
           await followFolder(folder, same[0].folder, same[0].title);
           get().toast("업무 폴더가 옮겨져 따라갔습니다", `${old.relFolder} → ${same[0].relFolder}`, TOAST.muted);
         } else if (Object.values(get().ui.docs).some((d) => d.text !== d.saved)) {
-          // 고치던 글은 버리지 않는다 — 저장하면 옛 자리에 다시 생긴다는 것을 알린다.
+          // 고치던 글은 버리지 않는다 — 저장하면 옛 자리에 다시 생긴다는 것을 알린다. 걸려 있던 자동
+          // 저장은 끄고, 아래 3) 의 index.md 맞추기도 건너뛴다(그 끝이 자동 저장을 다시 건다) — 사용자가
+          // 손대지 않았는데 지운 폴더가 저절로 되살아나지 않게.
+          window.clearTimeout(saveTimer);
+          orphaned = true;
           get().toast(
             "업무 폴더를 찾을 수 없습니다",
             `${old?.title ?? basename(folder)} · 저장하지 않은 글이 있어 창을 닫지 않았습니다 — 저장하면 옛 자리에 다시 만들어집니다`,
@@ -2104,11 +2110,14 @@ export const useStore = create<State & Actions>((set, get) => ({
     }
 
     // 3) 열린 업무의 버퍼. 탭이 없는 깨끗한 버퍼는 읽지 않고 버린다 — 다시 열 때 디스크에서 읽는다.
-    const active = get().activeFolder;
+    //    index.md 는 남겨 맞춘다 — 탭을 닫아도 템플릿 등록의 "지금 업무의 구조에서 섹션 가져오기" 가 읽는다.
+    const active = orphaned ? "" : get().activeFolder;
     if (active) {
       const ui = get().ui;
       const shown = new Set(ui.openTabs.map((t) => t.path));
-      const keep = Object.entries(ui.docs).filter(([p, d]) => shown.has(p) || d.text !== d.saved);
+      const keep = Object.entries(ui.docs).filter(
+        ([p, d]) => p === "index.md" || shown.has(p) || d.text !== d.saved,
+      );
       if (keep.length !== Object.keys(ui.docs).length) get().setUi({ docs: Object.fromEntries(keep) });
       if (get().ui.docs["index.md"]) await get().resyncIndexDocs([active]);
       for (const [path, doc] of keep) {
@@ -2369,6 +2378,8 @@ export const useStore = create<State & Actions>((set, get) => ({
     if (dest === parent) return; // 이미 그 폴더에 있다
     if (isDir && dest.startsWith(rel)) return; // 자기 자신 아래로는 옮길 수 없다
     try {
+      // 쓰는 중인 저장이 끝난 뒤에 옮긴다 — 저장은 블로킹 풀에서 돌아 옮기기와 엇갈릴 수 있다.
+      await get().saveAll();
       const next = await api.moveTaskPath(activeFolder, rel, dest);
       get().noteToday(activeFolder);
       get().setUi(relocateUi(ui, rel, next, isDir));
@@ -2393,6 +2404,9 @@ export const useStore = create<State & Actions>((set, get) => ({
     const next = reorderedList(live, (scope ?? live).filter((f) => liveSet.has(f)), folder, at);
     if (!next) return;
     try {
+      // 쓰는 중인 index.md 저장을 먼저 끝낸다. 게이트(`writingMeta`)는 그 뒤에 시작하는 저장만 붙들고,
+      // 저장은 블로킹 풀에서 돌아 순서 쓰기와 엇갈리면 친 글자나 순서 중 하나를 잃는다(`writeCategory` 와 같다).
+      await get().saveAll();
       await writingMeta(async () => {
         const res = await api.reorderTasks(settings.vault, next);
         set({ tasks: res });
@@ -2415,6 +2429,8 @@ export const useStore = create<State & Actions>((set, get) => ({
       return;
     }
     try {
+      // 쓰는 중인 index.md 저장을 먼저 끝낸다 — `reorderTask` 와 같은 까닭.
+      await get().saveAll();
       await writingMeta(async () => {
         set({ tasks: await api.clearTaskOrder(settings.vault) });
         await get().resyncIndexDocs(tasks.filter((t) => t.order !== null).map((t) => t.folder));
@@ -2599,6 +2615,8 @@ export const useStore = create<State & Actions>((set, get) => ({
     }
     const primary = merge.rec.cluster[merge.primary] ?? merge.rec.cluster[0];
     try {
+      // 쓰는 중인 저장을 먼저 끝낸다 — 병합은 대표 업무의 index.md 를 다시 쓴다.
+      await get().saveAll();
       await api.mergeTasks(
         settings.vault,
         primary.id,

@@ -44,7 +44,7 @@ function task(folder: string, title: string, category: string | null = "운영")
     archived: null,
     archivedAt: null,
     runs: 1,
-    order: null,
+    order: null as number | null,
     folder,
     relFolder: `${folder.replace("/v/", "")}/`,
     indexPath: `${folder}/index.md`,
@@ -95,6 +95,10 @@ function answer(cmd: string, args: Record<string, unknown>): unknown {
     }
     case "scan_templates":
       return [];
+    case "reorder_tasks":
+      // 넘겨받은 차례대로 `order` 를 매긴다.
+      vault = vault.map((t) => ({ ...t, order: (args.folders as string[]).indexOf(t.folder) }));
+      return vault.map((t) => ({ ...t }));
     case "wiki_status":
       return { dir: "/v/Wiki", exists: true, pages: [], tasks: [], orphans: [], moved: [], logTail: [] };
     default:
@@ -617,3 +621,51 @@ function argsOf(cmd: string, nth = 0): Record<string, unknown> {
   if (!hit) throw new Error(`${cmd} 를 ${nth + 1}번 부르지 않았다`);
   return hit.args;
 }
+
+describe("메타데이터 쓰기는 쓰는 중인 저장 뒤에", () => {
+  it("순서 바꾸기는 쓰는 중인 index.md 저장이 끝난 뒤에 쓴다 — 친 글자도 순서도 잃지 않는다", async () => {
+    openA({ "index.md": clean(disk[idx(A)]) });
+    const write = hold(`write_text_file ${idx(A)}`);
+    const typed = head("결제 점검", "운영") + "## 개요\n친 글자\n";
+    st().editDoc("index.md", typed);
+    const saving = st().saveDoc("index.md");
+    await flush();
+
+    const moving = st().reorderTask(B, 0);
+    await flush();
+    // 저장이 블로킹 풀에서 쓰는 동안 순서 쓰기가 끼어들면 옛 본문 + 순서가 친 글자를 덮는다.
+    expect(cmds()).not.toContain("reorder_tasks");
+
+    write();
+    await Promise.all([saving, moving]);
+    const order = cmds().filter((c) => c === "write_text_file" || c === "reorder_tasks");
+    expect(order).toEqual(["write_text_file", "reorder_tasks"]);
+    expect(disk[idx(A)]).toBe(typed);
+  });
+});
+
+describe("refreshFromDisk — 남겨 두는 것", () => {
+  it("탭을 닫은 깨끗한 index.md 는 남겨 디스크에 맞춘다 — 템플릿 등록이 지금 업무의 섹션을 읽는다", async () => {
+    openA({ "index.md": clean(disk[idx(A)]), "메모.md": clean("메모 처음") }, ["메모.md"]);
+    disk[idx(A)] = head("결제 점검", "운영") + "## 새 섹션\n";
+
+    await st().refreshFromDisk();
+
+    expect(st().ui.docs["index.md"]).toEqual(clean(disk[idx(A)]));
+  });
+
+  it("폴더를 잃고 고치던 글이 있으면 그 버퍼를 건드리지 않는다 — 지운 폴더가 저절로 되살아나지 않게", async () => {
+    openA({ "index.md": { text: "고친 index", saved: disk[idx(A)] } });
+    vault = [task(B, "인프라 정비")];
+    delete disk[idx(A)];
+    calls.length = 0;
+
+    await st().refreshFromDisk();
+
+    expect(st().activeFolder).toBe(A);
+    expect(st().ui.docs["index.md"].text).toBe("고친 index");
+    // index.md 맞추기(읽기)도, 그 끝의 자동 저장도 없다.
+    expect(calls.filter((c) => c.cmd === "read_text_file").map((c) => c.args.path)).not.toContain(idx(A));
+    expect(cmds()).not.toContain("write_text_file");
+  });
+});
