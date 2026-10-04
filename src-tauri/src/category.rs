@@ -560,7 +560,13 @@ pub fn move_category(
     // 거절해도 아무것도 바뀌지 않는다.
     let tasks = vault::scan(root)?;
     let steps = plan_move(&tasks, &from, to, allow_merge, only)?;
-    Ok(apply(root, &steps))
+    let change = apply(root, &steps);
+    // 다시 시도(`only`)는 실패한 업무만 다시 쓰는 것이다. 템플릿은 첫 시도에서 이미 따라갔고,
+    // 또 옮기면 업무와 같은 함정(`a/b/b → a/b → a`)에 빠진다.
+    if only.is_none() {
+        retarget_templates(root, |cat| retarget(cat, &from, to));
+    }
+    Ok(change)
 }
 
 /// 카테고리 노드 하나(하위 포함)를 해제해 그 업무들을 미분류로 돌린다. 대상을 프런트의
@@ -571,14 +577,74 @@ pub fn clear_category(root: &Path, from: &str, only: Option<&[String]>) -> Resul
     let tasks = vault::scan(root)?;
     let steps: Vec<Step> =
         targets(&tasks, &from, only)?.into_iter().map(|task| Step { task, new: None }).collect();
-    Ok(apply(root, &steps))
+    let change = apply(root, &steps);
+    // 해제는 하위까지 모두 미분류다. `retarget(.., None)`(최상위로 올리기)과 다르다.
+    if only.is_none() {
+        retarget_templates(root, |cat| match cat {
+            Some(c) if within(c, &from) => Retarget::To(None),
+            _ => Retarget::Outside,
+        });
+    }
+    Ok(change)
+}
+
+/// 노드를 옮기거나 해제한 뒤 템플릿 기본 카테고리도 따라가게 한다. 새 값은 업무와 같은 규칙
+/// (`new_value`)으로 정한다 — 옮기기는 `retarget` 에 받은 `to` 를 그대로 넘기고(꼬리와 이어 붙인 뒤
+/// 정규화된다), 해제는 노드 안이면 미분류다.
+///
+/// 덤으로 하는 일이라(best-effort) 실패해도 오류로 돌리지 않는다. 템플릿은 합치기 · 검사 판정에도
+/// 들지 않으므로, 옮기면 규칙에 어긋나는 템플릿(`Retarget::Err`)은 그대로 두고 로그만 남긴다.
+/// 업무 쪽은 이미 다 쓴 뒤라 여기서 멈추면 더 나빠질 뿐이다. `CategoryChange` 에도 싣지 않는다.
+fn retarget_templates(root: &Path, new_value: impl Fn(Option<&str>) -> Retarget) {
+    let dir = root.join(vault::TEMPLATES_DIR);
+    let Ok(entries) = std::fs::read_dir(&dir) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        // `.obsidian` 같은 숨김 항목은 템플릿이 아니다(`scan_templates` 와 같은 규칙).
+        if entry.file_name().to_string_lossy().starts_with('.') {
+            continue;
+        }
+        let doc_path = if path.is_dir() {
+            path.join("index.md")
+        } else if path.extension().and_then(|e| e.to_str()) == Some("md") {
+            path
+        } else {
+            continue;
+        };
+        // 폴더 템플릿에 `index.md` 가 없으면 기본값도 없다.
+        let Ok(text) = std::fs::read_to_string(&doc_path) else { continue };
+        let mut doc = Doc::parse(&text);
+        let cur = read(&doc);
+        let new = match new_value(cur.as_deref()) {
+            Retarget::Outside => continue,
+            Retarget::To(new) if new == cur => continue,
+            Retarget::To(new) => new,
+            Retarget::Err(code) => {
+                eprintln!(
+                    "[category] 템플릿 기본 카테고리를 옮기지 않았습니다({code}): {}",
+                    doc_path.display()
+                );
+                continue;
+            }
+        };
+        write(&mut doc, new.as_deref());
+        if let Err(e) = crate::fsops::replace_text(&doc_path, &doc.render()) {
+            eprintln!(
+                "[category] 템플릿 기본 카테고리를 쓰지 못했습니다: {}: {e}",
+                doc_path.display()
+            );
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::vault::tests::{make_in, set_updated, TempVault};
-    use crate::vault::{absorb_task, read_task, reorder_tasks, scan, set_archived, set_status};
+    use crate::vault::{
+        absorb_task, create_template, read_task, reorder_tasks, scan, scan_templates, set_archived,
+        set_status, TEMPLATES_DIR,
+    };
     use serde::Deserialize;
     use std::fs;
     use std::path::PathBuf;
@@ -1351,5 +1417,115 @@ mod tests {
         );
         let err = clear_category(root, "", None).unwrap_err();
         assert_eq!(err.message, "옮길 카테고리가 없습니다");
+    }
+
+    // -- 템플릿 기본 카테고리가 따라가기 ------------------------------------------
+
+    fn tpl_cats(root: &Path) -> Vec<(String, Option<String>)> {
+        let mut out: Vec<_> =
+            scan_templates(root, &[]).unwrap().into_iter().map(|t| (t.id, t.category)).collect();
+        out.sort();
+        out
+    }
+
+    fn pairs(values: &[(&str, Option<&str>)]) -> Vec<(String, Option<String>)> {
+        let mut out: Vec<_> =
+            values.iter().map(|(id, c)| (id.to_string(), c.map(str::to_string))).collect();
+        out.sort();
+        out
+    }
+
+    #[test]
+    fn template_defaults_follow_a_moved_node_and_a_cleared_one() {
+        let v = TempVault::new("move-templates");
+        let root = v.path();
+        make_in(root, "가", "a");
+        make_in(root, "나", "a/x");
+        let dir = root.join(TEMPLATES_DIR);
+        create_template(root, "노드", "", "배경", Some("a")).unwrap();
+        create_template(root, "하위", "", "배경", Some("A/x")).unwrap();
+        create_template(root, "밖", "", "배경", Some("ab")).unwrap();
+        create_template(root, "없음", "", "배경", None).unwrap();
+        // 템플릿은 합치기 판정에 들지 않는다 — 옮겨 갈 자리를 이미 쓰고 있어도 거절되지 않는다.
+        create_template(root, "자리", "", "배경", Some("z")).unwrap();
+        // 손으로 쓴 폴더 템플릿 — 값 줄만 고쳐 쓰고 나머지 바이트는 그대로다.
+        fs::create_dir_all(dir.join("폴더")).unwrap();
+        fs::write(
+            dir.join("폴더/index.md"),
+            "---\ntemplate: 폴더\ncategory: a/y # 메모\n---\n본문\n",
+        )
+        .unwrap();
+        fs::create_dir_all(dir.join("빈 폴더")).unwrap();
+        let ab = fs::read(dir.join("밖.md")).unwrap();
+
+        let res = mv(root, "a", Some(" Z ")).unwrap();
+        // 돌려주는 값은 업무만이다.
+        assert_eq!(res.changed.len(), 2);
+        assert!(res.failed.is_empty());
+        assert_eq!(
+            tpl_cats(root),
+            pairs(&[
+                ("노드", Some("Z")),
+                ("하위", Some("Z/x")),
+                ("밖", Some("ab")),
+                ("없음", None),
+                ("자리", Some("z")),
+                ("폴더", Some("Z/y")),
+                ("빈 폴더", None),
+            ])
+        );
+        assert_eq!(
+            fs::read_to_string(dir.join("폴더/index.md")).unwrap(),
+            "---\ntemplate: 폴더\ncategory: \"Z/y\"\n---\n본문\n"
+        );
+        assert_eq!(fs::read(dir.join("밖.md")).unwrap(), ab);
+        assert!(!dir.join("빈 폴더/index.md").exists());
+
+        // 해제는 하위까지 모두 미분류다 — 최상위로 올리기(`z/x → x`)가 아니다.
+        clear_category(root, "z", None).unwrap();
+        assert_eq!(
+            tpl_cats(root),
+            pairs(&[
+                ("노드", None),
+                ("하위", None),
+                ("밖", Some("ab")),
+                ("없음", None),
+                ("자리", None),
+                ("폴더", None),
+                ("빈 폴더", None),
+            ])
+        );
+        let names: Vec<String> = fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+            .filter(|n| n.starts_with('.'))
+            .collect();
+        assert!(names.is_empty(), "임시 파일이 남지 않는다: {names:?}");
+    }
+
+    /// 템플릿은 검사 판정에 들지 않는다 — 옮기면 규칙에 어긋나는 템플릿 때문에 업무 이동을 막지
+    /// 않고, 그 템플릿만 그대로 둔다. 다시 시도(`only`)에서는 템플릿을 다시 옮기지 않는다.
+    #[test]
+    fn a_template_that_cannot_follow_is_left_alone_and_retries_skip_templates() {
+        let v = TempVault::new("move-templates-skip");
+        let root = v.path();
+        let t = make_in(root, "가", "a");
+        create_template(root, "깊은", "", "배경", Some("a/b/c")).unwrap();
+        create_template(root, "얕은", "", "배경", Some("a/b")).unwrap();
+
+        mv(root, "a", Some("x/y")).unwrap();
+        assert_eq!(cat_of(root, &t).as_deref(), Some("x/y"));
+        assert_eq!(tpl_cats(root), pairs(&[("깊은", Some("a/b/c")), ("얕은", Some("x/y/b"))]));
+
+        // 상위로 올리는 이동 뒤의 다시 시도 — 템플릿이 노드 안에 남아 있어도 또 옮기지 않는다.
+        let v = TempVault::new("move-templates-retry");
+        let root = v.path();
+        make_in(root, "가", "a/b");
+        create_template(root, "겹친 이름", "", "배경", Some("a/b/b")).unwrap();
+        mv(root, "a/b", Some("a")).unwrap();
+        assert_eq!(tpl_cats(root), pairs(&[("겹친 이름", Some("a/b"))]));
+        move_category(root, "a/b", Some("a"), true, Some(&[])).unwrap();
+        clear_category(root, "a/b", Some(&[])).unwrap();
+        assert_eq!(tpl_cats(root), pairs(&[("겹친 이름", Some("a/b"))]));
     }
 }

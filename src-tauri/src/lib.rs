@@ -91,11 +91,12 @@ fn load_settings(app: tauri::AppHandle) -> Result<Value> {
     Ok(serde_json::from_str(&text).unwrap_or(Value::Null))
 }
 
+/// 쓰다 끊겨도 설정 파일이 반쯤 남지 않게 바꿔 끼운다(`replace_text`). 깨진 설정은
+/// `load_settings` 가 `null` 로 읽어 모든 값이 기본값으로 돌아간다.
 #[tauri::command]
 fn save_settings(app: tauri::AppHandle, value: Value) -> Result<()> {
     let path = settings_path(&app)?;
-    std::fs::write(&path, serde_json::to_string_pretty(&value)?)?;
-    Ok(())
+    fsops::replace_text(&path, &serde_json::to_string_pretty(&value)?)
 }
 
 #[tauri::command]
@@ -174,14 +175,20 @@ fn append_task_run(root: String, folder: String, text: String) -> Result<vault::
 }
 
 /// `folders` 는 원하는 최종 순서 전체다. 값 계산은 Rust 가 하고, 실제로 바뀐 노트만 쓴다.
+/// 처음 끌 때는 업무 N 개를 하나씩 `fsync` 하며 쓰므로 IPC 스레드를 막지 않게 블로킹 풀에서 돈다.
 #[tauri::command]
-fn reorder_tasks(root: String, folders: Vec<String>) -> Result<Vec<vault::TaskMeta>> {
-    vault::reorder_tasks(&p(&root), &folders)
+async fn reorder_tasks(root: String, folders: Vec<String>) -> Result<Vec<vault::TaskMeta>> {
+    tauri::async_runtime::spawn_blocking(move || vault::reorder_tasks(&p(&root), &folders))
+        .await
+        .map_err(|e| AppError::io(format!("순서 저장이 중단되었습니다: {e}")))?
 }
 
+/// 순서를 정한 업무 전부에서 `order` 를 지운다 — `reorder_tasks` 와 같은 이유로 블로킹 풀에서 돈다.
 #[tauri::command]
-fn clear_task_order(root: String) -> Result<Vec<vault::TaskMeta>> {
-    vault::clear_task_order(&p(&root))
+async fn clear_task_order(root: String) -> Result<Vec<vault::TaskMeta>> {
+    tauri::async_runtime::spawn_blocking(move || vault::clear_task_order(&p(&root)))
+        .await
+        .map_err(|e| AppError::io(format!("순서 되돌리기가 중단되었습니다: {e}")))?
 }
 
 #[tauri::command]
@@ -311,14 +318,20 @@ fn read_text_file(path: String) -> Result<String> {
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
+/// 편집기 저장 전부가 지나는 길. 쓰다 끊겨도 노트가 반쯤 남지 않게 바꿔 끼운다(`replace_text`).
+/// `fsync` 와 Windows 의 다시 시도로 시간이 걸릴 수 있어 블로킹 풀에서 돈다 — 그래서 같은 파일의
+/// 저장 두 개가 IPC 순서대로 끝난다는 보장이 없다. 프런트가 경로마다 한 줄로 세워 보낸다.
 #[tauri::command]
-fn write_text_file(path: String, content: String) -> Result<()> {
-    let path = p(&path);
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(path, content)?;
-    Ok(())
+async fn write_text_file(path: String, content: String) -> Result<()> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<()> {
+        let path = p(&path);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        fsops::replace_text(&path, &content)
+    })
+    .await
+    .map_err(|e| AppError::io(format!("파일 저장이 중단되었습니다: {e}")))?
 }
 
 #[tauri::command]
@@ -486,26 +499,50 @@ fn scan_templates(root: String) -> Result<Vec<vault::TemplateMeta>> {
     vault::scan_templates(&root, &tasks)
 }
 
+/// `category` 는 템플릿 기본 카테고리다. `None` · 빈 문자열이면 키를 만들지 않는다.
 #[tauri::command]
 fn create_template(
     root: String,
     name: String,
     desc: String,
     sections: String,
+    category: Option<String>,
 ) -> Result<String> {
-    let path = vault::create_template(&p(&root), &name, &desc, &sections)?;
+    let path = vault::create_template(&p(&root), &name, &desc, &sections, category.as_deref())?;
     Ok(path.to_string_lossy().replace('\\', "/"))
 }
 
+/// `category` 로 기본 카테고리를 늘 덮어쓴다 — `None` 이면 원본 폴더에서 따라온 값을 지운다.
 #[tauri::command]
 fn create_template_from_folder(
     root: String,
     name: String,
     desc: String,
     source: String,
+    category: Option<String>,
 ) -> Result<String> {
-    let path = vault::create_template_from_folder(&p(&root), &name, &desc, &p(&source))?;
+    let path = vault::create_template_from_folder(
+        &p(&root),
+        &name,
+        &desc,
+        &p(&source),
+        category.as_deref(),
+    )?;
     Ok(path.to_string_lossy().replace('\\', "/"))
+}
+
+/// 템플릿 하나의 기본 카테고리를 지정(`Some`)하거나 해제(`None`)한다. `id` 는 `TemplateMeta.id` 다.
+#[tauri::command]
+async fn set_template_category(
+    root: String,
+    id: String,
+    category: Option<String>,
+) -> Result<()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        vault::set_template_category(&p(&root), &id, category.as_deref())
+    })
+    .await
+    .map_err(|e| AppError::io(format!("템플릿 기본 카테고리 지정이 중단되었습니다: {e}")))?
 }
 
 /// 보관함 MOC(`_index/Archive.md`)를 다시 쓴다. Vault 전체를 훑으므로 블로킹 풀에서 돌고,
@@ -783,6 +820,7 @@ pub fn run() {
             scan_templates,
             create_template,
             create_template_from_folder,
+            set_template_category,
             write_archive_moc,
             write_category_hubs,
             category_hub_path,
