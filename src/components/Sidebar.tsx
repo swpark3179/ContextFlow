@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { Box, Input } from "../lib/ui";
-import { BLUE, normalizeStatus, statusOf } from "../lib/design";
+import { AiRail, AiSignal, AiStep, Box, Input } from "../lib/ui";
+import { AI, BLUE, TEXT, normalizeStatus, statusOf } from "../lib/design";
 import { useDropGuard, useLongPress } from "../lib/longPress";
 import { shortStamp, today } from "../lib/format";
 import {
@@ -40,7 +40,8 @@ const NAV: [Screen, string][] = [
  * 같은 모양으로 그 아래에 둔다 — 위키는 보관된 업무에서 자라므로 자리도 그 옆이다.
  *
  * 반영은 화면 밖(`Wiki/` 폴더)에서 일어난다. 위키 화면에 있지 않아도 지금 돌고 있다는
- * 것이 보이도록 진행 수를 여기에 적는다.
+ * 것이 보이도록, 도는 동안은 두 줄로 늘려 진행선(n/m)과 지금 업무 · 단계를 적는다. 끝나면
+ * 어느 화면에 있든 토스트로 알린다(`wikiStore` — [보기] 로 위키에 간다).
  */
 function WikiDock() {
   const screen = useStore((s) => s.screen);
@@ -51,7 +52,59 @@ function WikiDock() {
   const done = useWiki(
     (w) => w.queue.filter((q) => q.state !== "queued" && q.state !== "running").length,
   );
+  const current = useWiki((w) => w.queue.find((q) => q.state === "running"));
   const on = screen === "wiki";
+  if (running && total > 0) {
+    return (
+      <Box
+        onClick={() => setScreen("wiki")}
+        title="위키 반영 중 — 눌러서 위키 화면으로"
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 5,
+          padding: "6px 7px",
+          borderRadius: 5,
+          cursor: "pointer",
+          background: AI.soft,
+          border: `1px solid ${on ? AI.bd : AI.softBd}`,
+        }}
+        hover={{ borderColor: AI.bd }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12, fontWeight: 600, color: AI.fg }}>
+          <span style={{ width: 12, display: "flex", justifyContent: "center" }}>
+            <AiSignal size={6} />
+          </span>
+          위키 반영
+          <span
+            style={{
+              marginLeft: "auto",
+              flex: "0 0 auto",
+              fontFamily: "'Roboto Mono',monospace",
+              fontSize: 11.5,
+              fontWeight: 500,
+            }}
+          >
+            {Math.min(done + 1, total)}/{total}
+          </span>
+        </div>
+        <div style={{ borderRadius: 1, overflow: "hidden" }}>
+          <AiRail pct={done / total} />
+        </div>
+        {current && (
+          <div
+            title={`${current.title}${current.step ? ` · ${current.step}` : ""}`}
+            style={{ fontSize: 11.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+          >
+            <AiStep>
+              {current.title}
+              {current.step ? ` · ${current.step}` : ""}
+            </AiStep>
+          </div>
+        )}
+      </Box>
+    );
+  }
   return (
     <Box
       onClick={() => setScreen("wiki")}
@@ -74,20 +127,20 @@ function WikiDock() {
           width: 9,
           height: 9,
           borderRadius: 2,
-          background: running ? "#a78bfa" : "#cfc6ec",
+          background: "#cfc6ec",
           flex: "0 0 9px",
         }}
       />
-      <span style={{ fontSize: 11.5, color: "#6a665e", flex: 1, minWidth: 0 }}>위키</span>
+      <span style={{ fontSize: 11.5, color: TEXT.sub, flex: 1, minWidth: 0 }}>위키</span>
       <span
         style={{
           fontFamily: "'Roboto Mono',monospace",
-          fontSize: 11,
-          color: running ? "#6a54c6" : "#8a857c",
+          fontSize: 11.5,
+          color: TEXT.sub,
           flex: "0 0 auto",
         }}
       >
-        {running ? `반영 중 ${done + 1}/${total}` : `${pages}페이지`}
+        {pages}페이지
       </span>
     </Box>
   );

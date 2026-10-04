@@ -66,8 +66,21 @@ describe("parseRecommend", () => {
     const got = parseRecommend(text, CANDS, 3);
     expect(got.parsed).toBe(true);
     expect(got.items).toEqual([
-      { id: "Tasks/q3", sim: 92, title: "Q3 보고서 작성", path: "Tasks/q3/index.md", cluster: null },
+      {
+        id: "Tasks/q3",
+        sim: 92,
+        title: "Q3 보고서 작성",
+        path: "Tasks/q3/index.md",
+        cluster: null,
+        reason: "분기 보고서",
+      },
     ]);
+  });
+
+  /** 근거가 없거나 비었으면 키 자체를 두지 않는다 — 화면은 근거 줄을 그리지 않는다. */
+  it("omits an empty reason", () => {
+    const text = fence('{"items":[{"id":"Tasks/q3","sim":92,"reason":"  "}]}');
+    expect(parseRecommend(text, CANDS, 3).items[0]).not.toHaveProperty("reason");
   });
 
   /** 모델은 그럴듯한 폴더명을 만들어 낸다. 그것이 통과하면 없는 노트를 열려고 한다. */

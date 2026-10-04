@@ -293,6 +293,8 @@ export async function askWiki(o: {
   scope?: AskScope | null;
   signal?: AbortSignal;
   onPartial?: (text: string) => void;
+  /** 답하는 모델의 생각 토큰 — 받은 길이와 마지막 줄(`runOnce` 의 `onThinking`). */
+  onThinking?: (length: number, tail: string) => void;
   /** 진행 단계 한 줄(웹 검색 · 페이지 읽기 · 정리). */
   onStep?: (step: string) => void;
 }): Promise<AskOutcome> {
@@ -360,6 +362,7 @@ export async function askWiki(o: {
         signal: o.signal,
         // 검색 요청이 시작되면 그 앞까지만 보여 준다 — 펜스가 답처럼 흘러나오면 안 된다.
         onPartial: o.onPartial ? (t) => o.onPartial!(o.web ? stripWebFence(t) : t) : undefined,
+        onThinking: o.onThinking,
       },
     );
     canceled(o.signal);

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { Box, Span } from "../../lib/ui";
-import { VIOLET } from "../../lib/design";
+import { Box, BusyLabel, Span } from "../../lib/ui";
+import { AI, VIOLET } from "../../lib/design";
 import { joinPath } from "../../lib/format";
 import { mdParse, splitFrontmatter } from "../../lib/markdown";
 import * as api from "../../lib/api";
@@ -404,6 +404,8 @@ export function LintPanel({ onOpen }: { onOpen: (path: string) => void }) {
   const [local, setLocal] = useState<api.WikiLintIssue[] | null>(null);
   const [aiIssues, setAiIssues] = useState<AiLintIssue[] | null>(null);
   const [busy, setBusy] = useState(false);
+  /** AI 검토를 시작한 시각 — 단추가 경과를 보여 준다. */
+  const [busyAt, setBusyAt] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { vault, archDays } = s.settings;
 
@@ -418,6 +420,7 @@ export function LintPanel({ onOpen }: { onOpen: (path: string) => void }) {
   const runAi = () => {
     if (!info.run || busy) return;
     setBusy(true);
+    setBusyAt(Date.now());
     setError(null);
     void aiLint({
       root: vault,
@@ -464,15 +467,21 @@ export function LintPanel({ onOpen }: { onOpen: (path: string) => void }) {
           </Box>
         )}
         <Box
+          role={busy ? "status" : undefined}
           style={{
             ...smallBtn,
-            color: info.run && !busy ? VIOLET : "#b5afa2",
-            border: `1px solid ${info.run && !busy ? "#d8cdf6" : "#e0dcd4"}`,
+            minWidth: busy ? 130 : undefined,
+            color: busy ? AI.fg : info.run ? VIOLET : "#b5afa2",
+            border: `1px solid ${busy ? AI.bd : info.run ? "#d8cdf6" : "#e0dcd4"}`,
+            background: busy ? AI.bg : smallBtn.background,
+            fontWeight: busy ? 600 : undefined,
             cursor: info.run && !busy ? "pointer" : "default",
           }}
           onClick={runAi}
         >
-          {busy ? "AI 검토 중…" : "AI 검토 (모순 · 빠진 페이지)"}
+          <BusyLabel busy={busy} since={busyAt} ai idle="AI 검토 (모순 · 빠진 페이지)">
+            AI 검토 중
+          </BusyLabel>
         </Box>
         {!info.run && <span style={hint}>AI 검토에는 위키 질의 연결이 필요합니다</span>}
       </div>

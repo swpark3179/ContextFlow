@@ -593,6 +593,16 @@ interface State {
   ntLoading: boolean;
   ntEngine: string;
   ntNote: string;
+  /**
+   * AI 가 다시 매기기 전의 로컬 점수(업무 id → 점수). AI 결과로 바뀐 뒤에도 "로컬 81" 처럼
+   * 무엇이 바뀌었는지 보여 주려고 남긴다. AI 결과가 아니면 `null`.
+   */
+  ntLocal: Record<string, number> | null;
+  /** AI 추천을 시작한 시각(도는 중일 때만) · 끝나기까지 걸린 시간(끝난 뒤). */
+  ntAiAt: number | null;
+  ntAiMs: number | null;
+  /** AI 결과로 순서가 바뀌었다. */
+  ntReordered: boolean;
   recTag: Record<string, string>;
   /** [참고만 하기] 로 고른 업무들의 폴더 경로. `createTask` 가 이 파일들을 복사해 온다. */
   ntRefs: string[];
@@ -1214,6 +1224,10 @@ export const useStore = create<State & Actions>((set, get) => ({
   ntLoading: false,
   ntEngine: "local",
   ntNote: "",
+  ntLocal: null,
+  ntAiAt: null,
+  ntAiMs: null,
+  ntReordered: false,
   recTag: {},
   ntRefs: [],
   ntBusy: false,
@@ -2480,7 +2494,7 @@ export const useStore = create<State & Actions>((set, get) => ({
     const { nt, settings, tasks } = get();
     const query = `${nt.title} ${nt.summary}`.trim();
     if (nt.title.trim().length < 2) {
-      set({ ntRecs: [], ntLoading: false });
+      set({ ntRecs: [], ntLoading: false, ntLocal: null, ntAiAt: null, ntAiMs: null, ntReordered: false });
       return;
     }
     const candidates: api.RecCandidate[] = tasks.map((t) => ({
@@ -2498,7 +2512,8 @@ export const useStore = create<State & Actions>((set, get) => ({
     try {
       local = await api.recommendTasks(query, candidates, settings.threshold);
     } catch (e) {
-      if (!stale()) set({ ntRecs: [], ntLoading: false, ntNote: api.errMessage(e) });
+      if (!stale())
+        set({ ntRecs: [], ntLoading: false, ntNote: api.errMessage(e), ntLocal: null, ntAiAt: null, ntAiMs: null });
       return;
     }
     if (stale()) return;
@@ -2510,19 +2525,42 @@ export const useStore = create<State & Actions>((set, get) => ({
         ntLoading: false,
         ntEngine: local.engine,
         ntNote: local.note,
+        ntLocal: null,
+        ntAiAt: null,
+        ntAiMs: null,
+        ntReordered: false,
       });
       return;
     }
 
     // 로컬 결과를 먼저 보여 주되 엔진은 AI 로 표시한다 — 지금 도는 것이 그쪽이고,
     // 화면의 "분석 중" 라벨도 이 값에서 나온다.
-    set({ ntRecs: local.items, ntEngine: active.agentId, ntNote: "AI 추천 중…" });
+    const aiAt = Date.now();
+    set({
+      ntRecs: local.items,
+      ntEngine: active.agentId,
+      ntNote: "AI 추천 중…",
+      ntLocal: null,
+      ntAiAt: aiAt,
+      ntAiMs: null,
+      ntReordered: false,
+    });
 
     const ai = await aiRecommend({ active, query, candidates, threshold: settings.threshold });
     if (stale()) return;
     if ("result" in ai) {
       const r = ai.result;
-      set({ ntRecs: r.items, ntLoading: false, ntEngine: r.engine, ntNote: r.note });
+      const order = (items: api.Recommendation[]) => items.map((x) => x.id).join("\n");
+      set({
+        ntRecs: r.items,
+        ntLoading: false,
+        ntEngine: r.engine,
+        ntNote: r.note,
+        ntLocal: Object.fromEntries(local.items.map((x) => [x.id, x.sim])),
+        ntAiAt: null,
+        ntAiMs: Date.now() - aiAt,
+        ntReordered: order(r.items) !== order(local.items),
+      });
     } else {
       // 폴백. 이미 손에 있는 로컬 결과를 그대로 쓰고 사유를 덧붙인다 — 잘림 · 형식 위반 ·
       // 연결 실패는 사용자가 할 수 있는 조치가 각각 다르다.
@@ -2531,6 +2569,10 @@ export const useStore = create<State & Actions>((set, get) => ({
         ntLoading: false,
         ntEngine: local.engine,
         ntNote: `${local.note} · AI 추천 실패로 대체 — ${ai.reason}`,
+        ntLocal: null,
+        ntAiAt: null,
+        ntAiMs: null,
+        ntReordered: false,
       });
     }
   },

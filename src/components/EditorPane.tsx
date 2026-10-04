@@ -12,7 +12,7 @@ import BrainstormPane, { BrainstormViewTabs } from "./BrainstormPane";
 import MarkdownView from "./MarkdownView";
 
 const MODE_BADGE: Record<TabMode, { label: string; fg: string; bg: string; bar: string }> = {
-  md: { label: "MD", fg: "#5a44b4", bg: "#f2eefc", bar: "#6a54c6" },
+  md: { label: "MD", fg: "#2f6f80", bg: "#e8f3f5", bar: "#3f8ea3" },
   html: { label: "HTML", fg: "#8f5d17", bg: "#fbf3e6", bar: "#b07520" },
   text: { label: "TXT", fg: "#2f5cbb", bg: "#eef3fd", bar: "#3a6fd8" },
   bstorm: { label: "BS", fg: "#256b47", bg: "#e9f4ee", bar: "#2f7f57" },
