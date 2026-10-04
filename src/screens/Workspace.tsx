@@ -5,6 +5,7 @@ import EditorPane from "../components/EditorPane";
 import Notepad from "../components/Notepad";
 import Explorer from "../components/Explorer";
 import CategoryPicker, { CategoryChip } from "../components/CategoryPicker";
+import AssistMenu from "../components/AssistMenu";
 import { isArchived, useStore } from "../store/useStore";
 import type { TaskMeta } from "../lib/api";
 
@@ -225,6 +226,8 @@ export default function Workspace() {
           </>
         )}
         <div style={{ flex: 1 }} />
+        {/* AI 도우미는 살아 있는 업무에만 — 보관된 업무의 index.md 에 정리를 덧붙일 일은 없다. */}
+        {!isArchived(task, s.settings.archDays) && s.screen !== "archive" && <AssistMenu folder={task.folder} />}
         <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: "#8a857c" }}>
           <div style={{ width: 5, height: 5, borderRadius: "50%", background: GREEN }} />
           <span>스냅샷 {s.snapAt}</span>

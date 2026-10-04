@@ -107,7 +107,16 @@ pub struct ActiveChoice {
 /// 지점마다 그 요청의 **출력 계약 앞**에 붙는다. 시스템 프롬프트에는 주입하지 않는다 —
 /// 판단의 정체성을 사용자 지침이 통과하면 결과가 왜 기울었는지 추적할 수 없다
 /// (`src/lib/promptPacks.ts` 참조).
-pub const HOOKS: [&str; 6] = ["recommend.rank", "wiki.ingest", "wiki.query", "wiki.lint", "wiki.web", "iwms.refine"];
+pub const HOOKS: [&str; 8] = [
+    "recommend.rank",
+    "wiki.ingest",
+    "wiki.query",
+    "wiki.lint",
+    "wiki.web",
+    "iwms.refine",
+    "task.guide",
+    "task.brief",
+];
 
 /// 훅 하나에 붙일 수 있는 팩 수. 프롬프트가 무한정 길어지는 것을 막는 1차 방어선이다.
 pub const MAX_PACKS_PER_HOOK: usize = 5;
@@ -119,7 +128,9 @@ pub const MAX_PACKS_PER_HOOK: usize = 5;
 /// 본문이 길고 잡음이 많아 값싸고 빠른 모델을 따로 두면 질의 모델의 문맥을 아낀다.
 /// `iwms.refine` 은 오늘의 한일을 i-WMS 업무량으로 정제하는 일이다(`docs/IWMS-ROADMAP.md`) — 업무 내용이
 /// 나가므로 사내 연결만 쓰게 따로 고를 수 있어야 한다.
-pub const ROUTES: [&str; 4] = ["wiki.ingest", "wiki.query", "wiki.web", "iwms.refine"];
+/// `task.guide` · `task.brief` 는 워크스페이스의 업무 AI 도우미다 — 위키를 근거로 지금 업무의 가이드를 쓰는
+/// 일과, 한두 줄 입력을 개요 · 할 일 · 일정으로 정리하며 빠진 것을 묻는 일. 둘 다 업무 내용이 나간다.
+pub const ROUTES: [&str; 6] = ["wiki.ingest", "wiki.query", "wiki.web", "iwms.refine", "task.guide", "task.brief"];
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
@@ -348,6 +359,11 @@ mod tests {
         assert_eq!(s.routes["wiki.ingest"].model, "m");
         s.set_route("wiki.web", pick("codex")).unwrap();
         assert_eq!(s.routes["wiki.web"].agent_id, "codex");
+        // 업무 AI 도우미 두 기능도 따로 고른다.
+        s.set_route("task.guide", pick("claude")).unwrap();
+        s.set_route("task.brief", pick("fabrix")).unwrap();
+        assert_eq!(s.routes["task.guide"].agent_id, "claude");
+        assert_eq!(s.routes["task.brief"].agent_id, "fabrix");
         // 빈 연결은 "기본 연결 따름" — 키 자체를 지운다.
         s.set_route("wiki.query", pick("claude")).unwrap();
         s.set_route("wiki.query", pick("  ")).unwrap();
@@ -476,6 +492,15 @@ mod tests {
             s.set_prompt_hook(h, vec!["a.md".into()]).unwrap();
         }
         assert_eq!(s.prompts.hooks.len(), 4);
+    }
+
+    #[test]
+    fn task_assist_hooks_are_accepted() {
+        let mut s = AiSettings::default();
+        for h in ["task.guide", "task.brief"] {
+            s.set_prompt_hook(h, vec!["a.md".into()]).unwrap();
+        }
+        assert_eq!(s.prompts.hooks.len(), 2);
     }
 
     #[test]

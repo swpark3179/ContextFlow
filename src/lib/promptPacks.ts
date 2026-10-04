@@ -25,7 +25,9 @@ export type PromptHook =
   | "wiki.query"
   | "wiki.lint"
   | "wiki.web"
-  | "iwms.refine";
+  | "iwms.refine"
+  | "task.guide"
+  | "task.brief";
 
 export const PROMPT_HOOKS: { id: PromptHook; label: string; note: string }[] = [
   { id: "recommend.rank", label: "추천 순위", note: "순위 요청의 출력 형식 앞" },
@@ -45,6 +47,16 @@ export const PROMPT_HOOKS: { id: PromptHook; label: string; note: string }[] = [
     id: "iwms.refine",
     label: "i-WMS 정제",
     note: "오늘의 한일을 i-WMS 업무량으로 정제하는 요청의 출력 형식 앞 (예: 팀의 상세내용 작성 관례)",
+  },
+  {
+    id: "task.guide",
+    label: "위키 가이드",
+    note: "위키로 지금 업무의 가이드를 쓰는 요청의 출력 형식 앞 (예: 꼭 넣을 점검 항목 · 팀 용어)",
+  },
+  {
+    id: "task.brief",
+    label: "간략 입력 정리",
+    note: "한두 줄 입력을 개요 · 할 일 · 일정으로 정리하는 요청의 출력 형식 앞 (예: 할 일을 쪼개는 단위 · 담당 표기)",
   },
 ];
 
