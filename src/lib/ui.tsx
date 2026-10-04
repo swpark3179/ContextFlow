@@ -15,7 +15,7 @@ import {
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
 } from "react";
-import { AI, type AiSignalKind } from "./design";
+import { AI, TEXT, type AiSignalKind } from "./design";
 
 type BoxProps = HTMLAttributes<HTMLDivElement> & {
   style?: CSSProperties;
@@ -375,7 +375,7 @@ export function BusyLabel({
   idle,
 }: {
   busy: boolean;
-  /** 시작 시각. 주면 3초 뒤부터 경과 시간을 붙인다. */
+  /** 시작 시각. 없으면 바빠진 순간부터 잰다. 3초 뒤부터 경과 시간을 붙인다. */
   since?: number | null;
   ai?: boolean;
   color?: string;
@@ -384,13 +384,17 @@ export function BusyLabel({
   /** 바쁠 때의 글자(‘…’ 없이). */
   children: ReactNode;
 }) {
-  const ms = useElapsed(busy ? since : null);
+  // 시작 시각을 모르는 단추(스토어의 busy 깃발만 있는 곳)는 바빠진 순간을 스스로 잡는다.
+  const [own, setOwn] = useState<number | null>(null);
+  useEffect(() => setOwn(busy ? Date.now() : null), [busy]);
+  const start = since ?? own;
+  const ms = useElapsed(busy ? start : null);
   if (!busy) return <>{idle}</>;
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 8, width: "100%", whiteSpace: "nowrap" }}>
       <AiSignal size={6} color={color ?? (ai ? AI.dot : "currentColor")} />
       <span>{children}</span>
-      {since && ms >= ELAPSED_AFTER_MS && (
+      {start && ms >= ELAPSED_AFTER_MS && (
         <span
           style={{
             marginLeft: "auto",
@@ -404,5 +408,102 @@ export function BusyLabel({
         </span>
       )}
     </span>
+  );
+}
+
+/**
+ * 기다리는 동안의 안내 띠 — 신호 점 · 흐르는 라벨 · 받은 글자 수(또는 생각 글자 수) · 경과 ·
+ * [취소]. 모달 본문 맨 위에 둔다. AI 가 아닌 대기(`ai={false}`, 파일 읽기 등)는 같은 모양을
+ * 회색으로 쓴다.
+ */
+export function AiWaitBar({
+  since,
+  label,
+  ai = true,
+  chars,
+  thinking,
+  onCancel,
+  style,
+}: {
+  since: number | null;
+  label: ReactNode;
+  ai?: boolean;
+  /** 받은 답의 글자 수. 있으면 생각 글자 수보다 앞선다. */
+  chars?: number | null;
+  /** 받은 생각 토큰의 글자 수 — 답이 오기 전에 추론 모델이 생각하는 동안. */
+  thinking?: number | null;
+  onCancel?: (() => void) | null;
+  style?: CSSProperties;
+}) {
+  const ms = useElapsed(since);
+  const count = chars
+    ? `${chars.toLocaleString()}자`
+    : thinking
+      ? `생각 ${thinking.toLocaleString()}자`
+      : null;
+  return (
+    <div
+      role="status"
+      style={{
+        margin: "9px 14px 2px",
+        display: "flex",
+        alignItems: "center",
+        gap: 9,
+        flexWrap: "wrap",
+        fontSize: 12.5,
+        fontWeight: 500,
+        padding: "6px 9px",
+        borderRadius: 6,
+        background: ai ? AI.soft : "#faf9f6",
+        border: `1px solid ${ai ? AI.softBd : "#ece8e0"}`,
+        ...style,
+      }}
+    >
+      <span style={{ width: 14, display: "flex", justifyContent: "center" }}>
+        <AiSignal color={ai ? AI.dot : "#8a857c"} />
+      </span>
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <AiStep tone={ai ? "ai" : "ink"}>{label}</AiStep>
+      </span>
+      {count && (
+        <span style={{ flex: "0 0 auto", fontFamily: "'Roboto Mono',monospace", fontSize: 11.5, color: TEXT.body }}>
+          {count}
+        </span>
+      )}
+      {since !== null && (
+        <span
+          style={{
+            flex: "0 0 auto",
+            fontFamily: "'Roboto Mono',monospace",
+            fontSize: 11.5,
+            color: ai ? AI.fg : TEXT.sub,
+          }}
+        >
+          {fmtSec(ms)}
+        </span>
+      )}
+      {onCancel && (
+        <Box
+          onClick={onCancel}
+          style={{
+            flex: "0 0 auto",
+            height: 22,
+            display: "inline-flex",
+            alignItems: "center",
+            padding: "0 8px",
+            borderRadius: 4,
+            border: "1px solid #ddd8cf",
+            background: "#fff",
+            fontSize: 11.5,
+            fontWeight: 400,
+            color: TEXT.ink,
+            cursor: "pointer",
+          }}
+          hover={{ background: "#f2efe9" }}
+        >
+          취소
+        </Box>
+      )}
+    </div>
   );
 }

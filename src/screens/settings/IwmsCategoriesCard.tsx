@@ -83,7 +83,7 @@ export default function IwmsCategoriesCard() {
             style={{ ...inputMono, width: 140 }}
             focusStyle={inputFocus}
           />
-          <Btn label={loading ? "불러오는 중…" : "불러오기"} disabled={loading || !date} onClick={() => void load()} />
+          <Btn label="불러오기" busy={loading} busyLabel="불러오는 중" disabled={!date} onClick={() => void load()} />
           <span style={{ ...hintStyle, marginLeft: 4 }}>
             {day
               ? `탭 ${day.tabs.length} · 카테고리 ${day.categories.length} · 지정 ${designated.length}`

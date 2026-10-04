@@ -1,10 +1,10 @@
 import { useMemo } from "react";
-import { Box, Input } from "../lib/ui";
-import { statusOf, VIOLET } from "../lib/design";
+import { Box, BusyLabel, Input } from "../lib/ui";
+import { BLUE, statusOf } from "../lib/design";
 import { basename } from "../lib/format";
 import { sanitizeFolderName } from "../lib/vaultPaths";
 import { isArchived, useStore } from "../store/useStore";
-import { GhostButton, inputFocus, inputStyle, labelStyle, Modal, ModalFooter } from "./Modal";
+import { GhostButton, PrimaryButton, inputFocus, inputStyle, labelStyle, Modal, ModalFooter } from "./Modal";
 
 /**
  * 업무 편입 — 한 업무의 폴더 전체를 다른 업무의 하위 폴더로 옮긴다.
@@ -157,7 +157,7 @@ export default function AbsorbModal() {
                       height: 12,
                       borderRadius: "50%",
                       flex: "0 0 12px",
-                      border: `1px solid ${on ? VIOLET : "#cfcabf"}`,
+                      border: `1px solid ${on ? BLUE : "#cfcabf"}`,
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
@@ -168,7 +168,7 @@ export default function AbsorbModal() {
                         width: 6,
                         height: 6,
                         borderRadius: "50%",
-                        background: on ? VIOLET : "transparent",
+                        background: on ? BLUE : "transparent",
                       }}
                     />
                   </div>
@@ -257,24 +257,11 @@ export default function AbsorbModal() {
       <ModalFooter>
         <div style={{ flex: 1 }} />
         <GhostButton onClick={() => !absorb.busy && s.set({ absorb: null })}>취소</GhostButton>
-        <Box
-          onClick={() => ready && void s.doAbsorb()}
-          style={{
-            height: 28,
-            padding: "0 15px",
-            display: "flex",
-            alignItems: "center",
-            borderRadius: 5,
-            fontSize: 12.5,
-            fontWeight: 600,
-            background: ready ? VIOLET : "#e6e2da",
-            color: ready ? "#fff" : "#a09a8f",
-            cursor: ready ? "pointer" : "not-allowed",
-          }}
-          hover={ready ? { background: "#5a44b4" } : undefined}
-        >
-          {absorb.busy ? "옮기는 중…" : "편입 실행"}
-        </Box>
+        <PrimaryButton onClick={() => void s.doAbsorb()} disabled={!target} busy={absorb.busy} minWidth={110}>
+          <BusyLabel busy={absorb.busy} color="#fff" idle="편입 실행">
+            옮기는 중
+          </BusyLabel>
+        </PrimaryButton>
       </ModalFooter>
     </Modal>
   );

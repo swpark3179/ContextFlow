@@ -92,35 +92,49 @@ export function GhostButton({ onClick, children }: { onClick: () => void; childr
   );
 }
 
+/**
+ * 주 단추. `busy` 는 눌러 둔 일이 도는 중 — 눌리지 않지만 비활성(회색)이 아니라 진한 바탕을
+ * 지킨다. 회색이면 안의 신호 점(`BusyLabel`)이 묻히고 멈춘 단추와 갈리지 않는다. 폭은
+ * `minWidth` 로 고정해 글자가 바뀌어도 흔들리지 않는다.
+ */
 export function PrimaryButton({
   onClick,
   children,
   disabled,
+  busy,
   bg = "#3a6fd8",
   hoverBg = "#2f5cbb",
+  minWidth,
 }: {
   onClick: () => void;
   children: ReactNode;
   disabled?: boolean;
+  busy?: boolean;
   bg?: string;
   hoverBg?: string;
+  minWidth?: number;
 }) {
+  const off = disabled && !busy;
   return (
     <Box
-      onClick={() => !disabled && onClick()}
+      role={busy ? "status" : undefined}
+      onClick={() => !disabled && !busy && onClick()}
       style={{
         height: 28,
+        minWidth,
         padding: "0 15px",
         display: "flex",
         alignItems: "center",
+        justifyContent: "center",
         borderRadius: 5,
         fontSize: 12.5,
         fontWeight: 600,
-        background: disabled ? "#e6e2da" : bg,
-        color: disabled ? "#a09a8f" : "#fff",
-        cursor: disabled ? "not-allowed" : "pointer",
+        whiteSpace: "nowrap",
+        background: busy ? hoverBg : off ? "#e6e2da" : bg,
+        color: off ? "#a09a8f" : "#fff",
+        cursor: busy ? "progress" : off ? "not-allowed" : "pointer",
       }}
-      hover={disabled ? undefined : { background: hoverBg }}
+      hover={disabled || busy ? undefined : { background: hoverBg }}
     >
       {children}
     </Box>

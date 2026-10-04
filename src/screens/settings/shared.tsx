@@ -5,8 +5,8 @@
  * 옮겨 온 관례이므로 AI 카드도 같은 방식을 따른다.
  */
 import type { CSSProperties, ReactNode } from "react";
-import { Box, Input, TextArea } from "../../lib/ui";
-import { GREEN } from "../../lib/design";
+import { AiSignal, Box, BusyLabel, Input, TextArea } from "../../lib/ui";
+import { AI, GREEN, TEXT } from "../../lib/design";
 import type { DetectedAgent } from "../../lib/ai";
 import { DIAGNOSTIC_HINT, MODELS_SOURCE_LABEL } from "../../lib/ai";
 
@@ -116,40 +116,62 @@ export function Toggle({ on, onClick }: { on: boolean; onClick: () => void }) {
 }
 
 /** 버튼. `primary` 는 저장처럼 되돌리기 어려운 동작에만. */
+/**
+ * 설정 카드의 단추. `busy` 면 눌리지 않지만 흐려지지 않고 신호 점 · `busyLabel` · 경과 시간을
+ * 보인다(`BusyLabel`) — 흐린 글자 하나로는 멈춘 단추와 갈리지 않았다. AI 를 기다리는 단추는
+ * `ai` 로 보라를 쓴다.
+ */
 export function Btn({
   label,
   onClick,
   primary,
   disabled,
+  busy,
+  busyLabel,
+  ai,
 }: {
   label: string;
   onClick: () => void;
   primary?: boolean;
   disabled?: boolean;
+  busy?: boolean;
+  /** 바쁠 때의 글자(‘…’ 없이). */
+  busyLabel?: string;
+  ai?: boolean;
 }) {
+  const off = disabled && !busy;
+  const tone = busy && ai
+    ? { bd: AI.bd, bg: AI.bg, fg: AI.fg }
+    : primary
+      ? { bd: "#cddcf8", bg: "#eef3fd", fg: "#2f5cbb" }
+      : { bd: "#ddd8cf", bg: "#f7f5f1", fg: "#4e4a43" };
   return (
     <Box
+      role={busy ? "status" : undefined}
       onClick={() => {
-        if (!disabled) onClick();
+        if (!disabled && !busy) onClick();
       }}
       style={{
         height: 28,
+        minWidth: busy ? 96 : undefined,
         padding: "0 12px",
         display: "flex",
         alignItems: "center",
-        border: `1px solid ${primary ? "#cddcf8" : "#ddd8cf"}`,
+        border: `1px solid ${tone.bd}`,
         borderRadius: 5,
-        background: primary ? "#eef3fd" : "#f7f5f1",
+        background: tone.bg,
         fontSize: 12.5,
-        fontWeight: primary ? 600 : 400,
-        color: disabled ? "#b5afa2" : primary ? "#2f5cbb" : "#4e4a43",
-        cursor: disabled ? "default" : "pointer",
+        fontWeight: primary || (busy && ai) ? 600 : 400,
+        color: off ? "#b5afa2" : tone.fg,
+        cursor: busy ? "progress" : off ? "default" : "pointer",
         whiteSpace: "nowrap",
-        opacity: disabled ? 0.6 : 1,
+        opacity: off ? 0.6 : 1,
       }}
-      hover={disabled ? undefined : { background: primary ? "#e2ebfb" : "#ece8e0" }}
+      hover={off || busy ? undefined : { background: primary ? "#e2ebfb" : "#ece8e0" }}
     >
-      {label}
+      <BusyLabel busy={!!busy} ai={ai} idle={label}>
+        {busyLabel ?? label}
+      </BusyLabel>
     </Box>
   );
 }
@@ -322,8 +344,17 @@ export function ConnectionPanel({
         >
           {kind === "local" ? "로컬 CLI" : "원격 API"}
         </span>
-        <span style={{ ...HINT, fontSize: 11, color: ok ? "#3c7d5c" : "#8a857c" }}>
-          {loading ? "확인 중…" : ok ? "연결됨" : "연결 안 됨"}
+        <span
+          style={{
+            ...HINT,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            color: loading ? TEXT.body : ok ? "#256b47" : TEXT.sub,
+          }}
+        >
+          {loading && <AiSignal size={6} color="#8a857c" />}
+          {loading ? "확인 중" : ok ? "연결됨" : "연결 안 됨"}
         </span>
       </div>
       {children}

@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import { Box, Input, Span } from "../lib/ui";
+import { Box, BusyLabel, Input, Span } from "../lib/ui";
 import { statusOf } from "../lib/design";
 import type { TaskMeta } from "../lib/api";
 import {
@@ -481,13 +481,24 @@ function CategoryBody() {
                 {edit.mode === "path" ? (
                   <PrimaryButton
                     disabled={!editReady}
+                    busy={m.busy}
+                    minWidth={118}
                     onClick={() => void s.moveCategoryNode(node, edit.value, merging)}
                   >
-                    {m.busy ? "바꾸는 중…" : `${merging ? "합치기" : "바꾸기"} (${n}건)`}
+                    <BusyLabel busy={m.busy} color="#fff" idle={`${merging ? "합치기" : "바꾸기"} (${n}건)`}>
+                      바꾸는 중
+                    </BusyLabel>
                   </PrimaryButton>
                 ) : (
-                  <PrimaryButton disabled={!editReady} onClick={() => void s.clearCategoryNode(node, edit.to)}>
-                    {m.busy ? "해제하는 중…" : `해제 (${n}건)`}
+                  <PrimaryButton
+                    disabled={!editReady}
+                    busy={m.busy}
+                    minWidth={118}
+                    onClick={() => void s.clearCategoryNode(node, edit.to)}
+                  >
+                    <BusyLabel busy={m.busy} color="#fff" idle={`해제 (${n}건)`}>
+                      해제하는 중
+                    </BusyLabel>
                   </PrimaryButton>
                 )}
               </div>
@@ -596,15 +607,20 @@ function CategoryBody() {
                   onCommit={(v) => s.setCatTarget(v ?? "", v === null)}
                 />
               </div>
-              <PrimaryButton disabled={!assignReady} onClick={() => void s.applyCatMgr()}>
+              <PrimaryButton
+                disabled={!assignReady}
+                busy={m.busy && !retrying}
+                minWidth={118}
+                onClick={() => void s.applyCatMgr()}
+              >
                 <span style={{ maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {m.busy && !retrying
-                    ? "지정하는 중…"
-                    : m.targetNone
-                      ? "미분류로 되돌리기"
-                      : assignTo
-                        ? `‘${label(assignTo)}’ 로 지정`
-                        : "지정"}
+                  <BusyLabel
+                    busy={m.busy && !retrying}
+                    color="#fff"
+                    idle={m.targetNone ? "미분류로 되돌리기" : assignTo ? `‘${label(assignTo)}’ 로 지정` : "지정"}
+                  >
+                    지정하는 중
+                  </BusyLabel>
                 </span>
               </PrimaryButton>
             </div>
@@ -703,7 +719,9 @@ function CategoryBody() {
                     }}
                     hover={{ background: "#fbe9e7" }}
                   >
-                    {retrying ? "다시 시도하는 중…" : "다시 시도"}
+                    <BusyLabel busy={retrying} idle="다시 시도">
+                      다시 시도하는 중
+                    </BusyLabel>
                   </Box>
                 )}
                 <Box

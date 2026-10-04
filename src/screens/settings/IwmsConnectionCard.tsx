@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Input } from "../../lib/ui";
-import { GREEN } from "../../lib/design";
+import { AiSignal, Input } from "../../lib/ui";
+import { GREEN, TEXT } from "../../lib/design";
 import * as api from "../../lib/api";
 import { settingUrl } from "../../lib/iwms/types";
 import { useIwms } from "../../store/iwmsStore";
@@ -59,10 +59,16 @@ export default function IwmsConnectionCard() {
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
-          <span style={{ color: iw.connecting ? "#d9a13b" : ok ? GREEN : "#b5afa2" }}>●</span>
-          <span style={{ color: ok ? "#3a3630" : "#8a857c", minWidth: 0, flex: 1 }}>
+          {iw.connecting ? (
+            <span style={{ width: 9, display: "flex", justifyContent: "center" }}>
+              <AiSignal size={6} color="#8a857c" />
+            </span>
+          ) : (
+            <span style={{ color: ok ? GREEN : "#b5afa2" }}>●</span>
+          )}
+          <span style={{ color: ok || iw.connecting ? "#3a3630" : TEXT.sub, minWidth: 0, flex: 1 }}>
             {iw.connecting
-              ? "연결 중… 열린 i-WMS 창에서 로그인이 끝나면 저절로 닫힙니다"
+              ? "연결 중 — 열린 i-WMS 창에서 로그인이 끝나면 저절로 닫힙니다"
               : ok
                 ? `연결됨 · ${who}`
                 : (st?.message ?? "연결되지 않음")}

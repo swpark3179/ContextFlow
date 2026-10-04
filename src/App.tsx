@@ -26,7 +26,7 @@ import RenameTaskModal from "./modals/RenameTaskModal";
 import AbsorbModal from "./modals/AbsorbModal";
 import SplitModal from "./modals/SplitModal";
 import CategoryModal from "./modals/CategoryModal";
-import { Box, applyMotion, setAiSignalKind } from "./lib/ui";
+import { AiSignal, AiStep, Box, applyMotion, setAiSignalKind } from "./lib/ui";
 import { emptyNewTask, lastReloadAt, useStore } from "./store/useStore";
 import { RELOAD_DELAY_MS, shouldReload } from "./lib/focus";
 import { useAi } from "./store/aiStore";
@@ -255,11 +255,13 @@ export default function App() {
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
+                gap: 9,
                 fontSize: 13,
-                color: "#8a857c",
               }}
             >
-              Vault를 읽는 중…
+              {/* 파일을 읽는 대기(AI 아님) — 같은 모양을 회색으로. */}
+              <AiSignal color="#8a857c" />
+              <AiStep tone="ink">Vault를 읽는 중</AiStep>
             </div>
           )}
           {s.ready && s.bootError && (

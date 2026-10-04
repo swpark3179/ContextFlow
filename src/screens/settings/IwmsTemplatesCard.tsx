@@ -115,8 +115,10 @@ export default function IwmsTemplatesCard() {
             <span style={{ fontSize: 12.5, fontWeight: 500 }}>카테고리별 샘플</span>
             <div style={{ flex: 1 }} />
             <Btn
-              label={importing ? "가져오는 중…" : "i-WMS 템플릿 가져오기"}
-              disabled={importing || !designated.length}
+              label="i-WMS 템플릿 가져오기"
+              busy={importing}
+              busyLabel="가져오는 중"
+              disabled={!designated.length}
               onClick={() => void importTemplates()}
             />
           </div>
@@ -276,7 +278,7 @@ function TryOut() {
         />
         <Chip on={price === "O"} label="대가포함" onClick={() => setPrice("O")} />
         <Chip on={price === "N"} label="대가미포함" onClick={() => setPrice("N")} />
-        <Btn label={busy ? "정제 중…" : "시험"} disabled={busy || !title.trim()} onClick={() => void run()} />
+        <Btn label="시험" busy={busy} busyLabel="정제 중" ai disabled={!title.trim()} onClick={() => void run()} />
       </div>
       <Input
         value={body}

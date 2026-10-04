@@ -183,9 +183,11 @@ export default function WebSearchCard() {
         </div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
           <Btn
-            label={probe?.running ? "검색 중…" : "검색 테스트"}
+            label="검색 테스트"
+            busy={!!probe?.running}
+            busyLabel="검색 중"
             onClick={test}
-            disabled={!!probe?.running || found?.source === "not-found"}
+            disabled={found?.source === "not-found"}
           />
           {found?.running && (
             <Btn label="브라우저 닫기" onClick={() => void api.browserClose().then(detect).catch(() => {})} />

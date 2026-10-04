@@ -1,11 +1,11 @@
 import { useMemo } from "react";
-import { Box, Input, TextArea } from "../lib/ui";
-import { extOf, extStyle, VIOLET } from "../lib/design";
+import { Box, BusyLabel, Input, TextArea } from "../lib/ui";
+import { BLUE, extOf, extStyle } from "../lib/design";
 import { BSTORM_EXT } from "../lib/bstorm";
 import { sanitizeFolderName } from "../lib/vaultPaths";
 import { useStore } from "../store/useStore";
 import CategoryPicker from "../components/CategoryPicker";
-import { GhostButton, inputFocus, inputStyle, labelStyle, Modal, ModalFooter } from "./Modal";
+import { GhostButton, PrimaryButton, inputFocus, inputStyle, labelStyle, Modal, ModalFooter } from "./Modal";
 
 /** 트리와 같은 확장자 배지. `.bs.md` 는 `md` 가 아니라 BS 로 가른다(`Explorer` 와 같다). */
 function badgeFor(path: string, dir: boolean): { label: string; fg: string; bg: string } {
@@ -184,8 +184,8 @@ export default function SplitModal() {
                       height: 14,
                       borderRadius: 3,
                       flex: "0 0 14px",
-                      border: `1px solid ${on ? VIOLET : "#cfcabf"}`,
-                      background: on ? VIOLET : "#fff",
+                      border: `1px solid ${on ? BLUE : "#cfcabf"}`,
+                      background: on ? BLUE : "#fff",
                       color: "#fff",
                       fontSize: 11,
                       lineHeight: "13px",
@@ -365,24 +365,11 @@ export default function SplitModal() {
             : "옮길 항목을 하나 이상 고르세요"}
         </span>
         <GhostButton onClick={() => !split.busy && s.set({ split: null })}>취소</GhostButton>
-        <Box
-          onClick={() => ready && void s.doSplit()}
-          style={{
-            height: 28,
-            padding: "0 15px",
-            display: "flex",
-            alignItems: "center",
-            borderRadius: 5,
-            fontSize: 12.5,
-            fontWeight: 600,
-            background: ready ? VIOLET : "#e6e2da",
-            color: ready ? "#fff" : "#a09a8f",
-            cursor: ready ? "pointer" : "not-allowed",
-          }}
-          hover={ready ? { background: "#5a44b4" } : undefined}
-        >
-          {split.busy ? "옮기는 중…" : "분할 실행"}
-        </Box>
+        <PrimaryButton onClick={() => void s.doSplit()} disabled={!title || picked.length === 0} busy={split.busy} minWidth={110}>
+          <BusyLabel busy={split.busy} color="#fff" idle="분할 실행">
+            옮기는 중
+          </BusyLabel>
+        </PrimaryButton>
       </ModalFooter>
     </Modal>
   );
