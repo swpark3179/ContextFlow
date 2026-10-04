@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { Box, TextArea } from "../lib/ui";
+import { AiRail, AiSignal, AiStep, Box, BusyLabel, Skeleton, TextArea, fmtSec, useElapsed } from "../lib/ui";
+import { AI, TEXT } from "../lib/design";
 import * as api from "../lib/api";
 import * as iwmsApi from "../lib/iwms/api";
 import { problemsOf, rowsOf } from "../lib/iwms/check";
@@ -69,6 +70,11 @@ function PushView({ day }: { day: string }) {
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [table, setTable] = useState<CodeTable | null>(null);
   const [partial, setPartial] = useState(0);
+  /** 읽기 · 정제를 시작한 시각(경과 표시) · 정제에 걸린 시간(끝난 뒤 한 줄로). */
+  const [busyAt, setBusyAt] = useState<number>(() => Date.now());
+  const [refineMs, setRefineMs] = useState<number | null>(null);
+  /** [미리보기] · [최종 확정] · [되돌리기] 를 누른 시각 — 단추가 경과를 보여 준다. */
+  const [actAt, setActAt] = useState<number | null>(null);
   const [preview, setPreview] = useState<PreviewOut | null>(null);
   const [result, setResult] = useState<CommitOut | null>(null);
   const [undone, setUndone] = useState<UndoOut | null>(null);
@@ -85,6 +91,9 @@ function PushView({ day }: { day: string }) {
       setPhase("refining");
       setAiError("");
       setPartial(0);
+      setRefineMs(null);
+      const startedAt = Date.now();
+      setBusyAt(startedAt);
       const ctl = new AbortController();
       abort.current = ctl;
       try {
@@ -108,6 +117,7 @@ function PushView({ day }: { day: string }) {
         setTable(res.table);
         setDrafts(refit(mergeDrafts(prev, res.drafts), remainingOf(d), s));
         setAiError(res.error ?? "");
+        if (!res.error && res.drafts.length) setRefineMs(Date.now() - startedAt);
       } catch (e) {
         setAiError(api.errMessage(e));
       } finally {
@@ -209,6 +219,7 @@ function PushView({ day }: { day: string }) {
   const problems = problemsOf(live, iday);
 
   const doPreview = async () => {
+    setActAt(Date.now());
     setPhase("previewing");
     setError("");
     try {
@@ -223,6 +234,7 @@ function PushView({ day }: { day: string }) {
   /** 토큰은 한 번만 쓰인다 — 실패하면 검토로 돌아가 다시 미리본다. */
   const doCommit = async () => {
     if (!preview) return;
+    setActAt(Date.now());
     setPhase("saving");
     setError("");
     try {
@@ -238,6 +250,7 @@ function PushView({ day }: { day: string }) {
 
   const doUndo = async () => {
     if (!result) return;
+    setActAt(Date.now());
     setPhase("undoing");
     setError("");
     try {
@@ -251,6 +264,10 @@ function PushView({ day }: { day: string }) {
 
   const ai = routeInfo(useAi.getState(), "iwms.refine");
   const wd = WEEKDAY[new Date(`${day}T12:00:00`).getDay()] ?? "";
+  /** 읽기 · 정제 — 진행선과 안내 띠가 뜨는 동안. */
+  const waiting = phase === "loading" || phase === "refining";
+  const refinedRows = live.filter((d) => d.confidence !== null && !d.fixed);
+  const lowRows = refinedRows.filter((d) => (d.confidence ?? 100) < 70).length;
 
   return (
     <Modal width={1040} zIndex={73} onClose={() => !busy && iw.closePush(false)} panelStyle={{ height: 640 }}>
@@ -292,6 +309,8 @@ function PushView({ day }: { day: string }) {
           {iw.connecting ? "i-WMS 연결 중…" : iw.status?.connected ? `● ${iw.status.user?.userId}` : "○ 연결 안 됨"}
         </span>
       </div>
+      {/* 진행선 — 읽기는 AI 가 아니지만 같은 기다림이라 같은 자리에 둔다. */}
+      <div style={{ flex: "0 0 2px", height: 2 }}>{waiting && <AiRail />}</div>
 
       {/* 그날 현황 --------------------------------------------------------- */}
       {iday && <DayBar day={iday} thisRun={thisRun} remaining={remaining} settings={settings} table={table} />}
@@ -300,17 +319,42 @@ function PushView({ day }: { day: string }) {
       <div style={{ flex: "1 1 auto", minHeight: 0, overflowY: "auto" }}>
         {error && <Notice tone="error">{error}</Notice>}
         {aiError && <Notice tone="warn">{aiError}</Notice>}
-        {phase === "loading" && <Notice tone="muted">기록과 i-WMS 현황을 읽는 중…</Notice>}
-        {phase === "refining" && (
-          <Notice tone="muted">
-            {ai.name ?? "AI"} 가 정제하는 중… {partial ? `(${partial.toLocaleString()}자)` : ""}{" "}
-            <Box
-              onClick={() => abort.current?.abort()}
-              style={{ display: "inline", color: "#3a6fd8", cursor: "pointer" }}
-            >
-              취소
-            </Box>
-          </Notice>
+        {waiting && (
+          <WaitBar
+            since={busyAt}
+            label={
+              phase === "loading"
+                ? "기록과 i-WMS 현황을 읽는 중"
+                : `${ai.name ?? "AI"} 가 ${rows.length}줄을 정제하는 중`
+            }
+            ai={phase === "refining"}
+            chars={phase === "refining" && partial ? `${partial.toLocaleString()}자` : null}
+            onCancel={phase === "refining" ? () => abort.current?.abort() : null}
+          />
+        )}
+        {phase === "review" && refineMs !== null && refinedRows.length > 0 && (
+          <div
+            className="cf-up"
+            style={{
+              margin: "9px 14px 0",
+              display: "flex",
+              alignItems: "center",
+              gap: 9,
+              fontSize: 12.5,
+              padding: "6px 9px",
+              borderRadius: 6,
+              background: "#f1faf5",
+              border: "1px solid #c9e4d5",
+              color: "#256b47",
+            }}
+          >
+            <span style={{ width: 14, textAlign: "center", fontWeight: 700 }}>✓</span>
+            <span style={{ flex: 1, minWidth: 0 }}>
+              {refinedRows.length}줄 정제 완료
+              {lowRows > 0 ? ` · 확신도가 낮은 ${lowRows}줄부터 확인하세요` : " · 보라 테두리 칸이 AI 제안입니다"}
+            </span>
+            <span style={{ fontFamily: "'Roboto Mono',monospace", fontSize: 11.5 }}>{fmtSec(refineMs, true)}</span>
+          </div>
         )}
         {phase !== "loading" && !error && !targets.length && (
           <Notice tone="muted">
@@ -326,6 +370,8 @@ function PushView({ day }: { day: string }) {
             const d = draftOf(t.entry.id);
             const on = included.has(t.entry.id);
             const dup = iday ? duplicateOf(t.entry.title, iday) : null;
+            // 초안이 오기 전의 넣을 줄 — 빠진 줄로 그리면 [넣기] 가 눌리고 뺀 것처럼 보인다.
+            if (on && !d && waiting) return <SkeletonRow key={t.entry.id} t={t} />;
             if (!on || !d) {
               return <ExcludedRow key={t.entry.id} t={t} dup={dup} onInclude={() => setIncluding(t, true)} />;
             }
@@ -373,26 +419,30 @@ function PushView({ day }: { day: string }) {
             >
               분 다시 나누기
             </GhostButton>
-            <span style={{ fontSize: 11, color: "#a09a8f" }}>
+            <span style={{ fontSize: 11.5, color: TEXT.sub }}>
               {ai.run ? `${ai.name} · ${ai.modelLabel ?? "기본 모델"}` : "AI 연결 없음"}
               {ai.via === "default" ? " (기본 연결)" : ""}
             </span>
             <div style={{ flex: 1 }} />
             <GhostButton onClick={() => !busy && iw.closePush(false)}>닫기</GhostButton>
             <PrimaryButton onClick={() => void doPreview()} disabled={busy || problems.length > 0}>
-              {phase === "previewing" ? "미리보는 중…" : "미리보기 →"}
+              <BusyLabel busy={phase === "previewing"} since={actAt} color="#fff" idle="미리보기 →">
+                미리보는 중
+              </BusyLabel>
             </PrimaryButton>
           </>
         )}
         {(phase === "preview" || phase === "saving") && (
           <>
             <GhostButton onClick={() => phase === "preview" && setPhase("review")}>← 고치기</GhostButton>
-            <span style={{ fontSize: 11, color: "#a09a8f" }}>
+            <span style={{ fontSize: 11.5, color: TEXT.sub }}>
               아직 i-WMS 에 쓰지 않았습니다 · 확정하면 그날 그 카테고리에 덧붙입니다(이미 있는 행은 그대로)
             </span>
             <div style={{ flex: 1 }} />
             <PrimaryButton onClick={() => void doCommit()} disabled={phase === "saving"} bg="#2f7f57" hoverBg="#26694a">
-              {phase === "saving" ? "저장하는 중…" : "최종 확정"}
+              <BusyLabel busy={phase === "saving"} since={actAt} color="#fff" idle="최종 확정">
+                저장하는 중
+              </BusyLabel>
             </PrimaryButton>
           </>
         )}
@@ -400,7 +450,9 @@ function PushView({ day }: { day: string }) {
           <>
             {!undone?.verified && (
               <GhostButton onClick={() => phase === "done" && void doUndo()}>
-                {phase === "undoing" ? "되돌리는 중…" : "되돌리기"}
+                <BusyLabel busy={phase === "undoing"} since={actAt} idle="되돌리기">
+                  되돌리는 중
+                </BusyLabel>
               </GhostButton>
             )}
             <div style={{ flex: 1 }} />
@@ -574,7 +626,7 @@ function Notice({ tone, children }: { tone: "error" | "warn" | "muted"; children
       ? { bg: "#fdf3f2", bd: "#f2d6d2", fg: "#9b4b42" }
       : tone === "warn"
         ? { bg: "#fdf8ee", bd: "#f1e2c2", fg: "#8a6420" }
-        : { bg: "transparent", bd: "transparent", fg: "#8a857c" };
+        : { bg: "transparent", bd: "transparent", fg: TEXT.sub };
   return (
     <div
       style={{
@@ -583,7 +635,7 @@ function Notice({ tone, children }: { tone: "error" | "warn" | "muted"; children
         borderRadius: 5,
         background: c.bg,
         border: `1px solid ${c.bd}`,
-        fontSize: 11.5,
+        fontSize: 12,
         color: c.fg,
         lineHeight: 1.6,
       }}
@@ -593,17 +645,196 @@ function Notice({ tone, children }: { tone: "error" | "warn" | "muted"; children
   );
 }
 
+/** 읽기 · 정제 중의 안내 띠 — 신호 점 · 흐르는 라벨 · 받은 글자 수 · 경과 · [취소]. */
+function WaitBar({
+  since,
+  label,
+  ai,
+  chars,
+  onCancel,
+}: {
+  since: number;
+  label: string;
+  ai: boolean;
+  chars: string | null;
+  onCancel: (() => void) | null;
+}) {
+  const ms = useElapsed(since);
+  return (
+    <div
+      style={{
+        margin: "9px 14px 2px",
+        display: "flex",
+        alignItems: "center",
+        gap: 9,
+        flexWrap: "wrap",
+        fontSize: 12.5,
+        fontWeight: 500,
+        padding: "6px 9px",
+        borderRadius: 6,
+        background: ai ? AI.soft : "#faf9f6",
+        border: `1px solid ${ai ? AI.softBd : "#ece8e0"}`,
+      }}
+    >
+      <span style={{ width: 14, display: "flex", justifyContent: "center" }}>
+        <AiSignal color={ai ? AI.dot : "#8a857c"} />
+      </span>
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <AiStep tone={ai ? "ai" : "ink"}>{label}</AiStep>
+      </span>
+      {chars && (
+        <span style={{ flex: "0 0 auto", fontFamily: "'Roboto Mono',monospace", fontSize: 11.5, color: TEXT.body }}>
+          {chars}
+        </span>
+      )}
+      <span
+        style={{
+          flex: "0 0 auto",
+          fontFamily: "'Roboto Mono',monospace",
+          fontSize: 11.5,
+          color: ai ? AI.fg : TEXT.sub,
+        }}
+      >
+        {fmtSec(ms)}
+      </span>
+      {onCancel && (
+        <Box
+          onClick={onCancel}
+          style={{
+            flex: "0 0 auto",
+            height: 22,
+            display: "inline-flex",
+            alignItems: "center",
+            padding: "0 8px",
+            borderRadius: 4,
+            border: "1px solid #ddd8cf",
+            background: "#fff",
+            fontSize: 11.5,
+            fontWeight: 400,
+            color: TEXT.ink,
+            cursor: "pointer",
+          }}
+          hover={{ background: "#f2efe9" }}
+        >
+          취소
+        </Box>
+      )}
+    </div>
+  );
+}
+
+/** 경고 한 줄 — 아이콘 · 옅은 바탕 · 바로 할 수 있는 행동을 묶는다. 글자색만으로는 행 사이에 묻혔다. */
+function WarnLine({ children, action }: { children: ReactNode; action?: { label: string; run: () => void } }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "flex-start",
+        gap: 7,
+        fontSize: 12,
+        lineHeight: 1.5,
+        color: TEXT.warn,
+        background: "#fdf8ee",
+        border: "1px solid #f1e2c2",
+        borderRadius: 5,
+        padding: "4px 8px",
+      }}
+    >
+      <span
+        aria-hidden
+        style={{
+          flex: "0 0 15px",
+          height: 15,
+          marginTop: 1,
+          borderRadius: "50%",
+          background: "#b07520",
+          color: "#fff",
+          fontSize: 10.5,
+          fontWeight: 700,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        !
+      </span>
+      <span style={{ flex: 1, minWidth: 0, wordBreak: "break-word" }}>{children}</span>
+      {action && (
+        <Box
+          onClick={action.run}
+          style={{ flex: "0 0 auto", color: "#2f5cbb", fontWeight: 500, cursor: "pointer", whiteSpace: "nowrap" }}
+          hover={{ textDecoration: "underline" }}
+        >
+          {action.label}
+        </Box>
+      )}
+    </div>
+  );
+}
+
+/** 초안을 기다리는 줄 — 제목은 그대로 두고 AI 가 채울 칸만 비운다. */
+function SkeletonRow({ t }: { t: Target }) {
+  return (
+    <div style={{ display: "flex", gap: 10, padding: "9px 14px", borderBottom: "1px solid #f0ede7" }}>
+      <div style={{ flex: "0 0 230px", minWidth: 0, display: "flex", flexDirection: "column", gap: 4 }}>
+        <div>
+          <PriceTag price={t.price} />
+        </div>
+        <div style={{ fontSize: 12.5, color: TEXT.ink, lineHeight: 1.5, wordBreak: "break-all" }}>{t.entry.title}</div>
+      </div>
+      <div style={{ flex: "0 0 260px", display: "flex", flexDirection: "column", gap: 6, paddingTop: 4 }}>
+        <Skeleton width="90%" height={12} />
+        <Skeleton width="46%" height={8} />
+      </div>
+      <div style={{ flex: "0 0 74px", paddingTop: 4 }}>
+        <Skeleton height={12} />
+      </div>
+      <div style={{ flex: "1 1 auto", minWidth: 0, display: "flex", flexDirection: "column", gap: 6, paddingTop: 4 }}>
+        <Skeleton width="96%" height={9} />
+        <Skeleton width="70%" height={9} />
+      </div>
+    </div>
+  );
+}
+
+/** AI 가 채운 칸 — 보라 테두리와 ‘AI’ 표식. 사람이 고치면 보통 칸으로 돌아간다. */
+const aiField = { border: `1px solid ${AI.fieldBd}`, background: AI.fieldBg } as const;
+
+function AiMark() {
+  return (
+    <span
+      title="AI 가 채운 칸입니다 — 고치면 표식이 사라집니다"
+      style={{
+        position: "absolute",
+        right: 22,
+        top: 6,
+        fontSize: 10.5,
+        fontWeight: 700,
+        color: AI.fg,
+        background: AI.bg,
+        borderRadius: 3,
+        padding: "0 4px",
+        lineHeight: "16px",
+        pointerEvents: "none",
+      }}
+    >
+      AI
+    </span>
+  );
+}
+
 function PriceTag({ price }: { price: "O" | "N" }) {
   return (
     <span
       style={{
-        fontSize: 9.5,
+        fontSize: 11,
         borderRadius: 3,
-        padding: "0 4px",
-        lineHeight: "15px",
+        padding: "0 5px",
+        lineHeight: "17px",
         whiteSpace: "nowrap",
-        color: price === "O" ? "#2f5cbb" : "#6a54c6",
-        background: price === "O" ? "#e6eefc" : "#efebfb",
+        // 보라는 AI 전용 — 대가 미포함은 중립색으로.
+        color: price === "O" ? "#2f5cbb" : TEXT.body,
+        background: price === "O" ? "#e6eefc" : "#f0ede7",
       }}
     >
       {PRICE_LABEL[price]}
@@ -628,7 +859,7 @@ function ExcludedRow({ t, dup, onInclude }: { t: Target; dup: Duplicate | null; 
         padding: "6px 14px",
         borderBottom: "1px solid #f4f1ec",
         fontSize: 12,
-        color: "#a09a8f",
+        color: TEXT.sub,
       }}
     >
       <PriceTag price={t.price} />
@@ -687,49 +918,82 @@ function DraftRow({
   const alt = new Set(d.alternatives.map(categoryKey));
   const sorted = [...options.filter((c) => alt.has(categoryKey(c))), ...options.filter((c) => !alt.has(categoryKey(c)))];
   const over = d.note.length > NOTE_MAX;
+  /** AI 가 정제한 줄인가 — 매핑으로 고정된 줄 · 빈 초안은 아니다. */
+  const byAi = d.confidence !== null && !d.fixed;
+  const aiCat = byAi && !!d.category && !d.edited.category;
+  const aiNote = byAi && !d.edited.note;
+  const conf = d.confidence;
   return (
     <div style={{ display: "flex", gap: 10, padding: "9px 14px", borderBottom: "1px solid #f0ede7" }}>
       <div style={{ flex: "0 0 230px", minWidth: 0, display: "flex", flexDirection: "column", gap: 4 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <PriceTag price={t.price} />
-          {t.pushed.length > 0 && <span style={{ fontSize: 10, color: "#b07520" }}>이미 입력함 — 중복 주의</span>}
         </div>
-        <div style={{ fontSize: 12.5, color: "#3a3630", lineHeight: 1.5, wordBreak: "break-all" }}>{t.entry.title}</div>
-        {dup && <div style={{ fontSize: 10.5, color: "#b07520", lineHeight: 1.5 }}>{dupText(dup)} — 중복 주의</div>}
+        <div style={{ fontSize: 12.5, color: TEXT.ink, lineHeight: 1.5, wordBreak: "break-all" }}>{t.entry.title}</div>
+        {t.pushed.length > 0 && (
+          <WarnLine action={{ label: "이번엔 빼기", run: onExclude }}>이미 이 앱으로 입력함 — 중복 주의</WarnLine>
+        )}
+        {dup && <WarnLine action={t.pushed.length ? undefined : { label: "이번엔 빼기", run: onExclude }}>{dupText(dup)}</WarnLine>}
         {d.issues.map((m) => (
-          <div key={m} style={{ fontSize: 10.5, color: "#b07520", lineHeight: 1.5 }}>
+          <div key={m} style={{ fontSize: 12, color: TEXT.warn, lineHeight: 1.5 }}>
             {m}
           </div>
         ))}
-        <Box onClick={onExclude} style={{ fontSize: 10.5, color: "#a09a8f", cursor: "pointer", alignSelf: "flex-start" }} hover={{ color: "#4e4a43" }}>
-          이번엔 빼기
-        </Box>
+        {!dup && !t.pushed.length && (
+          <Box
+            onClick={onExclude}
+            style={{ fontSize: 11.5, color: TEXT.sub, cursor: "pointer", alignSelf: "flex-start" }}
+            hover={{ color: TEXT.body }}
+          >
+            이번엔 빼기
+          </Box>
+        )}
       </div>
 
       <div style={{ flex: "0 0 260px", display: "flex", flexDirection: "column", gap: 4 }}>
-        <select
-          value={d.category ? categoryKey(d.category) : ""}
-          disabled={disabled}
-          onChange={(e) => onCategory(options.find((c) => categoryKey(c) === e.target.value) ?? null)}
-          style={{ ...cellInput, height: 28, padding: "0 4px", width: "100%" }}
-        >
-          <option value="">— 카테고리 선택 —</option>
-          {sorted.map((c) => (
-            <option key={categoryKey(c)} value={categoryKey(c)}>
-              {alt.has(categoryKey(c)) ? "★ " : ""}
-              {c.ciName} · {c.task}
-            </option>
-          ))}
-        </select>
+        <div style={{ position: "relative" }}>
+          <select
+            value={d.category ? categoryKey(d.category) : ""}
+            disabled={disabled}
+            onChange={(e) => onCategory(options.find((c) => categoryKey(c) === e.target.value) ?? null)}
+            style={{
+              ...cellInput,
+              ...(aiCat && aiField),
+              height: 28,
+              // 오른쪽의 펼침 화살표와 ‘AI’ 표식 자리를 비운다.
+              padding: aiCat ? "0 46px 0 4px" : "0 4px",
+              width: "100%",
+            }}
+          >
+            <option value="">— 카테고리 선택 —</option>
+            {sorted.map((c) => (
+              <option key={categoryKey(c)} value={categoryKey(c)}>
+                {alt.has(categoryKey(c)) ? "★ " : ""}
+                {c.ciName} · {c.task}
+              </option>
+            ))}
+          </select>
+          {aiCat && <AiMark />}
+        </div>
         {d.category && (
-          <div style={{ fontSize: 10.5, color: "#a09a8f", lineHeight: 1.5 }}>
+          <div style={{ fontSize: 11, color: TEXT.sub, lineHeight: 1.5 }}>
             {d.fixed ? "📌 매핑으로 고정 · " : ""}
             {d.category.path}
           </div>
         )}
-        {d.confidence !== null && !d.fixed && (
-          <div style={{ fontSize: 10.5, color: d.confidence >= 70 ? "#2f7f57" : "#b07520" }}>
-            확신도 {d.confidence}
+        {conf !== null && !d.fixed && (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: conf >= 70 ? "#256b47" : TEXT.warn }}>
+            <span style={{ width: 44, height: 4, borderRadius: 2, background: "#ece8e0", overflow: "hidden", display: "inline-block" }}>
+              <span
+                style={{
+                  display: "block",
+                  height: "100%",
+                  width: `${Math.max(0, Math.min(100, conf))}%`,
+                  background: conf >= 70 ? "#2f7f57" : "#b07520",
+                }}
+              />
+            </span>
+            확신도 {conf}
           </div>
         )}
       </div>
@@ -746,7 +1010,7 @@ function DraftRow({
           onBlur={onMinutesDone}
           style={{ ...cellInput, height: 28, width: "100%", padding: "0 6px", fontFamily: "'Roboto Mono',monospace" }}
         />
-        <span style={{ fontSize: 10, color: "#a09a8f" }}>{d.edited.minutes ? "분 · 고정" : "분"}</span>
+        <span style={{ fontSize: 11, color: TEXT.sub }}>{d.edited.minutes ? "분 · 고정" : "분"}</span>
       </div>
 
       <div style={{ flex: "1 1 auto", minWidth: 0, display: "flex", flexDirection: "column", gap: 3 }}>
@@ -755,10 +1019,20 @@ function DraftRow({
           disabled={disabled}
           spellCheck={false}
           onChange={(e) => onNote(e.target.value)}
-          style={{ ...cellInput, width: "100%", minHeight: 58, padding: "5px 7px", lineHeight: 1.6, resize: "vertical", boxSizing: "border-box" }}
+          title={aiNote ? "AI 가 쓴 상세내용입니다 — 고치면 보라 테두리가 사라집니다" : undefined}
+          style={{
+            ...cellInput,
+            ...(aiNote && aiField),
+            width: "100%",
+            minHeight: 58,
+            padding: "5px 7px",
+            lineHeight: 1.6,
+            resize: "vertical",
+            boxSizing: "border-box",
+          }}
           focusStyle={inputFocus}
         />
-        <span style={{ fontSize: 10, color: over ? "#9b4b42" : "#a09a8f", alignSelf: "flex-end" }}>
+        <span style={{ fontSize: 11, color: over ? "#9b4b42" : TEXT.sub, alignSelf: "flex-end" }}>
           {d.note.length}/{NOTE_MAX}
         </span>
       </div>

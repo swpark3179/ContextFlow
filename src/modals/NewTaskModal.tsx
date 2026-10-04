@@ -1,5 +1,5 @@
-import { Box, Input, TextArea } from "../lib/ui";
-import { BLUE, VIOLET } from "../lib/design";
+import { AiRail, AiSignal, AiStep, Box, BusyLabel, Input, Skeleton, TextArea, fmtSec, useElapsed } from "../lib/ui";
+import { AI, BLUE, TEXT, VIOLET } from "../lib/design";
 import { sanitizeFolderName } from "../lib/vaultPaths";
 import { scheduleRecommend, useStore } from "../store/useStore";
 import { activeRun, useAi } from "../store/aiStore";
@@ -10,13 +10,18 @@ import { inputFocus } from "./Modal";
 const TAG_STYLE: Record<string, { label: string; fg: string; bg: string }> = {
   ref: { label: "참조 중", fg: "#4e4a43", bg: "#f0ede7" },
   resume: { label: "이력 추가됨", fg: "#2f5cbb", bg: "#eef3fd" },
-  merged: { label: "병합 완료", fg: "#5a44b4", bg: "#f4f0fd" },
+  merged: { label: "병합 완료", fg: "#2f5cbb", bg: "#eef3fd" },
 };
+
+/** AI 가 이 점수 밑으로 매긴 카드는 흐리게 — 남겨 두되 눈이 먼저 가지 않게. */
+const LOW_SIM = 60;
 
 export default function NewTaskModal() {
   const s = useStore();
   // 전체 구독 — 파생 배열을 셀렉터에서 만들면 스냅샷이 불안정해진다(`ActiveAiCard` 참고).
   const ai = useAi();
+  // 훅은 이른 반환보다 앞에 — AI 추천이 도는 동안 1초마다 경과를 올린다.
+  const aiMs = useElapsed(s.newOpen ? s.ntAiAt : null);
   if (!s.newOpen) return null;
 
   const { nt, ntRecs, ntLoading, ntEngine, ntRefs, settings } = s;
@@ -43,13 +48,25 @@ export default function NewTaskModal() {
   // 초기값은 `"local"` 이라 그것으로는 AI 를 켜 둔 사용자에게 거짓말을 하게 된다.
   const activeName = activeRun(ai) ? agentName(ai.settings!.active.agentId) : null;
 
-  const status = ntLoading
-    ? engineName
-      ? `${engineName} 분석 중`
-      : "로컬 유사도 분석 중"
-    : ntRecs.length
-      ? `${ntRecs.length}건 검색됨`
-      : "대기 중";
+  /**
+   * 추천의 세 갈래 — 로컬 계산 중 · 로컬 결과를 띄워 두고 AI 가 읽는 중 · AI 가 다시 매김.
+   * 로컬 결과는 AI 결과로 말없이 바뀌면 안 된다: 읽던 카드가 아래로 내려간다. 그래서 AI 가
+   * 도는 동안에는 ‘로컬 추정’ 이라고 적고, 끝나면 무엇이 바뀌었는지 알린다.
+   */
+  const aiRunning = ntLoading && s.ntAiAt !== null;
+  const localLoading = ntLoading && !aiRunning;
+  const aiDone = !ntLoading && s.ntLocal !== null && ntRecs.length > 0;
+  const lowCount = aiDone ? ntRecs.filter((r) => r.sim < LOW_SIM).length : 0;
+
+  const status = localLoading
+    ? "로컬 유사도 계산 중"
+    : aiRunning
+      ? `로컬 ${ntRecs.length}건 · AI 확인 중`
+      : ntRecs.length
+        ? aiDone
+          ? `${ntRecs.length}건 · AI 순서`
+          : `${ntRecs.length}건 검색됨`
+        : "대기 중";
 
   const label = { fontSize: 12, fontWeight: 600, color: "#6a665e", marginBottom: 5 } as const;
 
@@ -323,41 +340,112 @@ export default function NewTaskModal() {
                 flex: "0 0 30px",
                 display: "flex",
                 alignItems: "center",
-                gap: 7,
+                gap: 8,
                 padding: "0 12px",
-                borderBottom: "1px solid #e6e2da",
               }}
             >
-              <div style={{ width: 7, height: 7, borderRadius: "50%", background: VIOLET }} />
-              <span
-                style={{ fontSize: 11.5, fontWeight: 600, letterSpacing: ".4px", color: "#4e4a43" }}
-              >
-                시작 전 유사 업무 추천
+              <span style={{ width: 12, display: "flex", justifyContent: "center" }}>
+                {aiRunning ? (
+                  <AiSignal />
+                ) : (
+                  <span style={{ width: 7, height: 7, borderRadius: "50%", background: VIOLET }} />
+                )}
               </span>
+              <span style={{ fontSize: 12, fontWeight: 600, color: TEXT.ink }}>시작 전 유사 업무 추천</span>
               <div style={{ flex: 1 }} />
-              {ntLoading && (
-                <div
-                  style={{
-                    width: 11,
-                    height: 11,
-                    border: "2px solid #ddd8cf",
-                    borderTopColor: VIOLET,
-                    borderRadius: "50%",
-                    animation: "spin .7s linear infinite",
-                  }}
-                />
-              )}
-              <span style={{ fontSize: 11, color: "#a09a8f" }}>{status}</span>
+              <span style={{ fontSize: 11.5, color: TEXT.body, whiteSpace: "nowrap" }}>{status}</span>
+            </div>
+            {/* 진행선 — 로컬은 회색 대기라 띄우지 않고, AI 가 읽는 동안만. */}
+            <div style={{ flex: "0 0 auto", height: 2, borderBottom: "1px solid #e6e2da", boxSizing: "content-box" }}>
+              {aiRunning && <AiRail />}
             </div>
 
             <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: 9 }}>
+              {localLoading && ntRecs.length === 0 &&
+                [0, 1].map((i) => (
+                  <div
+                    key={i}
+                    style={{
+                      border: "1px solid #ece8e0",
+                      borderRadius: 6,
+                      background: "#fff",
+                      padding: 11,
+                      marginBottom: 6,
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 7,
+                    }}
+                  >
+                    <Skeleton width="62%" height={11} />
+                    <Skeleton width="88%" height={9} />
+                  </div>
+                ))}
+
+              {aiRunning && (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    fontSize: 12.5,
+                    fontWeight: 500,
+                    padding: "6px 8px",
+                    marginBottom: 6,
+                    borderRadius: 6,
+                    background: AI.soft,
+                    border: `1px solid ${AI.softBd}`,
+                  }}
+                >
+                  <span style={{ width: 14, display: "flex", justifyContent: "center" }}>
+                    <AiSignal />
+                  </span>
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <AiStep>
+                      {engineName ?? "AI"} 가 후보 {ntRecs.length}건을 다시 읽는 중
+                    </AiStep>
+                  </span>
+                  <span style={{ flex: "0 0 auto", fontFamily: "'Roboto Mono',monospace", fontSize: 11.5, color: AI.fg }}>
+                    {fmtSec(aiMs)}
+                  </span>
+                </div>
+              )}
+
+              {aiDone && (
+                <div
+                  className="cf-up"
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    fontSize: 12.5,
+                    padding: "6px 8px",
+                    marginBottom: 6,
+                    borderRadius: 6,
+                    background: "#f1faf5",
+                    border: "1px solid #c9e4d5",
+                    color: "#256b47",
+                  }}
+                >
+                  <span style={{ width: 14, textAlign: "center", fontWeight: 700 }}>✓</span>
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    {s.ntReordered ? "AI가 다시 매긴 순서입니다" : "AI가 점수를 확인했습니다 · 순서 그대로"}
+                    {lowCount > 0 && ` · ${lowCount}건은 관련이 낮아 흐리게`}
+                  </span>
+                  {s.ntAiMs !== null && (
+                    <span style={{ flex: "0 0 auto", fontFamily: "'Roboto Mono',monospace", fontSize: 11.5 }}>
+                      {fmtSec(s.ntAiMs, true)}
+                    </span>
+                  )}
+                </div>
+              )}
+
               {!ntLoading && ntRecs.length === 0 && (
                 <div
                   style={{
                     padding: "40px 18px",
                     textAlign: "center",
                     fontSize: 12.5,
-                    color: "#a09a8f",
+                    color: TEXT.hint,
                     lineHeight: 1.8,
                   }}
                 >
@@ -372,30 +460,63 @@ export default function NewTaskModal() {
                 const refOn = ntRefs.includes(r.id);
                 const tg = s.recTag[r.id];
                 const tag = tg ? TAG_STYLE[tg] : null;
-                const simColor = r.sim >= settings.threshold ? VIOLET : r.sim >= 75 ? BLUE : "#8a857c";
+                // AI 가 확인하는 동안의 로컬 점수는 추정이라 색을 빼 둔다.
+                const simColor = aiRunning
+                  ? TEXT.sub
+                  : r.sim >= settings.threshold
+                    ? VIOLET
+                    : r.sim >= 75
+                      ? BLUE
+                      : TEXT.sub;
+                const was = aiDone ? s.ntLocal?.[r.id] : undefined;
+                const src = aiRunning
+                  ? { label: "로컬 추정", fg: TEXT.body, bg: "#efece6" }
+                  : aiDone
+                    ? { label: "AI", fg: AI.fg, bg: AI.bg }
+                    : null;
                 return (
                   <div
                     key={r.id}
                     style={{
-                      border: `1px solid ${tg ? "#dcd6f0" : "#e6e2da"}`,
+                      border: `1px solid ${tg ? "#d6dcea" : "#e6e2da"}`,
                       borderRadius: 6,
                       background: "#fff",
-                      padding: 9,
+                      padding: "9px 10px",
                       marginBottom: 6,
                       animation: "pIn .18s ease-out",
+                      opacity: aiDone && r.sim < LOW_SIM ? 0.5 : 1,
+                      transition: "opacity .3s",
                     }}
                   >
                     <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
                       <span
                         style={{
                           fontFamily: "'Roboto Mono',monospace",
-                          fontSize: 13.5,
+                          fontSize: 14,
                           fontWeight: 600,
                           color: simColor,
+                          whiteSpace: "nowrap",
                         }}
                       >
                         {r.sim}%
                       </span>
+                      {src && (
+                        <span
+                          style={{
+                            flex: "0 0 auto",
+                            fontSize: 11,
+                            fontWeight: 600,
+                            color: src.fg,
+                            background: src.bg,
+                            borderRadius: 3,
+                            padding: "0 5px",
+                            lineHeight: "17px",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {src.label}
+                        </span>
+                      )}
                       <span
                         style={{
                           fontSize: 12.5,
@@ -409,10 +530,18 @@ export default function NewTaskModal() {
                       >
                         {r.title}
                       </span>
+                      {was !== undefined && was !== r.sim && (
+                        <span
+                          title="AI 가 다시 매기기 전의 로컬 유사도"
+                          style={{ flex: "0 0 auto", fontFamily: "'Roboto Mono',monospace", fontSize: 11, color: TEXT.sub }}
+                        >
+                          로컬 {was}
+                        </span>
+                      )}
                       {tag && (
                         <span
                           style={{
-                            fontSize: 10.5,
+                            fontSize: 11,
                             fontWeight: 600,
                             color: tag.fg,
                             background: tag.bg,
@@ -428,8 +557,8 @@ export default function NewTaskModal() {
                     <div
                       style={{
                         fontFamily: "'Roboto Mono',monospace",
-                        fontSize: 10.5,
-                        color: "#a09a8f",
+                        fontSize: 11,
+                        color: TEXT.sub,
                         marginTop: 3,
                         overflow: "hidden",
                         textOverflow: "ellipsis",
@@ -438,6 +567,22 @@ export default function NewTaskModal() {
                     >
                       {r.path}
                     </div>
+
+                    {/* 근거 — AI 가 읽는 동안은 그 자리만 비워 두고, 끝나면 한 줄로. */}
+                    {aiRunning && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 7, minHeight: 18 }}>
+                        <span style={{ fontSize: 11, color: TEXT.sub, flex: "0 0 auto" }}>근거 확인 중</span>
+                        <span style={{ flex: 1 }}>
+                          <Skeleton height={9} />
+                        </span>
+                      </div>
+                    )}
+                    {aiDone && r.reason && (
+                      <div className="cf-up" style={{ fontSize: 12, lineHeight: 1.55, color: TEXT.body, marginTop: 7 }}>
+                        <span style={{ color: AI.fg, fontWeight: 600 }}>근거 </span>
+                        {r.reason}
+                      </div>
+                    )}
 
                     {isCluster && (
                       <div
@@ -450,9 +595,9 @@ export default function NewTaskModal() {
                           gap: 5,
                           marginTop: 5,
                           fontSize: 11,
-                          color: VIOLET,
-                          background: "#f2eefc",
-                          border: "1px solid #e4dcf8",
+                          color: "#2f5cbb",
+                          background: "#eef3fd",
+                          border: "1px solid #cddcf8",
                           borderRadius: 4,
                           padding: "2px 7px",
                           cursor: "pointer",
@@ -467,7 +612,7 @@ export default function NewTaskModal() {
                       <div
                         style={{
                           marginTop: 6,
-                          borderLeft: "2px solid #e4dcf8",
+                          borderLeft: "2px solid #cddcf8",
                           paddingLeft: 9,
                           display: "flex",
                           flexDirection: "column",
@@ -482,8 +627,8 @@ export default function NewTaskModal() {
                             <span
                               style={{
                                 fontFamily: "'Roboto Mono',monospace",
-                                fontSize: 10.5,
-                                color: "#a09a8f",
+                                fontSize: 11,
+                                color: TEXT.sub,
                               }}
                             >
                               {c.date}
@@ -512,12 +657,12 @@ export default function NewTaskModal() {
                           fontWeight: refOn ? 600 : 400,
                           padding: "3px 8px",
                           borderRadius: 4,
-                          border: `1px solid ${refOn ? "#cfc6ea" : "#ddd8cf"}`,
-                          background: refOn ? "#f2eefc" : "#fff",
-                          color: refOn ? "#5a44b4" : "#4e4a43",
+                          border: `1px solid ${refOn ? "#cfcabf" : "#ddd8cf"}`,
+                          background: refOn ? "#f0ede7" : "#fff",
+                          color: refOn ? TEXT.ink : TEXT.body,
                           cursor: "pointer",
                         }}
-                        hover={{ background: refOn ? "#ece5fb" : "#f2efe9" }}
+                        hover={{ background: refOn ? "#e8e4dc" : "#f2efe9" }}
                       >
                         {refOn ? "✓ 참조로 복사됨" : "참고만 하기"}
                       </Box>
@@ -580,12 +725,12 @@ export default function NewTaskModal() {
                             fontWeight: 600,
                             padding: "3px 8px",
                             borderRadius: 4,
-                            border: "1px solid #e0d6f8",
-                            background: "#f4f0fd",
-                            color: "#5a44b4",
+                            border: "1px solid #cddcf8",
+                            background: "#eef3fd",
+                            color: "#2f5cbb",
                             cursor: "pointer",
                           }}
-                          hover={{ background: "#ece5fb" }}
+                          hover={{ background: "#e2ebfb" }}
                         >
                           병합
                         </Box>
@@ -650,19 +795,25 @@ export default function NewTaskModal() {
             onClick={() => canCreate && void s.createTask()}
             style={{
               height: 29,
-              padding: "0 16px",
+              minWidth: 118,
+              padding: "0 14px",
               display: "flex",
               alignItems: "center",
+              justifyContent: "center",
               borderRadius: 5,
               fontSize: 12.5,
               fontWeight: 600,
-              cursor: canCreate ? "pointer" : "not-allowed",
-              background: canCreate ? BLUE : "#e6e2da",
-              color: canCreate ? "#fff" : "#a09a8f",
+              whiteSpace: "nowrap",
+              cursor: canCreate ? "pointer" : s.ntBusy ? "progress" : "not-allowed",
+              background: s.ntBusy ? "#2f5cbb" : canCreate ? BLUE : "#e6e2da",
+              color: canCreate || s.ntBusy ? "#fff" : "#a09a8f",
             }}
             hover={canCreate ? { background: "#2f5cbb" } : undefined}
           >
-            {s.ntBusy ? "만드는 중…" : "업무 생성"}
+            {/* AI 가 아닌 작업이라 흰 점. 폭은 minWidth 로 고정해 글자가 바뀌어도 흔들리지 않는다. */}
+            <BusyLabel busy={s.ntBusy} color="#fff" idle="업무 생성">
+              만드는 중
+            </BusyLabel>
           </Box>
         </div>
       </div>

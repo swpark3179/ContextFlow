@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Box, Select, TextArea } from "../../lib/ui";
-import { VIOLET } from "../../lib/design";
+import { AiRail, AiSignal, AiStep, Box, Caret, ELAPSED_AFTER_MS, Select, TextArea, fmtSec, useElapsed } from "../../lib/ui";
+import { AI, TEXT, VIOLET } from "../../lib/design";
 import { mdParse } from "../../lib/markdown";
 import * as api from "../../lib/api";
-import { CANCELED } from "../../lib/runOnce";
+import { CANCELED, RUN_STALL_MS } from "../../lib/runOnce";
 import { askScope } from "../../lib/wiki/categories";
 import { resolveLink } from "../../lib/wiki/links";
 import { askWiki, fileAnswer, type AskOutcome } from "../../lib/wiki/pipeline";
@@ -14,7 +14,22 @@ import { routeInfo, useAi } from "../../store/aiStore";
 import { useWiki } from "../../store/wikiStore";
 import { catLabel, NO_PAGES, openTask, smallBtn, useTaskById, wikiLinks, type WikiCats } from "./WikiPanels";
 
-const hint: React.CSSProperties = { fontSize: 11.5, color: "#8a857c", lineHeight: 1.6 };
+const hint: React.CSSProperties = { fontSize: 11.5, color: TEXT.sub, lineHeight: 1.6 };
+
+/** 지나간(또는 지금) 단계 하나. `end` 가 없으면 지금 단계다. */
+interface Step {
+  label: string;
+  at: number;
+  end?: number;
+}
+
+/** 생각 토큰을 받는 동안의 단계 이름. */
+const THINKING = "생각하는 중";
+/** 답 글이 흐르기 시작한 단계인가 — 파이프라인은 웹 바퀴마다 이름을 조금 바꿔 부른다. */
+const isWriting = (label: string) => label.endsWith("답 쓰는 중");
+
+/** 응답 없이 이만큼 지나면 "응답이 n초째 없습니다" 를 띄운다 — 정지 감시가 끊기 전에. */
+const IDLE_WARN_MS = RUN_STALL_MS * 0.7;
 
 /** 대화 한 턴 — 질문 하나와 그 답. */
 interface Turn {
@@ -23,8 +38,14 @@ interface Turn {
   /** 받는 중이면 지금까지의 글, 끝났으면 답 전체. */
   text: string;
   state: "running" | "done" | "failed" | "canceled";
-  /** 진행 단계 한 줄. */
-  step: string;
+  /** 지나온 단계와 지금 단계. 끝난 단계는 ✓ 와 걸린 시간으로 남는다. */
+  steps: Step[];
+  startedAt: number;
+  endedAt?: number;
+  /** 마지막으로 무엇이든 받은 시각 — 오래 조용하면 알린다. */
+  lastAt: number;
+  /** 생각 토큰 — 받은 글자 수와 마지막 줄. 지금 바퀴의 것이다. */
+  think: { chars: number; tail: string } | null;
   error?: string;
   out?: AskOutcome;
   /** [위키에 저장] 한 페이지 경로. */
@@ -40,6 +61,17 @@ const hostOf = (url: string) => {
     return url;
   }
 };
+
+/** 지금 단계를 `label` 로 넘긴다. 같은 이름이면 그대로. */
+function stepTo(t: Turn, label: string, now: number): Turn {
+  const cur = t.steps[t.steps.length - 1];
+  if (cur && !cur.end && cur.label === label) return t;
+  const steps = t.steps.map((x) => (x.end ? x : { ...x, end: now }));
+  return { ...t, steps: [...steps, { label, at: now }] };
+}
+
+/** 지금 단계를 닫는다(끝 · 실패 · 취소). */
+const closeSteps = (steps: Step[], now: number) => steps.map((x) => (x.end ? x : { ...x, end: now }));
 
 /**
  * AI 에게 묻기 — 위키를 근거로 한 대화.
@@ -111,13 +143,35 @@ export function AskPanel({ onOpen, cats }: { onOpen: (path: string) => void; cat
    * 도는 턴에만 반영한다. [취소] 는 턴을 그 자리에서 끝내는데, 브라우저가 페이지를 여는 중이면
    * 그 한 장이 끝날 때까지(최대 몇십 초) 결과가 뒤늦게 올 수 있다 — 끝난 턴을 되살리지 않는다.
    */
-  const live = (id: number, p: Partial<Turn>) =>
-    setTurns((ts) => ts.map((t) => (t.id === id && t.state === "running" ? { ...t, ...p } : t)));
+  const live = (id: number, f: (t: Turn) => Turn) =>
+    setTurns((ts) => ts.map((t) => (t.id === id && t.state === "running" ? f(t) : t)));
+  const finish = (id: number, p: Partial<Turn>) =>
+    live(id, (t) => {
+      const now = Date.now();
+      return { ...t, ...p, steps: closeSteps(t.steps, now), endedAt: now, think: null };
+    });
 
   const cancel = () => {
     abort.current?.abort();
-    setTurns((ts) => ts.map((t) => (t.state === "running" ? { ...t, state: "canceled", step: "" } : t)));
+    const now = Date.now();
+    setTurns((ts) =>
+      ts.map((t) =>
+        t.state === "running"
+          ? { ...t, state: "canceled", steps: closeSteps(t.steps, now), endedAt: now, think: null }
+          : t,
+      ),
+    );
   };
+
+  // 받는 동안 Esc 로 중지 — 다른 곳이 먼저 쓴 Esc(모달 닫기 등)는 건드리지 않는다.
+  useEffect(() => {
+    if (!busy) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !e.defaultPrevented) cancel();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [busy]);
 
   const ask = () => {
     const q = question.trim();
@@ -138,9 +192,20 @@ export function AskPanel({ onOpen, cats }: { onOpen: (path: string) => void; cat
     const range = scope === null || name === null ? null : { key: scope, label: name, tasks: s.tasks };
     const id = ++seq.current;
     stick.current = true;
+    const now = Date.now();
     setTurns((ts) => [
       ...ts,
-      { id, question: q, text: "", state: "running", step: "위키에서 찾는 중", scope: name },
+      {
+        id,
+        question: q,
+        text: "",
+        state: "running",
+        steps: [{ label: "위키에서 관련 페이지 찾는 중", at: now }],
+        startedAt: now,
+        lastAt: now,
+        think: null,
+        scope: name,
+      },
     ]);
     setQuestion("");
     const web =
@@ -157,13 +222,34 @@ export function AskPanel({ onOpen, cats }: { onOpen: (path: string) => void; cat
       web,
       scope: range,
       signal: ctl.signal,
-      onPartial: (text) => live(id, { text, step: "" }),
-      onStep: (step) => live(id, { step }),
+      onPartial: (text) =>
+        live(id, (t) => {
+          const now = Date.now();
+          const cur = t.steps[t.steps.length - 1];
+          // 글이 오기 시작하면 생각 단계를 닫고 "답 쓰는 중" 으로.
+          const next = text && cur && !isWriting(cur.label) ? stepTo(t, "답 쓰는 중", now) : t;
+          return { ...next, text, lastAt: now };
+        }),
+      onThinking: (chars, tail) =>
+        live(id, (t) => {
+          const now = Date.now();
+          const cur = t.steps[t.steps.length - 1];
+          // 답을 쓰기 전의 생각이면 지금 단계(“답 쓰는 중”)를 생각 단계로 바꿔 부른다 —
+          // 글이 하나도 없는데 "답 쓰는 중" 에 멈춰 있으면 고장 난 것처럼 보인다.
+          let next = t;
+          if (cur && !cur.end && !t.text && isWriting(cur.label)) {
+            next = { ...t, steps: [...t.steps.slice(0, -1), { ...cur, label: THINKING }] };
+          } else if (cur && !cur.end && cur.label !== THINKING && !t.text) {
+            next = stepTo(t, THINKING, now);
+          }
+          return { ...next, think: { chars, tail }, lastAt: now };
+        }),
+      onStep: (step) => live(id, (t) => ({ ...stepTo(t, step, Date.now()), lastAt: Date.now(), think: null })),
     })
-      .then((out) => live(id, { state: "done", text: out.answer, out, step: "" }))
+      .then((out) => finish(id, { state: "done", text: out.answer, out }))
       .catch((e) => {
         const msg = api.errMessage(e);
-        live(id, msg === CANCELED ? { state: "canceled", step: "" } : { state: "failed", step: "", error: msg });
+        finish(id, msg === CANCELED ? { state: "canceled" } : { state: "failed", error: msg });
       });
   };
 
@@ -204,8 +290,13 @@ export function AskPanel({ onOpen, cats }: { onOpen: (path: string) => void; cat
   };
   const links = wikiLinks(pages, follow);
 
+  const runningTurn = turns.find((t) => t.state === "running");
+  const busyMs = useElapsed(runningTurn?.startedAt);
+
   return (
     <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+      {/* 진행선 — 대화를 위로 올려 읽는 중이어도 주변 시야에 걸린다. */}
+      <div style={{ flex: "0 0 2px", height: 2 }}>{busy && <AiRail />}</div>
       <div
         ref={scroller}
         onScroll={(e) => {
@@ -230,6 +321,7 @@ export function AskPanel({ onOpen, cats }: { onOpen: (path: string) => void; cat
                 byId={byId}
                 onOpen={onOpen}
                 onSave={() => save(t)}
+                onCancel={cancel}
                 onRetry={() => {
                   setQuestion(t.question);
                   input.current?.focus();
@@ -281,23 +373,60 @@ export function AskPanel({ onOpen, cats }: { onOpen: (path: string) => void; cat
           focusStyle={{ borderColor: "#3a6fd8", boxShadow: "0 0 0 2px #e6eefc" }}
         />
         <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-          <Box
-            onClick={ask}
-            style={{
-              ...smallBtn,
-              height: 26,
-              border: `1px solid ${canAsk ? "#d8cdf6" : "#e0dcd4"}`,
-              background: canAsk ? "#f4f0fd" : "#f7f5f1",
-              color: canAsk ? VIOLET : "#b5afa2",
-              fontWeight: 600,
-              cursor: canAsk ? "pointer" : "default",
-            }}
-          >
-            {busy ? "답하는 중…" : turns.length ? "이어서 묻기 (Ctrl+Enter)" : "AI에게 묻기 (Ctrl+Enter)"}
-          </Box>
+          {busy ? (
+            // 답하는 동안 단추는 진행 표시가 된다 — 흐린 회색 글자로는 멈춘 것과 갈리지 않았다.
+            <span
+              role="status"
+              style={{
+                ...smallBtn,
+                height: 28,
+                minWidth: 150,
+                gap: 8,
+                padding: "0 11px",
+                border: `1px solid ${AI.bd}`,
+                background: AI.bg,
+                color: AI.fg,
+                fontWeight: 600,
+                cursor: "default",
+              }}
+            >
+              <AiSignal size={6} />
+              <span>답하는 중</span>
+              <span style={{ marginLeft: "auto", fontFamily: "'Roboto Mono',monospace", fontWeight: 500, fontSize: 11.5 }}>
+                {fmtSec(busyMs)}
+              </span>
+            </span>
+          ) : (
+            <Box
+              onClick={ask}
+              style={{
+                ...smallBtn,
+                height: 28,
+                border: `1px solid ${canAsk ? AI.bd : "#e0dcd4"}`,
+                background: canAsk ? AI.bg : "#f7f5f1",
+                color: canAsk ? AI.fg : "#b5afa2",
+                fontWeight: 600,
+                cursor: canAsk ? "pointer" : "default",
+              }}
+            >
+              {turns.length ? "이어서 묻기 (Ctrl+Enter)" : "AI에게 묻기 (Ctrl+Enter)"}
+            </Box>
+          )}
           {busy && (
-            <Box style={smallBtn} hover={{ background: "#f2efe9" }} onClick={cancel}>
-              취소
+            <Box style={{ ...smallBtn, height: 28, gap: 6 }} hover={{ background: "#f2efe9" }} onClick={cancel}>
+              중지
+              <span
+                style={{
+                  fontFamily: "'Roboto Mono',monospace",
+                  fontSize: 11,
+                  color: TEXT.sub,
+                  border: "1px solid #e6e2da",
+                  borderRadius: 3,
+                  padding: "0 4px",
+                }}
+              >
+                Esc
+              </span>
             </Box>
           )}
           {turns.length > 0 && (
@@ -341,7 +470,7 @@ export function AskPanel({ onOpen, cats }: { onOpen: (path: string) => void; cat
           {/* 카테고리를 쓰지 않는 Vault 에는 고를 범위가 없다 — 지금 화면 그대로. */}
           {pickable && (
             <span style={{ display: "flex", alignItems: "center", gap: 5, minWidth: 0 }}>
-              <span style={{ fontSize: 11, color: "#a09a8f" }}>범위</span>
+              <span style={{ fontSize: 11, color: TEXT.sub }}>범위</span>
               <Select
                 // `*` 는 카테고리에 쓸 수 없는 글자라 어떤 키와도 겹치지 않는다(위키 화면과 같다).
                 value={scope ?? "*"}
@@ -375,7 +504,7 @@ export function AskPanel({ onOpen, cats }: { onOpen: (path: string) => void; cat
               </Select>
             </span>
           )}
-          <span style={{ ...hint, fontSize: 11, marginLeft: "auto", textAlign: "right" }}>
+          <span style={{ ...hint, marginLeft: "auto", textAlign: "right" }}>
             {turns.length > 0 && `대화 ${turns.length}턴 · `}
             {info.run
               ? `${info.name ?? info.run.agentId} · ${info.modelLabel}`
@@ -400,6 +529,7 @@ function TurnView({
   onOpen,
   onSave,
   onRetry,
+  onCancel,
 }: {
   turn: Turn;
   first: boolean;
@@ -407,8 +537,24 @@ function TurnView({
   onOpen: (path: string) => void;
   onSave: () => void;
   onRetry: () => void;
+  onCancel: () => void;
 }) {
   const blocks = useMemo(() => mdParse(turn.text), [turn.text]);
+  const running = turn.state === "running";
+  // 도는 동안 1초마다 다시 그려 단계 · 전체 경과를 올린다.
+  const elapsed = useElapsed(running ? turn.startedAt : null);
+  const now = turn.startedAt + elapsed;
+  /** 답이 흐르기 시작하면 단계 목록은 한 줄 요약으로 접힌다. 요약을 누르면 다시 편다. */
+  const [unfold, setUnfold] = useState(false);
+  const trail = turn.steps.filter((x) => !isWriting(x.label));
+  const thinkMs = turn.steps
+    .filter((x) => x.label === THINKING)
+    .reduce((n, x) => n + ((x.end ?? now) - x.at), 0);
+  const cur = running ? turn.steps[turn.steps.length - 1] : undefined;
+  // 실패 · 취소한 턴은 ✓ 요약을 달지 않는다 — 끝나지 않은 일을 끝난 것처럼 보이게 한다.
+  const folded = turn.state === "done" || (running && !!turn.text);
+  const showTrail = running && !turn.text ? true : folded && unfold;
+  const idle = running ? now - turn.lastAt : 0;
   const out = turn.out;
   const shown = out ? (out.cited.length ? out.cited : out.used) : [];
   return (
@@ -447,12 +593,135 @@ function TurnView({
         </div>
       )}
 
-      {turn.text && <MarkdownView blocks={blocks} inline />}
+      {/* 접힌 요약 — 답이 오기 시작했거나 끝난 턴. */}
+      {folded && trail.length > 0 && (
+        <Box
+          onClick={() => setUnfold((u) => !u)}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 7,
+            flexWrap: "wrap",
+            fontSize: 12,
+            color: TEXT.body,
+            marginBottom: 8,
+            cursor: "pointer",
+            userSelect: "none",
+          }}
+        >
+          <span style={{ color: "#2f7f57", fontWeight: 700 }}>✓</span>
+          <span>
+            근거 찾기 {trail.filter((x) => x.label !== THINKING).length}단계
+            {thinkMs > 0 && ` · 생각 ${fmtSec(thinkMs, true)}`}
+          </span>
+          <span style={{ color: "#3a6fd8" }}>{showTrail ? "접기 ▾" : "펼치기 ▸"}</span>
+        </Box>
+      )}
 
-      {turn.state === "running" && (
-        <div style={{ ...hint, display: "flex", alignItems: "center", gap: 6, marginTop: turn.text ? 6 : 0 }}>
-          <span style={{ width: 6, height: 6, borderRadius: "50%", background: VIOLET }} />
-          {turn.step || "답하는 중…"}
+      {showTrail && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8, maxWidth: 860 }}>
+          {(folded ? trail : turn.steps)
+            .filter((x) => x.end)
+            .map((x, i) => (
+              <div
+                key={`${x.at}-${i}`}
+                className="cf-up"
+                style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: TEXT.body }}
+              >
+                <span style={{ width: 16, textAlign: "center", color: "#2f7f57", fontSize: 12, fontWeight: 700 }}>✓</span>
+                <span style={{ flex: 1, minWidth: 0 }}>{x.label}</span>
+                <span style={{ flex: "0 0 auto", fontFamily: "'Roboto Mono',monospace", fontSize: 11.5, color: TEXT.sub }}>
+                  {fmtSec(x.end! - x.at, true)}
+                </span>
+              </div>
+            ))}
+          {cur && !turn.text && (
+            <>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 500 }}>
+                <span style={{ width: 16, display: "flex", justifyContent: "center" }}>
+                  <AiSignal />
+                </span>
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <AiStep>{cur.label}</AiStep>
+                </span>
+                <span style={{ flex: "0 0 auto", fontFamily: "'Roboto Mono',monospace", fontSize: 11.5, color: AI.fg }}>
+                  {fmtSec(now - cur.at)}
+                </span>
+              </div>
+              {cur.label === THINKING && turn.think && (
+                <div className="cf-up" style={{ marginLeft: 24, display: "flex", flexDirection: "column", gap: 5 }}>
+                  {turn.think.tail && (
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "flex-end",
+                        overflow: "hidden",
+                        whiteSpace: "nowrap",
+                        fontSize: 12,
+                        color: TEXT.sub,
+                        background: "#faf9f6",
+                        border: "1px solid #efece5",
+                        borderRadius: 5,
+                        padding: "4px 9px",
+                        WebkitMaskImage: "linear-gradient(90deg, transparent, #000 22%)",
+                        maskImage: "linear-gradient(90deg, transparent, #000 22%)",
+                      }}
+                    >
+                      {turn.think.tail}
+                    </div>
+                  )}
+                  <div style={{ fontSize: 12, color: TEXT.body }}>
+                    생각{" "}
+                    <span style={{ fontFamily: "'Roboto Mono',monospace", color: AI.fg }}>
+                      {turn.think.chars.toLocaleString()}자
+                    </span>{" "}
+                    받음
+                    {now - cur.at >= ELAPSED_AFTER_MS && (
+                      <span style={{ color: TEXT.sub }}> · 추론 모델은 답하기 전에 먼저 생각합니다</span>
+                    )}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {turn.text && (
+        <>
+          <MarkdownView blocks={blocks} inline />
+          {running && (
+            <div style={{ lineHeight: 1.75, fontSize: 13 }}>
+              <Caret />
+            </div>
+          )}
+        </>
+      )}
+
+      {running && idle >= IDLE_WARN_MS && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            marginTop: 8,
+            maxWidth: 860,
+            fontSize: 12,
+            lineHeight: 1.5,
+            color: TEXT.warn,
+            background: "#fdf8ee",
+            border: "1px solid #f1e2c2",
+            borderRadius: 5,
+            padding: "6px 9px",
+          }}
+        >
+          <WarnIcon />
+          <span style={{ flex: 1, minWidth: 0 }}>
+            응답이 {fmtSec(idle)}째 없습니다 — {RUN_STALL_MS / 60_000}분이 지나면 자동으로 끊습니다
+          </span>
+          <Box style={{ flex: "0 0 auto", color: "#2f5cbb", fontWeight: 500, cursor: "pointer" }} onClick={onCancel}>
+            중지
+          </Box>
         </div>
       )}
       {turn.state === "failed" && (
@@ -485,6 +754,11 @@ function TurnView({
             maxWidth: 860,
           }}
         >
+          {turn.endedAt && (
+            <span className="cf-up" style={{ fontSize: 12, color: "#256b47", fontWeight: 600, marginRight: 6 }}>
+              ✓ 답변 완료 · {fmtSec(turn.endedAt - turn.startedAt, true)}
+            </span>
+          )}
           <span style={{ ...hint, marginRight: 4 }}>
             {out.cited.length ? `인용 ${out.cited.length}` : `읽은 페이지 ${out.used.length}`}
           </span>
@@ -545,6 +819,29 @@ function TurnView({
         </div>
       )}
     </div>
+  );
+}
+
+/** 경고 표식 — 글자색만으로는 묻히므로 아이콘 · 옅은 바탕과 함께 쓴다. */
+function WarnIcon() {
+  return (
+    <span
+      aria-hidden
+      style={{
+        flex: "0 0 15px",
+        height: 15,
+        borderRadius: "50%",
+        background: "#b07520",
+        color: "#fff",
+        fontSize: 10.5,
+        fontWeight: 700,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      !
+    </span>
   );
 }
 

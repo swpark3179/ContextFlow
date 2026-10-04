@@ -10,6 +10,44 @@ export const AMBER = "#b07520";
 export const GREEN = "#2f7f57";
 export const VIOLET = "#6a54c6";
 
+/**
+ * 글자색 단계. 디자인 검토(AI 대기 표시 검토 · 04)에서 흰 바탕 대비를 다시 쟀다 —
+ * `#a09a8f` 는 2.8:1, `#8a857c` 는 3.7:1, 경고 `#b07520` 는 3.9:1 로 기준(4.5:1) 미달이다.
+ *
+ * * 수치 · 상태 · 모델 이름처럼 **뜻이 있는** 보조 정보는 `sub`(5.7:1).
+ * * 경고 글자는 `warn`(5.6:1). `AMBER` 는 점 · 막대 같은 면에만 쓴다.
+ * * `hint` 는 12px 이상의 설명문에만, `off` 는 비활성 상태에만.
+ */
+export const TEXT = {
+  ink: "#23211e",
+  body: "#4e4a43",
+  sub: "#6a665e",
+  hint: "#8a857c",
+  off: "#a09a8f",
+  warn: "#8f5d17",
+} as const;
+
+/**
+ * AI 전용 보라. "움직이는 보라 = AI 가 지금 일한다" 가 통하려면 다른 뜻에는 보라를 쓰지
+ * 않는다(마크다운 확장자 · 병합 · 연결 앱은 다른 색으로 옮겼다).
+ */
+export const AI = {
+  dot: VIOLET,
+  fg: "#5a44b4",
+  bg: "#f4f0fd",
+  bd: "#d8cdf6",
+  /** 진행 중 안내 띠의 바탕 · 테두리. */
+  soft: "#f7f4fe",
+  softBd: "#ebe4fb",
+  /** 진행선의 홈. */
+  track: "#ebe5fb",
+  /** 흐르는 라벨의 빛. */
+  hi: "#b5a3f5",
+  /** AI 가 채운 입력 칸. 사람이 고치면 보통 칸으로 돌아간다. */
+  fieldBd: "#d8cdf6",
+  fieldBg: "#fcfbff",
+} as const;
+
 // 타입만 빌려 온다 — `import type` 은 컴파일에서 지워지므로 실행 시 순환이 생기지 않는다.
 
 
@@ -179,7 +217,7 @@ const VSCODE: AppChoice = { n: "Visual Studio Code", d: "소스 편집기", c: B
 
 export const APPS: Record<string, AppChoice[]> = {
   md: [
-    { n: "Obsidian", d: "기본 앱 · 이 Vault에 연결됨", c: VIOLET },
+    { n: "Obsidian", d: "기본 앱 · 이 Vault에 연결됨", c: "#6a665e" },
     VSCODE,
     NOTEPAD,
   ],
@@ -237,7 +275,8 @@ export function extOf(name: string): string {
 }
 
 export function extStyle(ext: string): { fg: string; bg: string } {
-  if (ext === "md") return { fg: "#5a44b4", bg: "#f2eefc" };
+  // 보라는 AI 전용이라 마크다운은 청록(브레인스토밍 가지 색 `#3f8ea3` 계열)으로.
+  if (ext === "md") return { fg: "#2f6f80", bg: "#e8f3f5" };
   // 내장 뷰어가 있는 나머지 한 종류 — 마크다운과 구분되는 색을 준다.
   if (ext === "html" || ext === "htm") return { fg: "#8f5d17", bg: "#fbf3e6" };
   if (["json", "ts", "tsx", "js", "sql", "ps1", "rs", "py"].includes(ext))

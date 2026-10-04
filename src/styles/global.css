@@ -126,6 +126,129 @@ body {
   }
 }
 
+/*
+ * AI 작업 표시 — `lib/ui.tsx` 의 AiSignal · AiStep · AiRail · Skeleton · Caret 이 쓴다.
+ * 규칙 하나: 움직이는 보라 = AI 가 지금 일한다. 모션 값은 디자인 검토 문서
+ * (AI 대기 표시 검토 · 05 구현 메모)의 토큰 그대로다.
+ */
+@keyframes cfPulse {
+  0%,
+  100% {
+    transform: scale(0.8);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+@keyframes cfRing {
+  0% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  100% {
+    transform: scale(2.6);
+    opacity: 0;
+  }
+}
+@keyframes cfShim {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0% 0;
+  }
+}
+@keyframes cfRail {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(290%);
+  }
+}
+@keyframes cfCaret {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes cfSkel {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+@keyframes cfFade {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@keyframes cfUp {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.cf-pulse {
+  animation: cfPulse 1.6s ease-in-out infinite;
+}
+.cf-ring {
+  animation: cfRing 1.6s ease-out infinite;
+}
+.cf-shim {
+  animation: cfShim 1.8s linear infinite;
+}
+.cf-rail {
+  width: 35%;
+  animation: cfRail 1.4s ease-in-out infinite;
+}
+.cf-caret {
+  animation: cfCaret 1s steps(1) infinite;
+}
+.cf-skel {
+  animation: cfSkel 1.4s linear infinite;
+}
+.cf-up {
+  animation: cfUp 0.3s ease-out;
+}
+/* 동작 줄이기 — 움직임은 전부 느린 깜빡임 하나로 접는다. 신호 자체는 남겨야 멈춘 것과 갈린다. */
+@media (prefers-reduced-motion: reduce) {
+  .cf-ring {
+    display: none;
+  }
+  .cf-pulse,
+  .cf-skel {
+    animation: cfFade 2s ease-in-out infinite;
+  }
+  .cf-shim {
+    animation: none;
+    background-position: 0 0;
+  }
+  .cf-rail {
+    width: 100%;
+    animation: cfFade 2s ease-in-out infinite;
+  }
+  .cf-up {
+    animation: none;
+  }
+}
+
 /* Native window chrome is disabled; this makes the custom title bar draggable. */
 [data-tauri-drag-region] {
   -webkit-user-select: none;

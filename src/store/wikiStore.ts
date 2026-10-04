@@ -129,9 +129,13 @@ export const useWiki = create<WikiState>((set, get) => {
         if (failed && !done) {
           toast("위키 반영 실패", `${failed}건 · 위키 화면에서 사유를 볼 수 있습니다`, TOAST.danger);
         } else if (failed) {
-          toast("위키 반영 일부 실패", `성공 ${done}건(페이지 ${pages}장) · 실패 ${failed}건`, TOAST.warn);
+          toast("위키 반영 일부 실패", `성공 ${done}건(페이지 ${pages}장) · 실패 ${failed}건`, TOAST.warn, {
+            action: { label: "보기", run: () => useStore.getState().setScreen("wiki") },
+          });
         } else {
-          toast("위키에 반영했습니다", `업무 ${done}건 · 페이지 ${pages}장`, TOAST.violet);
+          toast("위키에 반영했습니다", `업무 ${done}건 · 페이지 ${pages}장`, TOAST.violet, {
+            action: { label: "보기", run: () => useStore.getState().setScreen("wiki") },
+          });
         }
       }
     }

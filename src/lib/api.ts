@@ -122,6 +122,8 @@ export interface Recommendation {
   title: string;
   path: string;
   cluster: ClusterItem[] | null;
+  /** AI 가 단 추천 근거 한 줄. 로컬 엔진은 없다. */
+  reason?: string;
 }
 
 export interface RecommendResult {

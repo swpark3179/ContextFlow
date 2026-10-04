@@ -41,10 +41,10 @@ export default function Toasts() {
         >
           <div
             style={{
-              width: 6,
-              height: 6,
+              width: 7,
+              height: 7,
               borderRadius: "50%",
-              flex: "0 0 6px",
+              flex: "0 0 7px",
               background: t.color,
             }}
           />
@@ -54,8 +54,8 @@ export default function Toasts() {
               <div
                 style={{
                   fontFamily: "'Roboto Mono',monospace",
-                  fontSize: 10.5,
-                  color: "#a8a29a",
+                  fontSize: 11.5,
+                  color: "#cfc9bf",
                   marginTop: 2,
                   overflow: "hidden",
                   textOverflow: "ellipsis",

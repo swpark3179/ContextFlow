@@ -30,7 +30,7 @@ vi.mock("@tauri-apps/api/core", () => ({
   },
 }));
 
-const { runOnce, runWithRetry, isRetryable, CANCELED } = await import("./runOnce");
+const { runOnce, runWithRetry, isRetryable, thinkingTail, CANCELED } = await import("./runOnce");
 
 const ARGS = { agentId: "claude", prompt: "q", systemPrompt: "" };
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -51,6 +51,21 @@ describe("runOnce", () => {
     const r = await p;
     expect(r).toMatchObject({ ok: true, text: "안녕", thinking: "흠" });
     expect(r.usage).toEqual({ inputTokens: 10, outputTokens: 3 });
+  });
+
+  /** 생각 토큰은 쌓아 두기만 하면 화면이 멈춘 것처럼 보인다 — 자랄 때마다 길이와 끝줄을 알린다. */
+  it("reports thinking length and its last line as it grows", async () => {
+    const seen: [number, string][] = [];
+    const p = runOnce(ARGS, { onThinking: (n, tail) => seen.push([n, tail]) });
+    await tick();
+    channel!.onmessage!({ type: "thinkingDelta", delta: "첫 줄\n" });
+    channel!.onmessage!({ type: "thinkingDelta", delta: "둘째" });
+    channel!.onmessage!({ type: "end", code: null, status: "succeeded" });
+    await p;
+    expect(seen).toEqual([
+      [4, "첫 줄"],
+      [6, "둘째"],
+    ]);
   });
 
   it("abort cancels the backend run and resolves at once", async () => {
@@ -84,5 +99,13 @@ describe("runOnce", () => {
     const r = await p;
     expect(r.error).toBe(CANCELED);
     expect(calls.filter((c) => c.cmd === "run_agent")).toHaveLength(1);
+  });
+});
+
+describe("thinkingTail", () => {
+  it("keeps the last non-empty line, clipped to its last 80 chars", () => {
+    expect(thinkingTail("a\nb\n\n")).toBe("b");
+    expect(thinkingTail("")).toBe("");
+    expect(thinkingTail("x".repeat(100) + "끝")).toBe("x".repeat(79) + "끝");
   });
 });

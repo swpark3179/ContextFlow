@@ -60,6 +60,11 @@ export function isRetryable(error: string | null): boolean {
 export interface RunOnceOptions {
   /** 부분 응답이 자랄 때마다. 진행 표시용. */
   onPartial?: (text: string) => void;
+  /**
+   * 생각 토큰이 자랄 때마다 — 지금까지 받은 길이와 마지막 줄. 추론 모델은 답을 쓰기 전에
+   * 한참 생각하는데, 이걸 보여 주지 않으면 화면이 멈춘 것처럼 보인다.
+   */
+  onThinking?: (length: number, tail: string) => void;
   /** 모든 이벤트(상태 · 추론 · 사용량 포함). 진행 단계 표시용. */
   onEvent?: (ev: RunEvent) => void;
   /**
@@ -129,7 +134,10 @@ export function runOnce(args: RunArgs, opts: RunOnceOptions = {}): Promise<RunRe
       if (ev.type === "textDelta") {
         text += ev.delta;
         opts.onPartial?.(text);
-      } else if (ev.type === "thinkingDelta") thinking += ev.delta;
+      } else if (ev.type === "thinkingDelta") {
+        thinking += ev.delta;
+        opts.onThinking?.(thinking.length, thinkingTail(thinking));
+      }
       else if (ev.type === "usage") usage = { inputTokens: ev.inputTokens, outputTokens: ev.outputTokens };
       else if (ev.type === "truncated") truncated = true;
       else if (ev.type === "error") failure = ev.message;
@@ -161,6 +169,13 @@ export function runOnce(args: RunArgs, opts: RunOnceOptions = {}): Promise<RunRe
         finish({ text: "", ok: false, error: api.errMessage(err), truncated: false }),
       );
   });
+}
+
+/** 생각 글의 마지막 줄(비었으면 그 앞 줄), 길면 끝의 80자. */
+export function thinkingTail(text: string): string {
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  const last = lines[lines.length - 1] ?? "";
+  return last.length > 80 ? last.slice(-80) : last;
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));

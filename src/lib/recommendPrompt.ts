@@ -235,7 +235,7 @@ export function parseRecommend(
   const root = found.value as Record<string, unknown>;
 
   // 순위. 유효한 id 와 유효한 sim 을 모두 갖춘 항목만 남는다.
-  const ranked: { cand: RecCandidate; sim: number }[] = [];
+  const ranked: { cand: RecCandidate; sim: number; reason: string }[] = [];
   const rawItems = Array.isArray(root.items) ? root.items : [];
   for (const raw of rawItems) {
     if (typeof raw !== "object" || raw === null) continue;
@@ -245,7 +245,7 @@ export function parseRecommend(
     const sim = asSim(item.sim);
     if (sim === null) continue;
     if (ranked.some((r) => r.cand.id === cand.id)) continue;
-    ranked.push({ cand, sim });
+    ranked.push({ cand, sim, reason: asString(item.reason).trim() });
   }
   ranked.sort((a, b) => b.sim - a.sim);
 
@@ -280,7 +280,7 @@ export function parseRecommend(
   };
 
   const items: Recommendation[] = [];
-  for (const { cand, sim } of ranked) {
+  for (const { cand, sim, reason } of ranked) {
     if (items.length >= maxItems) break;
     // 남의 묶음에 접힌 후보는 그 카드 안에서만 보인다.
     if (claimed.has(cand.id)) continue;
@@ -297,7 +297,7 @@ export function parseRecommend(
           ]
         : null;
 
-    items.push({ id: cand.id, sim, title: cand.title, path: cand.path, cluster });
+    items.push({ id: cand.id, sim, title: cand.title, path: cand.path, cluster, ...(reason && { reason }) });
   }
 
   return { items, parsed: true, truncated: found.truncated };
