@@ -5,7 +5,9 @@ import tree from "./category.tree.json";
 import {
   categoryErrorMessage,
   categoryKey,
+  dropKind,
   flattenSideRows,
+  HEAD_DWELL_MS,
   isWithin,
   keyOf,
   knownCategories,
@@ -386,6 +388,43 @@ interface Move {
   skip?: true;
   error?: "depth" | "reserved";
 }
+
+describe("dropKind", () => {
+  // 끝 행 아래 반 행까지는 묶음 안의 맨 끝 자리(`at === glen`)로 친다 — 그 자리가 아래 묶음의 머리다.
+  const END = 3;
+
+  it("머리가 순서보다 먼저다 — 끝 행 아래로 넘친 자리가 아래 묶음 머리와 겹쳐도 카테고리 바꾸기", () => {
+    expect(dropKind({ at: END, overKey: "b", group: "a", armed: true })).toBe("category");
+    expect(dropKind({ at: 0, overKey: "a/x", group: "a", armed: true })).toBe("category");
+    expect(dropKind({ at: -1, overKey: "b", group: "a", armed: true })).toBe("category");
+  });
+
+  it("300ms 전후 — 머물기 전에 놓은 넘침은 지금처럼 맨 끝으로 옮기기, 묶음 밖이면 취소", () => {
+    expect(dropKind({ at: END, overKey: "b", group: "a", armed: false })).toBe("reorder");
+    expect(dropKind({ at: -1, overKey: "b", group: "a", armed: false })).toBe("cancel");
+    expect(dropKind({ at: END, overKey: "b", group: "a", armed: true })).toBe("category");
+    // `armed` 는 머리 위에 이만큼 머문 뒤에 켜진다(사이드바의 50ms 타이머).
+    expect(HEAD_DWELL_MS).toBe(300);
+  });
+
+  it("자기 머리에는 머물러도 바뀔 것이 없다 — 자리로만 가른다", () => {
+    expect(dropKind({ at: 0, overKey: "a", group: "a", armed: true })).toBe("reorder");
+    expect(dropKind({ at: -1, overKey: "a", group: "a", armed: true })).toBe("cancel");
+  });
+
+  it("미분류 머리 — 빈 키도 다른 묶음이고, 미분류 업무에게는 자기 머리다", () => {
+    expect(dropKind({ at: -1, overKey: "", group: "a", armed: true })).toBe("category");
+    expect(dropKind({ at: -1, overKey: "a", group: "", armed: true })).toBe("category");
+    expect(dropKind({ at: 2, overKey: "", group: "", armed: true })).toBe("reorder");
+    expect(dropKind({ at: -1, overKey: "", group: "", armed: true })).toBe("cancel");
+  });
+
+  it("머리 위가 아니거나 평평한 목록이면 자리로만 가른다", () => {
+    expect(dropKind({ at: 1, overKey: null, group: "a", armed: false })).toBe("reorder");
+    expect(dropKind({ at: -1, overKey: null, group: "a", armed: false })).toBe("cancel");
+    expect(dropKind({ at: 4, overKey: "b", group: undefined, armed: true })).toBe("reorder");
+  });
+});
 
 describe("retarget — Rust 와 같은 fixture", () => {
   it.each((moves as Move[]).map((c) => [c.note, c] as const))("%s", (_note, c) => {

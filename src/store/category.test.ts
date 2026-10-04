@@ -4,8 +4,12 @@
  * 지정은 index.md 의 frontmatter 한 줄을 고친다. 고치던 글을 먼저 내려쓰지 않거나, 고친 뒤
  * 열린 버퍼를 디스크에 맞추지 않으면 다음 자동 저장이 그 줄을 조용히 지운다 — 화면의 칩은
  * 바뀐 채로 남으므로 재시작해야 사라진 것을 안다. 그래서 커맨드 모킹으로 지킨다.
+ *
+ * 업무 리스트에서 다른 묶음 머리에 놓아 바꾸기(`dropOnCategory`)와 그 [되돌리기] 토스트도 여기서
+ * 본다 — 같은 지정 길을 거친다.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { TOAST } from "../lib/design";
 import { splitFrontmatter } from "../lib/markdown";
 
 interface Call {
@@ -395,5 +399,172 @@ describe("새 업무 · 분할", () => {
 
     expect(cmds()).not.toContain("split_task");
     expect(useStore.getState().split?.error).toBe("‘미분류’는 카테고리 이름으로 쓸 수 없습니다");
+  });
+});
+
+describe("dropOnCategory — 다른 묶음 머리에 놓아 바꾸기 · 되돌리기", () => {
+  /** 붙들지 않은 약속이 모두 돌 때까지. 되돌리기는 단추가 부르는 것이라 기다릴 약속을 주지 않는다. */
+  const settle = () => new Promise((r) => realTimeout(r, 0));
+  const toasts = () => useStore.getState().toasts;
+  const catOf = (folder: string) => useStore.getState().tasks.find((t) => t.folder === folder)?.category;
+  const sets = () => calls.filter((c) => c.cmd === "set_task_category").map((c) => c.args.category);
+
+  it("그 카테고리로 바꾸고 [되돌리기] 를 단 토스트를 띄운다", async () => {
+    openA();
+
+    await useStore.getState().dropOnCategory(A, "프로젝트/ContextFlow");
+
+    expect(sets()).toEqual(["프로젝트/ContextFlow"]);
+    expect(catOf(A)).toBe("프로젝트/ContextFlow");
+    const [t] = toasts();
+    expect(t).toMatchObject({
+      title: "카테고리를 바꿨습니다",
+      sub: "결제 점검 · ‘미분류’ → ‘프로젝트 › ContextFlow’",
+      color: TOAST.ok,
+    });
+    expect(t.action?.label).toBe("되돌리기");
+  });
+
+  it("되돌리기는 토스트를 먼저 닫고 이전 값으로 다시 지정한다", async () => {
+    vault = [task(A, "결제 점검", "운영"), task(B, "인프라 정비", "프로젝트/ContextFlow")];
+    openA();
+    await useStore.getState().dropOnCategory(A, "프로젝트/ContextFlow");
+
+    toasts()[0].action!.run();
+    expect(toasts()).toEqual([]);
+    await settle();
+
+    expect(sets()).toEqual(["프로젝트/ContextFlow", "운영"]);
+    expect(catOf(A)).toBe("운영");
+  });
+
+  it("미분류 머리(\"\")에 놓으면 해제한다 — 되돌리면 원래 카테고리", async () => {
+    vault = [task(A, "결제 점검", "운영"), task(B, "인프라 정비", "프로젝트/ContextFlow")];
+    openA();
+
+    await useStore.getState().dropOnCategory(A, "");
+
+    expect(sets()).toEqual([null]);
+    expect(catOf(A)).toBeNull();
+    expect(toasts()[0]).toMatchObject({ title: "카테고리를 해제했습니다", sub: "결제 점검 · ‘운영’ → ‘미분류’" });
+
+    toasts()[0].action!.run();
+    await settle();
+    expect(sets()).toEqual([null, "운영"]);
+    expect(catOf(A)).toBe("운영");
+  });
+
+  it("그사이 값이 바뀌었으면 되돌리지 않는다", async () => {
+    openA();
+    await useStore.getState().dropOnCategory(A, "프로젝트/ContextFlow");
+    const undo = toasts()[0].action!;
+    // 토스트가 떠 있는 사이에 칩으로 다시 골랐다.
+    await useStore.getState().setCategory([A], "운영");
+
+    undo.run();
+    await settle();
+
+    expect(sets()).toEqual(["프로젝트/ContextFlow", "운영"]);
+    expect(catOf(A)).toBe("운영");
+    expect(toasts().at(-1)).toMatchObject({
+      title: "그사이 바뀌어 되돌리지 않았습니다",
+      sub: "결제 점검",
+      color: TOAST.muted,
+    });
+  });
+
+  it("대소문자만 다른 값은 같은 카테고리다 — 되돌린다", async () => {
+    openA();
+    await useStore.getState().dropOnCategory(A, "프로젝트/ContextFlow");
+    const undo = toasts()[0].action!;
+    useStore.setState({
+      tasks: useStore.getState().tasks.map((t) => (t.folder === A ? { ...t, category: "프로젝트/contextflow" } : t)),
+    });
+
+    undo.run();
+    await settle();
+
+    expect(sets()).toEqual(["프로젝트/ContextFlow", null]);
+  });
+
+  it("업무가 목록에서 사라졌으면 되돌리지 않는다 — 보관으로 폴더가 옮겨 간 것도", async () => {
+    openA();
+    await useStore.getState().dropOnCategory(A, "프로젝트/ContextFlow");
+    const undo = toasts()[0].action!;
+    useStore.setState({ tasks: useStore.getState().tasks.filter((t) => t.folder !== A) });
+
+    undo.run();
+    await settle();
+
+    expect(sets()).toEqual(["프로젝트/ContextFlow"]);
+    expect(toasts().at(-1)?.title).toBe("그사이 바뀌어 되돌리지 않았습니다");
+  });
+
+  it("바꾸지 못하면 경고만 남고 되돌리기는 없다", async () => {
+    openA();
+    lockedFolders = [A];
+
+    await useStore.getState().dropOnCategory(A, "프로젝트/ContextFlow");
+
+    expect(toasts()).toHaveLength(1);
+    expect(toasts()[0]).toMatchObject({ title: "카테고리를 지정하지 못했습니다", color: TOAST.warn });
+    expect(toasts()[0].action).toBeUndefined();
+  });
+
+  it("잘못된 값이면 아무것도 부르지 않는다", async () => {
+    openA();
+    await useStore.getState().dropOnCategory(A, "미분류/x");
+    expect(cmds()).not.toContain("set_task_category");
+    expect(toasts().map((t) => t.action)).toEqual([undefined]);
+  });
+});
+
+describe("토스트 동작(action)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    useStore.setState({ toasts: [] });
+  });
+  afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  });
+
+  const titles = () => useStore.getState().toasts.map((t) => t.title);
+
+  it("동작이 있으면 6초, 없으면 지금처럼 2.8초 보인다", () => {
+    const st = useStore.getState();
+    st.toast("알림");
+    st.toast("바꿨습니다", "", TOAST.ok, { action: { label: "되돌리기", run: () => {} } });
+
+    vi.advanceTimersByTime(2799);
+    expect(titles()).toEqual(["알림", "바꿨습니다"]);
+    vi.advanceTimersByTime(1);
+    expect(titles()).toEqual(["바꿨습니다"]);
+    vi.advanceTimersByTime(6000 - 2800 - 1);
+    expect(titles()).toEqual(["바꿨습니다"]);
+    vi.advanceTimersByTime(1);
+    expect(titles()).toEqual([]);
+  });
+
+  it("동작이 없는 토스트에는 action 칸이 없다 — 모양이 지금과 같다", () => {
+    useStore.getState().toast("알림", "자세히", TOAST.muted);
+    expect(useStore.getState().toasts).toEqual([
+      { id: expect.any(Number), title: "알림", sub: "자세히", color: TOAST.muted },
+    ]);
+  });
+
+  it("누르면 토스트를 먼저 닫고, 두 번 눌러도 동작은 한 번만 돈다", () => {
+    const seen: string[][] = [];
+    const st = useStore.getState();
+    st.toast("남는 것");
+    st.toast("바꿨습니다", "", TOAST.ok, { action: { label: "되돌리기", run: () => seen.push(titles()) } });
+    const { action } = useStore.getState().toasts[1];
+
+    action!.run();
+    action!.run();
+
+    // 동작이 돌 때 이미 그 토스트는 없다.
+    expect(seen).toEqual([["남는 것"]]);
+    expect(titles()).toEqual(["남는 것"]);
   });
 });

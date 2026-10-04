@@ -519,7 +519,7 @@ export default function Wiki() {
             flexDirection: "column",
           }}
         >
-          <AskPanel onOpen={openPage} />
+          <AskPanel onOpen={openPage} cats={cats} />
         </div>
         {tab === "lint" && <LintPanel onOpen={openPage} />}
       </div>

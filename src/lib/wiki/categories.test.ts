@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { knownCategories } from "../category";
 import fixture from "./categories.json";
 import {
+  askScope,
   categoryPageCounts,
   inCategory,
   narrowHits,
@@ -150,6 +151,36 @@ describe("wikiCategoryView", () => {
     const plain = wikiCategoryView([task("1", null)], [source("sources/1.md", "1")], null);
     expect([plain.nodes, plain.hasCats]).toEqual([[], false]);
     expect(wikiCategoryView([], [topic("answers/a.md")], null)).toMatchObject({ opts: [], hasCats: false });
+  });
+});
+
+describe("askScope", () => {
+  const counts = new Map([
+    ["a", 2],
+    ["a/b", 1],
+    ["", 1],
+  ]);
+
+  it("고른 키에 페이지가 있으면 그 키 — 미분류 `\"\"` 도", () => {
+    expect(askScope("a", counts)).toBe("a");
+    expect(askScope("a/b", counts)).toBe("a/b");
+    expect(askScope("", counts)).toBe("");
+  });
+
+  it("고르지 않았거나 페이지가 없으면 전체(null) — 없는 키 · 0페이지 · 미분류 페이지가 없는 미분류", () => {
+    expect(askScope(null, counts)).toBeNull();
+    expect(askScope("없는/키", counts)).toBeNull();
+    expect(askScope("z", new Map([["z", 0]]))).toBeNull();
+    expect(askScope("", new Map([["a", 1]]))).toBeNull();
+  });
+
+  it("화면의 effCat 과 같은 규칙이다", () => {
+    const tasks = [task("1", "a/b"), task("2", null), task("3", "운영")];
+    const pages = [source("sources/1.md", "1"), topic("topics/x.md", "2")];
+    for (const sel of [null, "a", "a/b", "", "운영", "없음"]) {
+      const v = wikiCategoryView(tasks, pages, sel);
+      expect([sel, askScope(sel, v.counts)]).toEqual([sel, v.effCat]);
+    }
   });
 });
 

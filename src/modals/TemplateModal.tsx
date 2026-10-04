@@ -11,6 +11,9 @@ import {
   inputStyle,
 } from "./Modal";
 import { sanitizeFolderName } from "../lib/vaultPaths";
+import { taskAtFolder, templatePrefill } from "../lib/templates";
+import { normalizeCategory } from "../lib/category";
+import CategoryPicker from "../components/CategoryPicker";
 import * as api from "../lib/api";
 
 export default function TemplateModal() {
@@ -37,6 +40,7 @@ export default function TemplateModal() {
   const folderMode = tp.mode === "folder";
   const safe = sanitizeFolderName(name) || "새 템플릿";
   const path = `${s.settings.vault.split("/").pop()}/Templates/${safe}${folderMode ? "/" : ".md"}`;
+  const category = normalizeCategory(tp.category).value;
 
   const preview = folderMode
     ? srcFiles.length
@@ -46,6 +50,7 @@ export default function TemplateModal() {
         "---",
         `template: ${name || "(이름 없음)"}`,
         `purpose: ${tp.desc || "—"}`,
+        ...(category ? [`category: "${category}"`] : []),
         "---",
         "",
         ...tp.sections
@@ -62,7 +67,14 @@ export default function TemplateModal() {
       const dir = picked.replace(/\\/g, "/");
       // 이름을 아직 안 적었으면 폴더 이름을 그대로 쓴다.
       const base = dir.split("/").pop() ?? "";
-      s.set({ tplNew: { ...tp, src: dir, name: tp.name.trim() ? tp.name : base } });
+      // 업무 폴더를 골랐으면 그 업무의 카테고리로 채운다. 손으로 고친 값은 그대로 두고, 앞에서 고른
+      // 업무의 카테고리가 그대로 남아 있으면 갈아 끼운다(새 업무 대화상자의 템플릿 고르기와 같은 규칙).
+      const prefilled = templatePrefill(
+        tp.category,
+        taskAtFolder(s.tasks, tp.src)?.category ?? null,
+        taskAtFolder(s.tasks, dir)?.category ?? null,
+      );
+      s.set({ tplNew: { ...tp, src: dir, name: tp.name.trim() ? tp.name : base, category: prefilled } });
     })();
   };
 
@@ -190,6 +202,17 @@ export default function TemplateModal() {
               placeholder="어떤 상황에서 쓰는 패턴인지"
               style={inputStyle}
               focusStyle={inputFocus}
+            />
+          </div>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: "#6a665e" }}>기본 카테고리</span>
+              <span style={{ fontSize: 11, color: "#a09a8f" }}>이 템플릿으로 만든 새 업무에 미리 채워집니다</span>
+            </div>
+            <CategoryPicker
+              value={tp.category}
+              onChange={(v) => s.set({ tplNew: { ...tp, category: v } })}
+              onCommit={(v) => s.set({ tplNew: { ...tp, category: v ?? "" } })}
             />
           </div>
           {!folderMode && (

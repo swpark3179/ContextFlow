@@ -54,6 +54,12 @@ export interface TemplateMeta {
   last: string;
   saved: number;
   runs: TemplateRun[];
+  /**
+   * 기본 카테고리 — 이 템플릿으로 새 업무를 만들면 카테고리 칸에 미리 채운다. 노트는 `<id>.md`, 폴더는
+   * `<id>/index.md` 의 frontmatter 에 있다(폴더에 index.md 가 없으면 `null`). 카테고리 경로를 바꾸거나
+   * 해제하면 백엔드가 같이 고친다. `null` = 없음.
+   */
+  category: string | null;
 }
 
 export interface DeletePreview {
@@ -333,15 +339,32 @@ export const obsidianVaultStatus = (root: string) =>
 // -- templates & archive ----------------------------------------------------
 
 export const scanTemplates = (root: string) => invoke<TemplateMeta[]>("scan_templates", { root });
-export const createTemplate = (root: string, name: string, desc: string, sections: string) =>
-  invoke<string>("create_template", { root, name, desc, sections });
-/** 폴더 하나를 통째로 표준 패턴으로 등록한다. 원본은 Vault 밖이어도 되며 복사해 온다. */
+/** `category` 는 기본 카테고리다(`null` = 없음). */
+export const createTemplate = (
+  root: string,
+  name: string,
+  desc: string,
+  sections: string,
+  category: string | null,
+) => invoke<string>("create_template", { root, name, desc, sections, category });
+/**
+ * 폴더 하나를 통째로 표준 패턴으로 등록한다. 원본은 Vault 밖이어도 되며 복사해 온다. `category` 는
+ * 늘 그 값으로 쓴다 — `null` 이면 업무 폴더에서 따라온 `category:` 를 지운다(보이지 않는 기본값이
+ * 남지 않게).
+ */
 export const createTemplateFromFolder = (
   root: string,
   name: string,
   desc: string,
   source: string,
-) => invoke<string>("create_template_from_folder", { root, name, desc, source });
+  category: string | null,
+) => invoke<string>("create_template_from_folder", { root, name, desc, source, category });
+/**
+ * 템플릿의 기본 카테고리를 고쳐 쓴다(`null` = 해제). 값은 백엔드가 정규화한다. 잘못된 id 는 `invalid`,
+ * 없는 템플릿은 `not_found`.
+ */
+export const setTemplateCategory = (root: string, id: string, category: string | null) =>
+  invoke<void>("set_template_category", { root, id, category });
 /**
  * 보관함 MOC 를 다시 쓴다. 보관한 업무가 없고 파일도 없으면 만들지 않는데, `force` 면 그래도
  * 만든다 — 사용자가 직접 열 때 열 노트가 있어야 한다.

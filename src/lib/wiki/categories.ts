@@ -176,6 +176,15 @@ export function wikiCategoryView<P extends CatPage>(
 }
 
 /**
+ * AI에게 묻기의 범위 — 고른 키 `sel`(고정한 `askCat.key`, 아니면 화면의 `effCat`)에 페이지가 있을
+ * 때만 그 키이고, 아니면 `null` = 전체다. `effCat` 과 같은 규칙이다 — 고정해 둔 카테고리의 페이지가
+ * 그사이 없어져도(업무 카테고리 변경 · 페이지 삭제) 빈 범위로 묻지 않고 전체로 돌아간다.
+ */
+export function askScope(sel: string | null, counts: Map<string, number>): string | null {
+  return sel !== null && (counts.get(sel) ?? 0) > 0 ? sel : null;
+}
+
+/**
  * 검색 결과를 `paths` 에 든 것만 남기고 `max` 건으로 자른다. **거른 뒤에** 자른다 — 먼저 자르면
  * 그 카테고리의 결과가 앞의 다른 결과에 밀려 사라진다. 순서(관련도)는 그대로다. `paths` 가 `null`
  * 이면 자르기만 한다.

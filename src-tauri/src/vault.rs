@@ -69,6 +69,10 @@ pub struct TemplateMeta {
     pub kind: String,
     pub path: String,
     pub rel_path: String,
+    /// 이 템플릿으로 만드는 새 업무에 미리 채울 카테고리. 노트 템플릿은 그 노트, 폴더 템플릿은
+    /// 안의 `index.md`(없으면 `None`)의 `category` 를 업무와 같은 읽기 규칙(`category::read`)으로
+    /// 읽는다. 채울 뿐이라 사용자가 새 업무 창에서 바꿀 수 있다.
+    pub category: Option<String>,
     pub uses: u32,
     pub last: String,
     /// Run-log entries that did NOT become their own note.
@@ -683,7 +687,9 @@ where
     let out = doc.render();
     let wrote = out != before;
     if wrote {
-        fs::write(&index, out)?;
+        // 상태 · 이름 · 보관 · 회차 · 순서 · 편입 · 분할 · 카테고리 쓰기가 모두 이 길을 지난다.
+        // 쓰다 끊겨도 `index.md` 가 반쯤 남지 않게 바꿔 끼운다(`replace_text`).
+        crate::fsops::replace_text(&index, &out)?;
     }
     Ok((read_task(root, &index)?, wrote))
 }
@@ -1172,7 +1178,7 @@ pub fn merge_tasks(root: &Path, primary: &Path, sources: &[PathBuf], mode: &str)
     doc.set("runs", runs.to_string());
     doc.set("merged_from", (sources.len().saturating_sub(1)).to_string());
     doc.set("updated", now_stamp());
-    fs::write(&index, doc.render())?;
+    crate::fsops::replace_text(&index, &doc.render())?;
 
     for s in sources {
         if s != primary {
@@ -1209,6 +1215,11 @@ pub fn scan_templates(root: &Path, tasks: &[TaskMeta]) -> Result<Vec<TemplateMet
         if path.file_name().is_some_and(|n| n.to_string_lossy().starts_with('.')) {
             continue;
         }
+        // 같은 이름의 폴더와 노트가 함께 있으면 폴더가 이긴다(`resolve_template`) — 노트까지 내면 같은
+        // id 가 둘이 되고, 고른 쪽과 다른 템플릿으로 업무가 만들어진다.
+        if !is_dir && path.file_stem().is_some_and(|s| dir.join(s).is_dir()) {
+            continue;
+        }
         let (stem, meta_path, kind, rel_path) = if is_dir {
             let stem = path.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
             let rel = format!("{}/{}/", TEMPLATES_DIR, stem);
@@ -1222,6 +1233,7 @@ pub fn scan_templates(root: &Path, tasks: &[TaskMeta]) -> Result<Vec<TemplateMet
         let doc = Doc::parse(&text);
         let name = doc.get_str("template").unwrap_or_else(|| stem.clone());
         let desc = doc.get_str("purpose").unwrap_or_default();
+        let category = crate::category::read(&doc);
 
         let link = format!("[[{}/{}]]", TEMPLATES_DIR, stem);
         let users: Vec<&TaskMeta> = tasks
@@ -1254,6 +1266,7 @@ pub fn scan_templates(root: &Path, tasks: &[TaskMeta]) -> Result<Vec<TemplateMet
             kind: kind.to_string(),
             path: path.to_string_lossy().to_string(),
             rel_path,
+            category,
             uses,
             last,
             saved,
@@ -1282,17 +1295,30 @@ fn claim_template_name(root: &Path, name: &str) -> Result<(String, PathBuf)> {
     Ok((safe, dir))
 }
 
+/// 템플릿 기본 카테고리를 쓰기 규칙으로 정규화한다. 무엇이든 만들기 **전에** 거절하려고 따로 둔다.
+fn template_category(category: Option<&str>) -> Result<Option<String>> {
+    Ok(category
+        .map(|raw| crate::category::normalize(raw, crate::category::Mode::Write))
+        .transpose()?
+        .flatten())
+}
+
 /// 폴더 하나를 통째로 표준 패턴으로 등록한다. 원본은 Vault 밖일 수 있으므로 복사해 온다 —
 /// 경로만 참조하면 원본이 옮겨지는 순간 템플릿이 깨지고 Obsidian 에서도 보이지 않는다.
+///
+/// 기본 카테고리는 **받은 값으로 늘 덮는다.** `None` 이면 원본에서 따라온 `category:` 를 지운다 —
+/// 업무 폴더에서 만든 템플릿에 화면에서 고르지 않은, 보이지 않는 기본값이 남으면 안 된다.
 pub fn create_template_from_folder(
     root: &Path,
     name: &str,
     desc: &str,
     source: &Path,
+    category: Option<&str>,
 ) -> Result<PathBuf> {
     if !source.is_dir() {
         return Err(AppError::new("not_found", format!("폴더를 찾을 수 없습니다: {}", source.display())));
     }
+    let category = template_category(category)?;
     let (safe, dir) = claim_template_name(root, name)?;
     let path = dir.join(&safe);
     crate::fsops::copy_recursive(source, &path)?;
@@ -1307,11 +1333,19 @@ pub fn create_template_from_folder(
     if doc.get_str("created").is_none() {
         doc.set("created", now_stamp());
     }
+    crate::category::write(&mut doc, category.as_deref());
     fs::write(&index, doc.render())?;
     Ok(path)
 }
 
-pub fn create_template(root: &Path, name: &str, desc: &str, sections: &str) -> Result<PathBuf> {
+pub fn create_template(
+    root: &Path,
+    name: &str,
+    desc: &str,
+    sections: &str,
+    category: Option<&str>,
+) -> Result<PathBuf> {
+    let category = template_category(category)?;
     let (safe, dir) = claim_template_name(root, name)?;
     let path = dir.join(format!("{}.md", safe));
     let body: String = sections
@@ -1324,9 +1358,47 @@ pub fn create_template(root: &Path, name: &str, desc: &str, sections: &str) -> R
     doc.set("template", crate::frontmatter::quote_if_needed(&safe));
     doc.set("purpose", crate::frontmatter::quote_if_needed(desc));
     doc.set("created", now_stamp());
+    // 미분류면 키를 만들지 않는다(업무와 같다).
+    crate::category::write(&mut doc, category.as_deref());
     doc.set_body(body);
     fs::write(&path, doc.render())?;
     Ok(path)
+}
+
+/// 템플릿의 기본 카테고리를 지정(`Some`)하거나 해제(`None`)한다. 노트 템플릿은 그 노트, 폴더
+/// 템플릿은 안의 `index.md` 에 쓴다 — 폴더에 `index.md` 가 없으면 frontmatter 만 있는 파일을
+/// 만든다(없어도 템플릿으로 성립하므로 그 자리가 비어 있을 수 있다).
+///
+/// * `id` 는 `Templates/` 바로 아래 이름 하나다. 경로를 벗어나거나 숨김 항목을 가리키면 `invalid`.
+/// * 찾지 못하면 `not_found`. 같은 이름의 폴더와 노트가 함께 있으면 폴더가 이긴다(`resolve_template`).
+/// * 값은 업무와 같은 쓰기 규칙으로 정규화하고 늘 큰따옴표로 쓴다(`category::write`).
+/// * 읽은 값이 이미 그 값이면 쓰지 않는다 — 손으로 쓴 주석 · 목록 모양이 남는다.
+pub fn set_template_category(root: &Path, id: &str, category: Option<&str>) -> Result<()> {
+    // `..` 하나 · `../x` 는 `.` 시작 · `/` 검사로 막힌다. `1..2단계` 처럼 이름 안의 점 둘은 템플릿 이름이다.
+    let bad = id.trim().is_empty() || id.starts_with('.') || id.contains(['/', '\\', ':']);
+    if bad {
+        return Err(AppError::new("invalid", format!("잘못된 템플릿 이름입니다: {}", id)));
+    }
+    let (doc_path, folder) = match resolve_template(root, Some(id)) {
+        Some(TemplateSource::Note(path)) => (path, false),
+        Some(TemplateSource::Folder(dir)) => (dir.join("index.md"), true),
+        None => {
+            return Err(AppError::new("not_found", format!("템플릿을 찾을 수 없습니다: {}", id)))
+        }
+    };
+    let value = template_category(category)?;
+    let text = match fs::read_to_string(&doc_path) {
+        Ok(text) => text,
+        // 폴더 템플릿의 `index.md` 는 없을 수 있다 — 빈 노트로 보고 아래에서 만든다.
+        Err(e) if folder && e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(e.into()),
+    };
+    let mut doc = Doc::parse(&text);
+    if crate::category::read(&doc) == value {
+        return Ok(());
+    }
+    crate::category::write(&mut doc, value.as_deref());
+    crate::fsops::replace_text(&doc_path, &doc.render())
 }
 
 // ---------------------------------------------------------------------------
@@ -1467,6 +1539,7 @@ pub fn seed_sample(root: &Path) -> Result<()> {
             "업무 표준절차",
             "반복 업무의 기본 골격",
             "배경\n체크리스트\n실행 이력 (Run Log)",
+            None,
         )?;
     }
 
@@ -1966,7 +2039,7 @@ pub(crate) mod tests {
     #[test]
     fn a_note_template_supplies_the_body_of_the_task_it_creates() {
         let v = TempVault::new("tplnote");
-        create_template(v.path(), "릴리스 절차", "배포용", "배경\n검증 항목").unwrap();
+        create_template(v.path(), "릴리스 절차", "배포용", "배경\n검증 항목", None).unwrap();
 
         let t = create_task(
             v.path(),
@@ -1998,13 +2071,21 @@ pub(crate) mod tests {
         fs::write(src.join("notes.md"), "템플릿 메모").unwrap();
         fs::write(src.join("자료/체크리스트.md"), "항목").unwrap();
 
-        create_template_from_folder(v.path(), "표준 패키지", "반복 업무용", &src).unwrap();
+        create_template_from_folder(
+            v.path(),
+            "표준 패키지",
+            "반복 업무용",
+            &src,
+            Some("운영/점검"),
+        )
+        .unwrap();
 
         let tpls = scan_templates(v.path(), &[]).unwrap();
         let tpl = tpls.iter().find(|t| t.id == "표준 패키지").unwrap();
         assert_eq!(tpl.kind, "folder");
         assert_eq!(tpl.desc, "반복 업무용");
         assert_eq!(tpl.rel_path, "Templates/표준 패키지/");
+        assert_eq!(tpl.category.as_deref(), Some("운영/점검"));
 
         let t = create_task(
             v.path(),
@@ -2035,6 +2116,10 @@ pub(crate) mod tests {
         assert!(body.contains("template_ref"));
         assert!(!body.contains("template: 표준 패키지"), "template frontmatter must not leak");
         assert!(body.contains("· 업무 생성"));
+        // 템플릿 기본 카테고리는 프런트가 새 업무 창에 미리 채우는 값일 뿐이다. 업무를
+        // `category: None` 으로 만들면 템플릿에 값이 있어도 미분류다.
+        assert_eq!(t.category, None);
+        assert!(!body.contains("category"), "{body}");
     }
 
     #[test]
@@ -2042,9 +2127,9 @@ pub(crate) mod tests {
         let v = TempVault::new("tplclash");
         let src = v.path().join("src");
         fs::create_dir_all(&src).unwrap();
-        create_template_from_folder(v.path(), "중복", "", &src).unwrap();
+        create_template_from_folder(v.path(), "중복", "", &src, None).unwrap();
 
-        let err = create_template(v.path(), "중복", "", "배경").unwrap_err();
+        let err = create_template(v.path(), "중복", "", "배경", None).unwrap_err();
         assert_eq!(err.kind, "already_exists");
     }
 
@@ -2076,7 +2161,7 @@ pub(crate) mod tests {
     #[test]
     fn template_stats_come_from_the_tasks_that_reference_them() {
         let v = TempVault::new("tpl");
-        create_template(v.path(), "표준절차", "반복 업무", "배경\n체크리스트").unwrap();
+        create_template(v.path(), "표준절차", "반복 업무", "배경\n체크리스트", None).unwrap();
         let t = create_task(
             v.path(),
             NewTask {
@@ -2846,5 +2931,230 @@ pub(crate) mod tests {
         assert_eq!(res.task.category.as_deref(), Some("프로젝트/웹"));
         let kept = read_task(v.path(), &source.join("index.md")).unwrap();
         assert_eq!(kept.category.as_deref(), Some("프로젝트/웹"));
+    }
+
+    // -- 원자적 쓰기 -----------------------------------------------------------
+
+    /// `index.md` 를 고치는 길(상태 · 회차 · 카테고리 · 순서 · 합치기)이 모두 바꿔 끼우기로 쓰고,
+    /// 업무 폴더에 임시 파일을 남기지 않는다.
+    #[test]
+    fn index_writes_swap_in_without_leaving_temp_files() {
+        let v = TempVault::new("index-atomic");
+        let t = make(v.path(), "원자적 쓰기");
+        let folder = PathBuf::from(&t.folder);
+        let index = folder.join("index.md");
+        #[cfg(unix)]
+        let before = {
+            use std::os::unix::fs::MetadataExt;
+            fs::metadata(&index).unwrap().ino()
+        };
+
+        set_status(v.path(), &folder, "completed").unwrap();
+        append_run(v.path(), &folder, "회차").unwrap();
+        set_category(v.path(), &[t.folder.clone()], Some("운영")).unwrap();
+        reorder_tasks(v.path(), &[t.folder.clone()]).unwrap();
+        clear_task_order(v.path()).unwrap();
+        merge_tasks(v.path(), &folder, &[folder.clone()], "tag").unwrap();
+
+        let names: Vec<String> = fs::read_dir(&folder)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+            .collect();
+        assert_eq!(names, ["index.md"]);
+        let tree: Vec<String> =
+            crate::fsops::list_tree(&folder).unwrap().into_iter().map(|n| n.p).collect();
+        assert_eq!(tree, ["index.md"]);
+        let now = read_task(v.path(), &index).unwrap();
+        assert_eq!((now.status.as_str(), now.category.as_deref()), ("completed", Some("운영")));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            assert_ne!(fs::metadata(&index).unwrap().ino(), before, "바꿔 끼운 새 파일이다");
+        }
+    }
+
+    // -- 템플릿 기본 카테고리 -------------------------------------------------
+
+    fn tpl_category(root: &Path, id: &str) -> Option<String> {
+        let all = scan_templates(root, &[]).unwrap();
+        all.into_iter().find(|t| t.id == id).unwrap_or_else(|| panic!("{id}")).category
+    }
+
+    #[test]
+    fn template_category_is_read_from_notes_and_folder_index_notes() {
+        let v = TempVault::new("tpl-cat-read");
+        let root = v.path();
+        let dir = root.join(TEMPLATES_DIR);
+        create_template(root, "앱이 쓴 것", "", "배경", Some(" 프로젝트 › CF ")).unwrap();
+        fs::write(dir.join("목록형.md"), "---\ncategory: [운영/점검, 기타]\n---\n## 배경\n")
+            .unwrap();
+        fs::write(dir.join("블록 목록.md"), "---\ncategory:\n  - 운영\n---\n").unwrap();
+        fs::write(dir.join("따옴표 없음.md"), "---\ncategory: 프로젝트/CF # 메모\n---\n").unwrap();
+        // frontmatter 가 없으면 본문의 비슷한 줄은 값이 아니다.
+        fs::write(dir.join("frontmatter 없음.md"), "## 배경\ncategory: 가짜\n").unwrap();
+        fs::create_dir_all(dir.join("폴더형")).unwrap();
+        fs::write(dir.join("폴더형/index.md"), "---\ncategory: '운영'\n---\n## 절차\n").unwrap();
+        fs::create_dir_all(dir.join("index 없음")).unwrap();
+        fs::write(dir.join("index 없음/notes.md"), "---\ncategory: 가짜\n---\n").unwrap();
+
+        let cases = [
+            ("앱이 쓴 것", Some("프로젝트/CF")),
+            ("목록형", Some("운영/점검")),
+            ("블록 목록", Some("운영")),
+            ("따옴표 없음", Some("프로젝트/CF")),
+            ("frontmatter 없음", None),
+            ("폴더형", Some("운영")),
+            ("index 없음", None),
+        ];
+        for (id, want) in cases {
+            assert_eq!(tpl_category(root, id).as_deref(), want, "{id}");
+        }
+    }
+
+    #[test]
+    fn set_template_category_writes_clears_and_skips_the_same_value() {
+        let v = TempVault::new("tpl-cat-set");
+        let root = v.path();
+        let path = create_template(root, "릴리스", "배포", "배경\n검증", None).unwrap();
+        let original = fs::read_to_string(&path).unwrap();
+
+        set_template_category(root, "릴리스", Some(" 운영 › 배포 ")).unwrap();
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(text.contains("\ncategory: \"운영/배포\"\n"), "{text}");
+        assert_eq!(Doc::parse(&text).body, Doc::parse(&original).body);
+        assert_eq!(tpl_category(root, "릴리스").as_deref(), Some("운영/배포"));
+
+        // 이미 그 값이면 쓰지 않는다 — 수정 시각을 과거로 돌려 두고 본다.
+        let old = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
+        fs::File::options().write(true).open(&path).unwrap().set_modified(old).unwrap();
+        let bytes = fs::read(&path).unwrap();
+        set_template_category(root, "릴리스", Some("운영/배포")).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+        assert_eq!(fs::metadata(&path).unwrap().modified().unwrap(), old);
+
+        // 규칙에 어긋나는 값은 쓰지 않는다.
+        let err = set_template_category(root, "릴리스", Some("a/b/c/d")).unwrap_err();
+        assert_eq!(err.kind, "invalid");
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+
+        // 해제하면 키가 사라져 처음 바이트로 돌아온다. 빈 값 · `미분류` 도 해제다.
+        set_template_category(root, "릴리스", None).unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), original);
+        assert_eq!(tpl_category(root, "릴리스"), None);
+        set_template_category(root, "릴리스", Some("운영")).unwrap();
+        set_template_category(root, "릴리스", Some("미분류")).unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), original);
+
+        let names: Vec<String> = fs::read_dir(root.join(TEMPLATES_DIR))
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+            .collect();
+        assert_eq!(names, ["릴리스.md"], "임시 파일이 남지 않는다");
+    }
+
+    #[test]
+    fn set_template_category_refuses_bad_and_unknown_ids() {
+        let v = TempVault::new("tpl-cat-ids");
+        let root = v.path();
+        create_template(root, "있는 것", "", "배경", None).unwrap();
+        fs::write(root.join(TASKS_DIR).join("밖.md"), "---\n---\n").unwrap();
+        let before = fs::read_dir(root.join(TEMPLATES_DIR)).unwrap().count();
+
+        for id in
+            ["", "  ", ".obsidian", "../Tasks/밖", "있는 것/x", "a\\b", "C:있는 것", ".."]
+        {
+            let err = set_template_category(root, id, Some("운영")).unwrap_err();
+            assert_eq!(err.kind, "invalid", "{id:?}");
+        }
+        let err = set_template_category(root, "없는 것", Some("운영")).unwrap_err();
+        assert_eq!(err.kind, "not_found");
+        assert_eq!(fs::read_dir(root.join(TEMPLATES_DIR)).unwrap().count(), before);
+        assert_eq!(fs::read_to_string(root.join(TASKS_DIR).join("밖.md")).unwrap(), "---\n---\n");
+    }
+
+    #[test]
+    fn set_template_category_makes_index_md_for_a_bare_folder_template() {
+        let v = TempVault::new("tpl-cat-folder");
+        let root = v.path();
+        let dir = root.join(TEMPLATES_DIR).join("묶음");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("notes.md"), "메모").unwrap();
+
+        // 없는 값을 해제하는 것은 할 일이 없다 — 파일을 만들지 않는다.
+        set_template_category(root, "묶음", None).unwrap();
+        assert!(!dir.join("index.md").exists());
+
+        set_template_category(root, "묶음", Some("운영")).unwrap();
+        assert_eq!(
+            fs::read_to_string(dir.join("index.md")).unwrap(),
+            "---\ncategory: \"운영\"\n---\n"
+        );
+        assert_eq!(tpl_category(root, "묶음").as_deref(), Some("운영"));
+        assert_eq!(fs::read_to_string(dir.join("notes.md")).unwrap(), "메모");
+
+        // 같은 이름의 노트가 있어도 폴더가 이긴다(`resolve_template`).
+        let note = root.join(TEMPLATES_DIR).join("묶음.md");
+        fs::write(&note, "---\n---\n").unwrap();
+        set_template_category(root, "묶음", Some("기타")).unwrap();
+        assert_eq!(
+            fs::read_to_string(dir.join("index.md")).unwrap(),
+            "---\ncategory: \"기타\"\n---\n"
+        );
+        assert_eq!(fs::read_to_string(&note).unwrap(), "---\n---\n");
+        // 목록에도 폴더 하나만 나온다 — 같은 id 가 둘이면 고른 것과 다른 템플릿을 쓸 수 있다.
+        let same: Vec<_> = scan_templates(root, &[])
+            .unwrap()
+            .into_iter()
+            .filter(|t| t.id == "묶음")
+            .map(|t| t.kind)
+            .collect();
+        assert_eq!(same, ["folder"]);
+    }
+
+    /// 이름 안의 점 둘은 경로 벗어나기가 아니다 — 탐색기로 넣은 `1..2단계 점검.md` 도 기본값을 둔다.
+    #[test]
+    fn set_template_category_takes_a_name_with_two_dots_inside() {
+        let v = TempVault::new("tpl-cat-dots");
+        let root = v.path();
+        let path = root.join(TEMPLATES_DIR).join("1..2단계 점검.md");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, "---\ntemplate: 점검\n---\n## 배경\n").unwrap();
+
+        set_template_category(root, "1..2단계 점검", Some("운영")).unwrap();
+        assert_eq!(tpl_category(root, "1..2단계 점검").as_deref(), Some("운영"));
+        assert!(fs::read_to_string(&path).unwrap().ends_with("---\n## 배경\n"));
+    }
+
+    #[test]
+    fn creating_templates_writes_or_strips_the_default_category() {
+        let v = TempVault::new("tpl-cat-create");
+        let root = v.path();
+        let note = create_template(root, "노트형", "", "배경", Some("프로젝트 › CF")).unwrap();
+        assert!(fs::read_to_string(&note).unwrap().contains("\ncategory: \"프로젝트/CF\"\n"));
+        let plain = create_template(root, "미분류형", "", "배경", Some("미분류")).unwrap();
+        assert!(!fs::read_to_string(&plain).unwrap().contains("category"));
+        // 받지 못할 값이면 아무것도 만들지 않는다.
+        let err = create_template(root, "거절", "", "배경", Some("a/b/c/d")).unwrap_err();
+        assert_eq!(err.kind, "invalid");
+        assert!(!root.join(TEMPLATES_DIR).join("거절.md").exists());
+
+        // 업무 폴더에서 만들면 원본의 `category:` 가 따라온다 — 받은 값으로 덮거나 지운다.
+        let task = make_in(root, "원본 업무", "옛/값");
+        let src = PathBuf::from(&task.folder);
+        create_template_from_folder(root, "덮기", "", &src, Some("새/값")).unwrap();
+        let text = fs::read_to_string(root.join(TEMPLATES_DIR).join("덮기/index.md")).unwrap();
+        assert!(text.contains("\ncategory: \"새/값\"\n") && !text.contains("옛/값"), "{text}");
+        create_template_from_folder(root, "지우기", "", &src, None).unwrap();
+        let text = fs::read_to_string(root.join(TEMPLATES_DIR).join("지우기/index.md")).unwrap();
+        assert!(!text.contains("category"), "{text}");
+        assert_eq!(tpl_category(root, "덮기").as_deref(), Some("새/값"));
+        assert_eq!(tpl_category(root, "지우기"), None);
+        let err =
+            create_template_from_folder(root, "거절 폴더", "", &src, Some("미분류/x")).unwrap_err();
+        assert_eq!(err.kind, "invalid");
+        assert!(!root.join(TEMPLATES_DIR).join("거절 폴더").exists());
+        // 원본 업무는 그대로다.
+        let kept = read_task(root, &src.join("index.md")).unwrap();
+        assert_eq!(kept.category.as_deref(), Some("옛/값"));
     }
 }

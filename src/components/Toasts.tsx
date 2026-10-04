@@ -1,5 +1,11 @@
+import { Box } from "../lib/ui";
 import { useStore } from "../store/useStore";
 
+/**
+ * 화면 오른쪽 아래의 토스트들. 묶음은 눌리지 않는다(`pointerEvents: none`) — 아래의 편집기 ·
+ * 단추를 가리지 않게. 단추(`action`)가 있는 토스트만 눌린다. 누르면 무엇을 할지는 스토어가 감싸
+ * 두었다(먼저 닫고, 두 번 눌러도 한 번만 — `toast`).
+ */
 export default function Toasts() {
   const toasts = useStore((s) => s.toasts);
   return (
@@ -30,6 +36,7 @@ export default function Toasts() {
             boxShadow: "0 10px 26px rgba(35,33,30,.28)",
             animation: "tIn .16s ease-out",
             maxWidth: 420,
+            ...(t.action && { pointerEvents: "auto" as const }),
           }}
         >
           <div
@@ -59,6 +66,27 @@ export default function Toasts() {
               </div>
             )}
           </div>
+          {t.action && (
+            <Box
+              onClick={t.action.run}
+              style={{
+                flex: "0 0 auto",
+                marginLeft: 4,
+                fontSize: 11.5,
+                fontWeight: 500,
+                color: "#9fc0ff",
+                border: "1px solid #4a463f",
+                borderRadius: 4,
+                padding: "3px 8px",
+                cursor: "pointer",
+                userSelect: "none",
+                whiteSpace: "nowrap",
+              }}
+              hover={{ background: "#3a3731", color: "#c4d8ff" }}
+            >
+              {t.action.label}
+            </Box>
+          )}
         </div>
       ))}
     </div>
