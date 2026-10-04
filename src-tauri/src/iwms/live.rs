@@ -235,6 +235,8 @@ fn live_read() {
 
     let today = chrono::Local::now().format("%Y-%m-%d").to_string();
     let d = day::summarize(&mh, &init, &iso, &user.user_id, &today).expect("summarize");
+    // 화면이 받는 모양 그대로 — `src/lib/iwms/live.test.ts` 가 이것으로 실제 프롬프트를 만든다.
+    dump(&format!("day-{ymd}.json"), &serde_json::to_value(&d).unwrap());
     println!(
         "{iso} · 기준 {}분 · 최대 {}분 · 입력됨 {}분 · 결재 {} · 휴일 {}",
         d.standard_minutes, d.max_minutes, d.total_minutes, d.approved, d.holiday
@@ -257,4 +259,57 @@ fn live_read() {
         println!("  입력됨 [{}] {} > {} · {}분 · {}행", c.price_type, c.ci_name, c.task, c.minutes, c.rows.len());
     }
     assert!(!d.tabs.is_empty(), "탭이 하나도 없습니다 — 나의 MH 설정을 확인하세요");
+}
+
+/// 정제 프롬프트를 앱과 **같은 실행 경로**(`run::execute_blocking`)로 실제 연결에 보낸다.
+///
+/// `IWMS_PROMPT_DIR` 의 `system.txt` · `prompt.txt` 를 읽어 기능별 연결 `iwms.refine`(없으면 기본 연결)로
+/// 돌리고 답을 `response.txt` 에 쓴다. 프롬프트는 `src/lib/iwms/live.test.ts` 가 만든다:
+///
+/// ```powershell
+/// $env:IWMS_LIVE_DIR = "<폴더>"; node_modules/.bin/vitest run src/lib/iwms/live.test.ts   # 프롬프트 만들기
+/// $env:IWMS_PROMPT_DIR = "<폴더>"; cargo test … live_refine_run -- --ignored --nocapture  # AI 에 묻기
+/// node_modules/.bin/vitest run src/lib/iwms/live.test.ts                                  # 답 해석
+/// ```
+#[test]
+#[ignore = "AI 연결이 필요하다"]
+fn live_refine_run() {
+    use std::sync::atomic::AtomicBool;
+    use std::sync::Arc;
+
+    let dir = PathBuf::from(std::env::var("IWMS_PROMPT_DIR").expect("IWMS_PROMPT_DIR"));
+    let system = std::fs::read_to_string(dir.join("system.txt")).expect("system.txt");
+    let prompt = std::fs::read_to_string(dir.join("prompt.txt")).expect("prompt.txt");
+    let s = crate::ai_settings::load(&crate::app_home().unwrap());
+    let choice = s.routes.get("iwms.refine").cloned().unwrap_or_else(|| s.active.clone());
+    assert!(!choice.agent_id.is_empty(), "AI 연결이 없습니다 — 설정 → AI 연결");
+    println!("연결: {} · 모델 {}", choice.agent_id, choice.model);
+
+    let args = crate::run::RunArgs {
+        agent_id: choice.agent_id.clone(),
+        prompt,
+        cwd: crate::resolve_cwd("").unwrap(),
+        system_prompt: system,
+        model: Some(choice.model.clone()).filter(|m| !m.is_empty()),
+        session_id: None,
+        max_tokens: Some(16_384),
+        temperature: Some(0.2),
+    };
+    let started = Instant::now();
+    let mut text = String::new();
+    let mut truncated = false;
+    let status = crate::run::execute_blocking(&args, &Arc::new(AtomicBool::new(false)), &mut |_| {}, &mut |ev| {
+        match ev {
+            crate::run::RunEvent::TextDelta { delta } => text.push_str(&delta),
+            crate::run::RunEvent::Truncated => truncated = true,
+            crate::run::RunEvent::Error { message } => println!("오류: {message}"),
+            crate::run::RunEvent::Usage { input_tokens, output_tokens } => {
+                println!("토큰: 입력 {input_tokens:?} · 출력 {output_tokens:?}")
+            }
+            _ => {}
+        }
+    });
+    println!("상태 {status} · {:.1}초 · {}자 · 잘림 {truncated}", started.elapsed().as_secs_f32(), text.chars().count());
+    std::fs::write(dir.join("response.txt"), &text).unwrap();
+    assert!(!text.trim().is_empty(), "응답이 비었습니다");
 }

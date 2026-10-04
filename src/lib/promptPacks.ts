@@ -19,7 +19,13 @@ import type { AiSettings, PromptPack } from "./ai";
  * 결과가 왜 기울었는지 추적할 방법이 없다. 요청 본문은 이미 확보된 재료(후보 목록 · 업무
  * 원문 · 위키 페이지)를 **읽는 방식**만 바꾸므로 그 문제가 없다.
  */
-export type PromptHook = "recommend.rank" | "wiki.ingest" | "wiki.query" | "wiki.lint" | "wiki.web";
+export type PromptHook =
+  | "recommend.rank"
+  | "wiki.ingest"
+  | "wiki.query"
+  | "wiki.lint"
+  | "wiki.web"
+  | "iwms.refine";
 
 export const PROMPT_HOOKS: { id: PromptHook; label: string; note: string }[] = [
   { id: "recommend.rank", label: "추천 순위", note: "순위 요청의 출력 형식 앞" },
@@ -34,6 +40,11 @@ export const PROMPT_HOOKS: { id: PromptHook; label: string; note: string }[] = [
     id: "wiki.web",
     label: "웹 검색 정리",
     note: "브라우저로 가져온 웹 페이지를 정리하는 요청의 출력 형식 앞 (예: 믿을 만한 출처 기준)",
+  },
+  {
+    id: "iwms.refine",
+    label: "i-WMS 정제",
+    note: "오늘의 한일을 i-WMS 업무량으로 정제하는 요청의 출력 형식 앞 (예: 팀의 상세내용 작성 관례)",
   },
 ];
 

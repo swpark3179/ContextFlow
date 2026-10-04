@@ -107,7 +107,7 @@ pub struct ActiveChoice {
 /// 지점마다 그 요청의 **출력 계약 앞**에 붙는다. 시스템 프롬프트에는 주입하지 않는다 —
 /// 판단의 정체성을 사용자 지침이 통과하면 결과가 왜 기울었는지 추적할 수 없다
 /// (`src/lib/promptPacks.ts` 참조).
-pub const HOOKS: [&str; 5] = ["recommend.rank", "wiki.ingest", "wiki.query", "wiki.lint", "wiki.web"];
+pub const HOOKS: [&str; 6] = ["recommend.rank", "wiki.ingest", "wiki.query", "wiki.lint", "wiki.web", "iwms.refine"];
 
 /// 훅 하나에 붙일 수 있는 팩 수. 프롬프트가 무한정 길어지는 것을 막는 1차 방어선이다.
 pub const MAX_PACKS_PER_HOOK: usize = 5;
@@ -117,7 +117,9 @@ pub const MAX_PACKS_PER_HOOK: usize = 5;
 /// 위키 질의와 점검은 한 연결을 같이 쓴다(둘 다 위키를 읽고 답하는 일이라 모델 성격이 같다).
 /// `wiki.web` 은 위키 질의 중 브라우저로 가져온 웹 페이지를 읽고 정리하는 모델이다 — 페이지
 /// 본문이 길고 잡음이 많아 값싸고 빠른 모델을 따로 두면 질의 모델의 문맥을 아낀다.
-pub const ROUTES: [&str; 3] = ["wiki.ingest", "wiki.query", "wiki.web"];
+/// `iwms.refine` 은 오늘의 한일을 i-WMS 업무량으로 정제하는 일이다(`docs/IWMS-ROADMAP.md`) — 업무 내용이
+/// 나가므로 사내 연결만 쓰게 따로 고를 수 있어야 한다.
+pub const ROUTES: [&str; 4] = ["wiki.ingest", "wiki.query", "wiki.web", "iwms.refine"];
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]

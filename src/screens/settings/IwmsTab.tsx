@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useIwms } from "../../store/iwmsStore";
 import IwmsCategoriesCard from "./IwmsCategoriesCard";
 import IwmsConnectionCard from "./IwmsConnectionCard";
+import IwmsTemplatesCard from "./IwmsTemplatesCard";
 import { hintStyle } from "./shared";
 
 /**
@@ -27,6 +28,7 @@ export default function IwmsTab({ hidden }: { hidden: boolean }) {
       {error && <div style={{ ...hintStyle, color: "#9b4b42" }}>{error}</div>}
       <IwmsConnectionCard />
       <IwmsCategoriesCard />
+      <IwmsTemplatesCard />
     </div>
   );
 }

@@ -7,6 +7,7 @@ import * as iwmsApi from "../lib/iwms/api";
 import { markMap, pushesByEntry, withMark } from "../lib/iwms/marks";
 import type { IwmsMark, IwmsPush, Price } from "../lib/iwms/types";
 import IwmsPriceSwitch from "../components/IwmsPriceSwitch";
+import { useIwms } from "../store/iwmsStore";
 import { useStore } from "../store/useStore";
 import { GhostButton, Modal, ModalFooter, PrimaryButton, inputFocus, inputStyle } from "./Modal";
 
@@ -110,6 +111,8 @@ export default function DayLogModal() {
   const close = () => s.set({ dayLogOpen: null });
   const priceOf = markMap(marks);
   const pushedOf = pushesByEntry(pushes);
+  /** 대가 구분을 고른 줄 — 지금 보이는 줄만 센다(지운 줄의 선택은 이미 빠져 있다). */
+  const marked = entries.filter((e) => priceOf.has(e.id)).length;
 
   /** 오늘을 고쳤으면 도크도 따라가야 한다 — 같은 목록을 두 곳에서 보고 있는 셈이다. */
   const syncDock = () => {
@@ -335,6 +338,11 @@ export default function DayLogModal() {
           {entries.length}건 · 제목을 누르면 내용이 열립니다
         </span>
         <div style={{ flex: 1 }} />
+        {marked > 0 && (
+          <GhostButton onClick={() => useIwms.getState().openPush(day)}>
+            i-WMS 업무량 입력… ({marked})
+          </GhostButton>
+        )}
         <PrimaryButton onClick={close}>닫기</PrimaryButton>
       </ModalFooter>
     </Modal>

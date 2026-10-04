@@ -2,6 +2,7 @@ import { create } from "zustand";
 import * as api from "../lib/api";
 import * as iwms from "../lib/iwms/api";
 import type { IwmsDay, IwmsSettings, IwmsStatus } from "../lib/iwms/types";
+import { useStore } from "./useStore";
 
 /**
  * i-WMS 연결 · 설정 상태.
@@ -27,6 +28,16 @@ interface IwmsState {
    * 창이 잠깐 떴다 닫히는 것으로 끝나는 일이 대부분이다.
    */
   day: (date: string) => Promise<IwmsDay>;
+
+  /**
+   * 검토 화면(`IwmsPushModal`). 오늘의 한일 팝업을 **대신해** 뜬다 — 이 앱은 모달을 겹치지 않는다.
+   * 돌아가기는 그 날짜의 오늘의 한일을 다시 연다.
+   */
+  push: { day: string } | null;
+  /** 정제 · 저장 · 되돌리기가 도는 중. Esc 로 닫지 않는다(실패 사유를 적을 자리가 사라진다). */
+  pushBusy: boolean;
+  openPush: (day: string) => void;
+  closePush: (back: boolean) => void;
 }
 
 export const useIwms = create<IwmsState>((set, get) => ({
@@ -78,5 +89,19 @@ export const useIwms = create<IwmsState>((set, get) => ({
       if (!status.connected) throw new Error(status.message);
       return await iwms.iwmsDay(date);
     }
+  },
+
+  push: null,
+  pushBusy: false,
+
+  openPush: (day) => {
+    useStore.getState().set({ dayLogOpen: null });
+    set({ push: { day }, pushBusy: false });
+  },
+
+  closePush: (back) => {
+    const day = get().push?.day;
+    set({ push: null, pushBusy: false });
+    if (back && day) void useStore.getState().openDayLog(day);
   },
 }));
