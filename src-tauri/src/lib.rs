@@ -10,6 +10,7 @@ mod fabrix;
 mod frontmatter;
 mod fsops;
 mod hub;
+mod iwms;
 mod openai;
 mod prompts;
 mod recommend;
@@ -776,6 +777,7 @@ pub fn run() {
         .manage(run::RunRegistry::default())
         .manage(browser::BrowserState::default())
         .manage(daylog::DayLog::default())
+        .manage(iwms::IwmsState::default())
         .invoke_handler(tauri::generate_handler![
             load_settings,
             save_settings,
@@ -860,6 +862,12 @@ pub fn run() {
             wiki::wiki_apply,
             wiki::wiki_relink,
             wiki::wiki_lint_local,
+            iwms::iwms_connect,
+            iwms::iwms_status,
+            iwms::iwms_disconnect,
+            iwms::iwms_day,
+            iwms::get_iwms_settings,
+            iwms::save_iwms_settings,
         ])
         .build(tauri::generate_context!())
         .expect("error while running ContextFlow")

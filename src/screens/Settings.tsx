@@ -6,6 +6,7 @@ import { useStore, type Settings as S } from "../store/useStore";
 import * as api from "../lib/api";
 import AiConnectionsCard from "./settings/AiConnectionsCard";
 import AiRoutesCard from "./settings/AiRoutesCard";
+import IwmsTab from "./settings/IwmsTab";
 import PromptPacksCard from "./settings/PromptPacksCard";
 import WebSearchCard from "./settings/WebSearchCard";
 import WikiCard from "./settings/WikiCard";
@@ -98,6 +99,8 @@ export default function Settings() {
    */
   const [thrDraft, setThrDraft] = useState<number | null>(null);
   const threshold = thrDraft ?? settings.threshold;
+  /** 탭. 숨긴 탭도 마운트를 유지해 고치던 초안이 탭을 오가도 남는다. */
+  const [tab, setTab] = useState<"general" | "iwms">("general");
   const commitThreshold = () => {
     if (thrDraft === null) return;
     if (thrDraft !== settings.threshold) s.patchSettings({ threshold: thrDraft });
@@ -106,9 +109,24 @@ export default function Settings() {
 
   return (
     <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "18px 22px", background: "#fdfcfa" }}>
-      <div style={{ fontSize: 16, fontWeight: 600, letterSpacing: "-.2px" }}>설정</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+        <div style={{ fontSize: 16, fontWeight: 600, letterSpacing: "-.2px" }}>설정</div>
+        <div role="tablist" style={{ display: "flex", gap: 4 }}>
+          <Chip on={tab === "general"} label="일반" onClick={() => setTab("general")} />
+          <Chip on={tab === "iwms"} label="i-WMS" onClick={() => setTab("iwms")} />
+        </div>
+      </div>
+      <div style={{ maxWidth: 680, marginTop: tab === "iwms" ? 14 : 0 }}>
+        <IwmsTab hidden={tab !== "iwms"} />
+      </div>
       <div
-        style={{ maxWidth: 680, marginTop: 14, display: "flex", flexDirection: "column", gap: 16 }}
+        style={{
+          maxWidth: 680,
+          marginTop: 14,
+          display: tab === "general" ? "flex" : "none",
+          flexDirection: "column",
+          gap: 16,
+        }}
       >
         {/* Vault -------------------------------------------------------- */}
         <div style={cardStyle}>

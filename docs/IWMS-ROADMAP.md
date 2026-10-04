@@ -84,14 +84,24 @@ CREATE TABLE iwms_pushes (                -- i-WMS 에 실제로 넣은 행. 되
 
 * 이 문서, `docs/iwms-port/`(README · CHANGES · apply.ps1 · patches).
 
-### 1단계 — i-WMS 연결 · 읽기
+### 1단계 — i-WMS 연결 · 읽기 (완료)
 
 * Rust `src-tauri/src/iwms/`: `client.rs`(REST · 만료 판정 · 관대한 숫자 파싱 · 오류 문구), `day.rs`(mhList → 탭 ·
   카테고리 · 기존 행, initMHInfo 요약 · 가드), `session.rs`(WebView2 세션 창), `settings.rs`(`iwms.json`).
 * 커맨드 `iwms_connect` · `iwms_status` · `iwms_disconnect` · `iwms_day` · `get_iwms_settings` · `save_iwms_settings`.
-  세션 만료는 `AppError{kind:"iwms_session"}` — 프런트가 다시 연결하고 한 번 다시 시도한다.
-* 설정 화면 맨 위에 탭 `[일반 | i-WMS]`. 지금 내용이 그대로 '일반' 이다. i-WMS 탭의 연결 카드.
-* 실서비스 읽기 점검(`#[ignore] live_read`, 2026-10-02).
+  세션 만료는 `AppError{kind:"iwms_session"}` — 프런트(`useIwms.day`)가 다시 연결하고 한 번 다시 시도한다.
+* 설정 화면 제목 옆에 탭 `[일반 | i-WMS]`. 지금 내용이 그대로 '일반' 이다. i-WMS 탭의 연결 카드(주소 · 상태 ·
+  [i-WMS 연결] · [나의 MH 설정 열기 ↗]).
+* **실서비스 읽기 점검(2026-10-02, `live_read`)** — 탭 6개(공통 · EP · 통합 권한/계정 · 문서관리 · 통합과제관리 · 비대상),
+  카테고리 25개(대가포함 O 15 · 대가미포함 N 10), 이미 입력된 360분(2개 카테고리에 각 2행), 기준 480분.
+  여기서 바로잡은 것(계획을 바꿨다):
+  * **`beforeAbandonedYn` 은 막는 조건이 아니다.** 입력이 되는 탭 모두가 `"Y"`(폐기 전)였다. 삭제(`deleteYn = "Y"`)만
+    미리 막고 폐기는 서버 오류 코드에 맡긴다.
+  * **마감일은 입력 날짜 또는 오늘이 넘어서면 막는다.** 10/2 의 `deadLineDate` 가 10/15 였다 — 무엇의 마감인지 확정하지
+    못해 두 해석 모두에서 맞는 쪽을 택했다.
+  * **새 프로필의 Chrome 은 SSO 가 저절로 되지 않았다**(로그인 화면에 멈춤). Edge 는 몇 초 만에 됐다. 테스트 도우미는
+    Edge 를 먼저 쓴다. 앱은 WebView2(Edge 엔진)이므로 같은 결과를 기대한다 — 앱 E2E 에서 확인한다.
+  * 실데이터의 `mh` 는 모두 실수(`60.0`)였다 — 관대한 파싱이 필요하다는 auto-wms 의 기록과 같다.
 
 ### 2단계 — 카테고리 지정
 

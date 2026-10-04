@@ -1,0 +1,12 @@
+{
+  "maxDailyTime": "480",
+  "isRegular": true,
+  "holidayYn": "N",
+  "mhUserName": "홍길동",
+  "summaryList": [],
+  "standardTime": "480",
+  "improvedFlag": true,
+  "checkAuthMessage": "SUCCESS",
+  "confirmed": "N",
+  "userLanguage": "ko"
+}
