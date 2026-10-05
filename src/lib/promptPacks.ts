@@ -27,7 +27,8 @@ export type PromptHook =
   | "wiki.web"
   | "iwms.refine"
   | "task.guide"
-  | "task.brief";
+  | "task.brief"
+  | "task.issue";
 
 export const PROMPT_HOOKS: { id: PromptHook; label: string; note: string }[] = [
   { id: "recommend.rank", label: "추천 순위", note: "순위 요청의 출력 형식 앞" },
@@ -57,6 +58,11 @@ export const PROMPT_HOOKS: { id: PromptHook; label: string; note: string }[] = [
     id: "task.brief",
     label: "간략 입력 정리",
     note: "한두 줄 입력을 개요 · 할 일 · 일정으로 정리하는 요청의 출력 형식 앞 (예: 할 일을 쪼개는 단위 · 담당 표기)",
+  },
+  {
+    id: "task.issue",
+    label: "이슈 추가",
+    note: "새 이슈를 정리하고 적을 곳을 고르는 요청의 출력 형식 앞 (예: 이슈 분류 기준 · 테스트 회신을 적는 문서)",
   },
 ];
 

@@ -102,6 +102,9 @@ export default function AiRoutesCard() {
   useAutoFix(routes["task.brief"], (m) =>
     guard(saveRoute("task.brief", routes["task.brief"]!.agentId, m)),
   );
+  useAutoFix(routes["task.issue"], (m) =>
+    guard(saveRoute("task.issue", routes["task.issue"]!.agentId, m)),
+  );
 
   const modelsOf = (agentId: string | undefined) =>
     agentId ? (detected[agentId]?.models ?? NO_MODELS) : NO_MODELS;

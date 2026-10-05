@@ -18,6 +18,7 @@ import DayLogModal from "./modals/DayLogModal";
 import IwmsPushModal from "./modals/IwmsPushModal";
 import GuideModal from "./modals/GuideModal";
 import BriefModal from "./modals/BriefModal";
+import IssueModal from "./modals/IssueModal";
 import DeleteModal from "./modals/DeleteModal";
 import ImportModal from "./modals/ImportModal";
 import OpenWithModal from "./modals/OpenWithModal";
@@ -153,7 +154,7 @@ export default function App() {
         else if (st.del) st.set({ del: null });
         else if (st.ow) st.set({ ow: null });
         // AI 도우미 팝업 — 생성 중이면 끊고 버린다(팝업이 닫히며 실행을 취소한다). 파일에 쓰는 중에는 닫지 않는다.
-        else if (useAssist.getState().guide || useAssist.getState().brief) {
+        else if (useAssist.getState().isOpen()) {
           if (!useAssist.getState().busy) useAssist.getState().close();
         }
         else if (st.ren) st.set({ ren: null });
@@ -344,6 +345,7 @@ export default function App() {
       <IwmsPushModal />
       <GuideModal />
       <BriefModal />
+      <IssueModal />
       <Toasts />
     </div>
   );
