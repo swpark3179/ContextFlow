@@ -116,7 +116,8 @@ export type AiFeature =
   | "wiki.web"
   | "iwms.refine"
   | "task.guide"
-  | "task.brief";
+  | "task.brief"
+  | "task.issue";
 
 export const AI_FEATURES: { id: AiFeature; label: string; note: string }[] = [
   {
@@ -148,6 +149,11 @@ export const AI_FEATURES: { id: AiFeature; label: string; note: string }[] = [
     id: "task.brief",
     label: "간략 입력 정리",
     note: "한두 줄 입력을 개요 · 할 일 · 일정으로 정리하고 빠진 것을 묻는 일 — 짧게 여러 번 묻는다, 업무 내용이 나간다",
+  },
+  {
+    id: "task.issue",
+    label: "이슈 추가",
+    note: "새로 생긴 이슈를 정리해 새 파일을 만들거나 기존 파일에 적을 곳을 고르는 일 — 업무 파일의 이름 · 제목 · 앞부분이 함께 나간다",
   },
 ];
 

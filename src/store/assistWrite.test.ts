@@ -9,6 +9,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const calls: { cmd: string; args: Record<string, unknown> }[] = [];
 /** 디스크 — 경로 → 글. */
 let disk: Record<string, string> = {};
+/** 이 경로에 쓰면 실패한다. */
+let failWrite: string | null = null;
 
 const FOLDER = "/v/Tasks/[2026-10] 결제 PG 교체";
 const OTHER = "/v/Tasks/[2026-10] 다른 업무";
@@ -47,6 +49,7 @@ vi.mock("@tauri-apps/api/core", () => ({
         return disk[p];
       }
       case "write_text_file":
+        if (args.path === failWrite) throw { kind: "io", message: "디스크 오류" };
         disk[String(args.path)] = String(args.content);
         return undefined;
       case "create_task_file": {
@@ -72,7 +75,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 vi.stubGlobal("window", { setTimeout, clearTimeout });
 
 const { useStore, DEFAULT_SETTINGS } = await import("./useStore");
-const { applyToTaskFile, taskOverview } = await import("./assistStore");
+const { applyIssue, applyToTaskFile, taskIssueFiles, taskOverview, useAssist } = await import("./assistStore");
 const { mergeIntoIndex } = await import("../lib/assist/brief");
 const { appendGuide } = await import("../lib/assist/guide");
 
@@ -96,7 +99,9 @@ const writes = () => calls.filter((c) => c.cmd === "write_text_file");
 
 beforeEach(() => {
   calls.length = 0;
+  failWrite = null;
   disk = { [`${FOLDER}/index.md`]: `${FM}## 개요\n디스크의 개요\n` };
+  useAssist.setState({ reveal: null });
 });
 
 describe("applyToTaskFile", () => {
@@ -147,5 +152,106 @@ describe("taskOverview", () => {
     expect(await taskOverview(task(), 600)).toBe("버퍼의 개요");
     useStore.setState({ ui: { ...useStore.getState().ui, docs: {} } });
     expect(await taskOverview(task(), 600)).toBe("디스크의 개요");
+  });
+});
+
+describe("applyIssue", () => {
+  const REL = "이슈/2026-10-05 B카드사 실패.md";
+  const LINE = "- [ ] 10/05(월) [테스트 회신] B카드사 실패 → [[이슈/2026-10-05 B카드사 실패|B카드사 실패]]";
+  const NEW = {
+    mode: "new" as const,
+    rel: REL,
+    body: "# B카드사 실패\n\n## 처리 기록\n",
+    entry: "## 2026-10-05 테스트 회신 · B카드사 실패\n- 재테스트도 실패",
+    indexLine: LINE,
+  };
+  const activePath = () => useStore.getState().ui.activeTab.split("|")[1];
+
+  it("creates the issue file, leaves one line in index.md, and comes back to the issue tab", async () => {
+    open();
+    const res = await applyIssue(FOLDER, NEW);
+    expect(res).toEqual({ rel: REL, placed: true, indexError: null });
+    expect(disk[`${FOLDER}/${REL}`]).toBe(NEW.body);
+    expect(disk[`${FOLDER}/index.md`]).toBe(`${FM}## 개요\n디스크의 개요\n\n## 이슈\n${LINE}\n`);
+    expect(activePath()).toBe(REL);
+    expect(useAssist.getState().reveal).toEqual({ folder: FOLDER, path: REL, line: 0 });
+  });
+
+  it("never overwrites a file that appeared meanwhile, and never repeats the index line", async () => {
+    open();
+    await applyIssue(FOLDER, NEW);
+    await applyIssue(FOLDER, NEW);
+    const issue = disk[`${FOLDER}/${REL}`]!;
+    expect(issue.startsWith("# B카드사 실패\n\n## 처리 기록\n")).toBe(true);
+    expect(issue.endsWith("## 2026-10-05 테스트 회신 · B카드사 실패\n- 재테스트도 실패\n")).toBe(true);
+    expect(disk[`${FOLDER}/index.md`]!.split(LINE).length - 1).toBe(1);
+    // 두 번째 한 건의 머리로 스크롤한다.
+    const reveal = useAssist.getState().reveal!;
+    expect(issue.split("\n")[reveal.line]).toBe("## 2026-10-05 테스트 회신 · B카드사 실패");
+  });
+
+  it("puts an entry at the end of the chosen section on top of what is being typed", async () => {
+    const path = `${FOLDER}/테스트 결과.md`;
+    disk[path] = "# 테스트\n\n## 2차\n- a\n\n## 3차\n- c\n";
+    const typing = "# 테스트\n\n## 2차\n- a\n- 방금 친 줄\n\n## 3차\n- c\n";
+    open({ "테스트 결과.md": { text: typing, saved: disk[path]! } });
+    const res = await applyIssue(FOLDER, {
+      mode: "existing",
+      rel: "테스트 결과.md",
+      heading: "## 2차",
+      entry: "### 2026-10-05 테스트 회신 · 건\n- b",
+      indexLine: null,
+    });
+    expect(res.placed).toBe(true);
+    expect(disk[path]).toBe("# 테스트\n\n## 2차\n- a\n- 방금 친 줄\n\n### 2026-10-05 테스트 회신 · 건\n- b\n\n## 3차\n- c\n");
+    // index 줄을 끄면 index.md 는 건드리지 않는다.
+    expect(writes().some((c) => c.args.path === `${FOLDER}/index.md`)).toBe(false);
+    expect(activePath()).toBe("테스트 결과.md");
+    expect(useAssist.getState().reveal?.line).toBe(6);
+  });
+
+  it("says when the chosen section is gone — the entry goes to the end", async () => {
+    disk[`${FOLDER}/메모.md`] = "## 다른 섹션\n- x\n";
+    open();
+    const res = await applyIssue(FOLDER, {
+      mode: "existing",
+      rel: "메모.md",
+      heading: "## 사라진 섹션",
+      entry: "### 건",
+      indexLine: null,
+    });
+    expect(res.placed).toBe(false);
+    expect(disk[`${FOLDER}/메모.md`]).toBe("## 다른 섹션\n- x\n\n### 건\n");
+  });
+
+  it("keeps the issue when only the index line fails", async () => {
+    open();
+    failWrite = `${FOLDER}/index.md`;
+    const res = await applyIssue(FOLDER, NEW);
+    expect(disk[`${FOLDER}/${REL}`]).toBe(NEW.body);
+    expect(res.indexError).toBeTruthy();
+    expect(activePath()).toBe(REL);
+  });
+
+  it("writes nothing when another task is open now", async () => {
+    open();
+    useStore.setState({ activeFolder: OTHER });
+    await expect(applyIssue(FOLDER, NEW)).rejects.toThrow("다른 업무로 옮겨 갔습니다");
+    expect(writes()).toHaveLength(0);
+    expect(useAssist.getState().reveal).toBeNull();
+  });
+});
+
+describe("taskIssueFiles", () => {
+  it("outlines the open task's notes, preferring unsaved buffers", async () => {
+    disk[`${FOLDER}/메모.md`] = "## 디스크 제목\n";
+    open({ "메모.md": { text: "## 버퍼 제목\n", saved: "## 디스크 제목\n" } });
+    const entry = (p: string) => ({ p, name: p, dir: false, size: "1 KB", bytes: 10, bin: false, link: null });
+    useStore.setState({ files: [entry("메모.md"), entry("index.md"), entry("없는 파일.md")] });
+    const files = await taskIssueFiles(FOLDER);
+    expect(files.map((f) => f.path)).toEqual(["index.md", "메모.md"]);
+    expect(files[1]!.headings.map((h) => h.raw)).toEqual(["## 버퍼 제목"]);
+    useStore.setState({ activeFolder: OTHER });
+    expect(await taskIssueFiles(FOLDER)).toEqual([]);
   });
 });

@@ -4,18 +4,19 @@ import { VIOLET } from "../lib/design";
 import { useAssist } from "../store/assistStore";
 
 /**
- * 워크스페이스 머리의 [AI ▾] — 지금 업무에 대한 AI 도우미 두 가지(위키 가이드 · 간략 입력 정리)를 연다.
- * 메뉴 띠의 '업무' 메뉴에도 같은 두 항목이 있다.
+ * 워크스페이스 머리의 [AI ▾] — 지금 업무에 대한 AI 도우미(위키 가이드 · 간략 입력 정리 · 이슈 추가)를 연다.
+ * 메뉴 띠의 '업무' 메뉴에도 같은 항목이 있다.
  */
 export default function AssistMenu({ folder }: { folder: string }) {
   const [open, setOpen] = useState(false);
-  const { openGuide, openBrief } = useAssist();
+  const { openGuide, openBrief, openIssue } = useAssist();
   // 다른 업무로 넘어가면 닫는다.
   useEffect(() => setOpen(false), [folder]);
 
   const items: [string, string, () => void][] = [
     ["위키 가이드", "위키에서 절차 · 주의점", () => openGuide(folder)],
     ["간략 입력 정리", "한두 줄 → 개요 · 할 일 · 일정", () => openBrief(folder)],
+    ["이슈 추가", "새 이슈 → 새 파일 · 기존 파일에 기입", () => openIssue(folder)],
   ];
 
   return (

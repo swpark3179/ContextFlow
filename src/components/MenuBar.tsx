@@ -103,6 +103,12 @@ export function menuItems(s: Store): Record<string, MenuItem[]> {
         off: noAssist,
         run: () => useAssist.getState().openBrief(s.activeFolder),
       },
+      {
+        label: "이슈 추가…",
+        hint: "AI",
+        off: noAssist,
+        run: () => useAssist.getState().openIssue(s.activeFolder),
+      },
       // 한 번 끌어 옮기면 그 순서가 계속 이긴다 — 돌아가는 길이 있어야 한다.
       // 업무 하나가 아니라 목록 전체를 다루므로 고른 업무가 없어도 쓸 수 있다.
       { label: "정렬 초기화 (최근 수정순)", run: () => void s.clearTaskOrder() },

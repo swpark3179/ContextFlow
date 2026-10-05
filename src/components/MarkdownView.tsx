@@ -555,6 +555,8 @@ export default function MarkdownView({
   onImageWidth,
   onPasteImage,
   inline,
+  reveal,
+  onRevealed,
 }: {
   blocks: Block[];
   /**
@@ -569,8 +571,23 @@ export default function MarkdownView({
   onImageWidth?: (line: number, idx: number, width: number | null) => void;
   /** 뷰어에 초점이 있을 때 이미지를 붙여넣었다. */
   onPasteImage?: (img: ClipImage) => void;
+  /** 이 줄(`onToggle` 과 같이 본문 기준)이 든 블록으로 한 번 스크롤한다 — AI 도우미가 넣은 자리. */
+  reveal?: number;
+  /** `reveal` 로 스크롤했다. 요청을 지우는 데 쓴다. */
+  onRevealed?: () => void;
 }) {
   const [port, setPort] = useState<HTMLDivElement | null>(null);
+  const list = useRef<HTMLDivElement | null>(null);
+  // 블록 하나가 목록의 자식 하나다(블록마다 뿌리 요소 하나를 그린다) — 그래서 n번째 자식이 n번째 블록이다.
+  useEffect(() => {
+    if (reveal === undefined || !list.current) return;
+    let at = blocks.findIndex((b) => b.line >= reveal);
+    if (at < 0) at = blocks.length - 1;
+    const el = list.current.children[at];
+    if (el instanceof HTMLElement) el.scrollIntoView({ block: "start" });
+    onRevealed?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reveal, blocks]);
   const [height, setHeight] = useState(0);
   useEffect(() => {
     if (!port) return;
@@ -614,7 +631,7 @@ export default function MarkdownView({
               }
         }
       >
-        <div style={{ maxWidth: MEASURE }}>
+        <div ref={list} style={{ maxWidth: MEASURE }}>
           {!blocks.length && (
             <div style={{ fontSize: 12.5, color: "#8a857c" }}>빈 문서입니다</div>
           )}

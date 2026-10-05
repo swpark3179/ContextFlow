@@ -364,7 +364,7 @@ export interface BriefSection {
 }
 
 /** `2026-10-09` → `10/09(금)`. */
-function shortDate(iso: string): string {
+export function shortDate(iso: string): string {
   return `${iso.slice(5, 7)}/${iso.slice(8, 10)}(${weekdayOf(iso)})`;
 }
 
@@ -416,10 +416,10 @@ export function briefMarkdown(sections: BriefSection[]): string {
 // index.md 에 넣기 (순수)
 // ---------------------------------------------------------------------------
 
-const RUN_LOG_HEADING = "## 실행 이력 (Run Log)";
+export const RUN_LOG_HEADING = "## 실행 이력 (Run Log)";
 
 /** 원문을 frontmatter(원문 바이트 그대로)와 본문으로 나눈다. 닫는 줄은 `splitFrontmatter` 와 같은 규칙. */
-function splitHead(full: string): { head: string; body: string } {
+export function splitHead(full: string): { head: string; body: string } {
   if (!/^---\r?\n/.test(full)) return { head: "", body: full };
   const re = /\r?\n/g;
   let at = 0;

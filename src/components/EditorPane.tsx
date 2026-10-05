@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { Box } from "../lib/ui";
 import { extOf, LANG, statusOf } from "../lib/design";
@@ -7,6 +7,7 @@ import { cutLine } from "../lib/editing";
 import { clipboardImage, insertOwnLine, resolveImageSrc } from "../lib/images";
 import { basename, joinPath } from "../lib/format";
 import { useStore, viewerFor, type TabMode } from "../store/useStore";
+import { useAssist } from "../store/assistStore";
 import type { Block } from "../lib/markdown";
 import BrainstormPane, { BrainstormViewTabs } from "./BrainstormPane";
 import MarkdownView from "./MarkdownView";
@@ -127,6 +128,38 @@ export default function EditorPane() {
     if (!tab) return;
     s.editDoc(tab.path, editingBodyOnly ? `---\n${fm}\n---\n${next}` : next);
   };
+
+  /**
+   * AI 도우미(이슈 추가)가 넣은 자리 — 이 탭이면 한 번 그리로 스크롤하고 요청을 지운다. 요청의 줄은 문서 전체
+   * 기준이라, 프런트마터를 건너뛴 화면(뷰어 · index.md 편집기)에서는 본문이 시작하는 줄을 뺀다.
+   */
+  const reveal = useAssist((a) => a.reveal);
+  const textArea = useRef<HTMLTextAreaElement | null>(null);
+  const revealHere =
+    reveal && tab && !isBinary && reveal.folder === activeFolder && reveal.path === tab.path ? reveal : null;
+  useEffect(() => {
+    // 다른 탭으로 옮겨 갔으면 버린다 — 나중에 그 파일을 열 때 엉뚱하게 스크롤하지 않게.
+    if (reveal && !revealHere) useAssist.getState().setReveal(null);
+  }, [reveal, revealHere]);
+  useEffect(() => {
+    if (!revealHere || tab?.mode !== "text") return;
+    const el = textArea.current;
+    if (!el) return;
+    const line = Math.max(0, revealHere.line - (editingBodyOnly ? split.bodyLine : 0));
+    const lines = el.value.split("\n");
+    const at = Math.min(
+      el.value.length,
+      lines.slice(0, line).reduce((n, l) => n + l.length + 1, 0),
+    );
+    el.focus();
+    el.setSelectionRange(at, at);
+    // 줄 높이로 어림한다 — 긴 줄이 접히면 조금 어긋나지만 넣은 자리 근처에 닿는다.
+    const lh = parseFloat(getComputedStyle(el).lineHeight) || 22;
+    el.scrollTop = Math.max(0, (line - 3) * lh);
+    showCaret(el);
+    useAssist.getState().setReveal(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revealHere, tab?.mode]);
 
   /**
    * 이미지 블록의 `<img src>`. 상대 경로는 **노트가 있는 폴더** 기준으로 풀고(`resolveImageSrc`),
@@ -456,6 +489,8 @@ export default function EditorPane() {
               void s.setImageWidth(tab.path, split.bodyLine + line, idx, w)
             }
             onPasteImage={(img) => void s.appendImage(tab.path, img)}
+            reveal={revealHere ? Math.max(0, revealHere.line - split.bodyLine) : undefined}
+            onRevealed={() => useAssist.getState().setReveal(null)}
           />
         </div>
       )}
@@ -557,6 +592,7 @@ export default function EditorPane() {
             </div>
           )}
           <textarea
+            ref={textArea}
             value={editorValue}
             onChange={(e) => onEdit(e.target.value)}
             onKeyDown={onCut}
