@@ -26,9 +26,9 @@ export function menuItems(s: Store): Record<string, MenuItem[]> {
    * 백엔드가 거절하고 실패 토스트만 뜬다. 눌리지 않는 것으로 먼저 보여 준다.
    */
   const noTask = !s.activeFolder;
-  // AI 도우미는 살아 있는 업무에만 — 워크스페이스 머리의 [AI ▾] 와 같은 조건.
+  // AI 도우미 · 업무 삭제는 살아 있는 업무에만 — 워크스페이스 머리의 [AI ▾] · 상태 메뉴와 같은 조건.
   const active = s.tasks.find((t) => t.folder === s.activeFolder);
-  const noAssist = !active || isArchived(active, s.settings.archDays);
+  const noLive = !active || isArchived(active, s.settings.archDays);
 
   return {
     파일: [
@@ -94,19 +94,19 @@ export function menuItems(s: Store): Record<string, MenuItem[]> {
       {
         label: "위키 가이드…",
         hint: "AI",
-        off: noAssist,
+        off: noLive,
         run: () => useAssist.getState().openGuide(s.activeFolder),
       },
       {
         label: "간략 입력 정리…",
         hint: "AI",
-        off: noAssist,
+        off: noLive,
         run: () => useAssist.getState().openBrief(s.activeFolder),
       },
       {
         label: "이슈 추가…",
         hint: "AI",
-        off: noAssist,
+        off: noLive,
         run: () => useAssist.getState().openIssue(s.activeFolder),
       },
       // 한 번 끌어 옮기면 그 순서가 계속 이긴다 — 돌아가는 길이 있어야 한다.
@@ -121,6 +121,13 @@ export function menuItems(s: Store): Record<string, MenuItem[]> {
         label: "Obsidian에서 열기",
         off: noTask,
         run: () => void s.openTaskInObsidian(s.activeFolder),
+      },
+      // 되돌릴 수 없으므로 맨 아래. 워크스페이스 머리의 상태 메뉴와 같은 조건 — 살아 있는 업무만.
+      {
+        label: "업무 삭제…",
+        hint: "되돌릴 수 없음",
+        off: noLive,
+        run: () => void s.askDeleteTask(s.activeFolder),
       },
     ],
     도움말: [

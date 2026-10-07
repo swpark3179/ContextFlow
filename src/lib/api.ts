@@ -275,6 +275,12 @@ export const clearCategory = (root: string, from: string, only?: string[]) =>
  */
 export const discardTask = (root: string, folder: string) =>
   invoke<void>("discard_task", { root, folder });
+/**
+ * [업무 삭제] — 업무 폴더를 통째로 지운다(휴지통을 거치지 않는다). 열려 있는 파일이 있으면
+ * 아무것도 지우지 않고 `locked` 로 실패한다(`vault::delete_task`).
+ */
+export const deleteTask = (root: string, folder: string) =>
+  invoke<void>("delete_task", { root, folder });
 
 // -- files ------------------------------------------------------------------
 

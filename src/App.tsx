@@ -20,6 +20,7 @@ import GuideModal from "./modals/GuideModal";
 import BriefModal from "./modals/BriefModal";
 import IssueModal from "./modals/IssueModal";
 import DeleteModal from "./modals/DeleteModal";
+import TaskDeleteModal from "./modals/TaskDeleteModal";
 import ImportModal from "./modals/ImportModal";
 import OpenWithModal from "./modals/OpenWithModal";
 import TemplateModal from "./modals/TemplateModal";
@@ -152,6 +153,10 @@ export default function App() {
         else if (st.mk) st.set({ mk: null });
         else if (st.fileRen) st.set({ fileRen: null });
         else if (st.del) st.set({ del: null });
+        // 지우는 중에는 닫지 않는다 — 막혔을 때 사유를 적을 자리가 사라진다.
+        else if (st.taskDel) {
+          if (!st.taskDel.busy) st.set({ taskDel: null });
+        }
         else if (st.ow) st.set({ ow: null });
         // AI 도우미 팝업 — 생성 중이면 끊고 버린다(팝업이 닫히며 실행을 취소한다). 파일에 쓰는 중에는 닫지 않는다.
         else if (useAssist.getState().isOpen()) {
@@ -332,6 +337,7 @@ export default function App() {
       <TabMenu />
       <CategoryMenu />
       <DeleteModal />
+      <TaskDeleteModal />
       <ImportModal />
       <OpenWithModal />
       <TemplateModal />

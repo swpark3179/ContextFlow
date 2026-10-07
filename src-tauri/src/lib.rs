@@ -210,6 +210,12 @@ fn discard_task(root: String, folder: String) -> Result<()> {
     vault::discard_task(&p(&root), &p(&folder))
 }
 
+/// [업무 삭제] — 업무 폴더를 통째로 지운다. 확인은 부르는 쪽 대화상자가 받았다.
+#[tauri::command]
+fn delete_task(root: String, folder: String) -> Result<()> {
+    vault::delete_task(&p(&root), &p(&folder))
+}
+
 /// 업무 하나를 다른 업무의 하위 폴더로 옮긴다(편입). `name` 이 비면 원본 폴더 이름 그대로다.
 #[tauri::command]
 fn absorb_task(
@@ -798,6 +804,7 @@ pub fn run() {
             move_category,
             clear_category,
             discard_task,
+            delete_task,
             read_text_file,
             write_text_file,
             list_task_files,
