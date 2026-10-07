@@ -802,10 +802,65 @@ pub fn set_archived(
 ///
 /// 휴지통을 거치지 않는 영구 삭제다 — 이 앱의 삭제는 전부 그렇다.
 pub fn discard_task(root: &Path, folder: &Path) -> Result<()> {
-    // 지울 수 있는 것은 `Tasks/` 의 직계 자식뿐이다. `create_task` 가 업무 폴더를 거기에만
-    // 만들므로(`root/Tasks/[YYYY-MM] 제목`), 이 검사 하나가 Vault 바깥 · Archive · 템플릿 ·
-    // Vault 루트 자신을 한꺼번에 막는다. `fsops::safe_join` 은 쓸 수 없다 — 그쪽은 상대
-    // 경로를 검사하는 함수이고 여기 오는 것은 절대 경로다.
+    ensure_deletable(root, folder)?;
+    fs::remove_dir_all(folder)?;
+    Ok(())
+}
+
+/// 업무 하나를 통째로 지운다 — [업무 삭제] 가 부른다. 사용자가 대화상자에서 업무 제목을
+/// 다시 입력해 확인한 뒤다. 휴지통을 거치지 않는다.
+///
+/// 지울 수 있는 자리는 `discard_task` 와 같다(`ensure_deletable`). 보관 방식이 'move' 라
+/// `Archive/` 로 옮겨 간 업무는 여기서 지우지 못한다.
+///
+/// **지우기 전에 폴더 이름부터 바꾼다.** `remove_dir_all` 은 파일을 하나씩 지우다 막힌 파일에서
+/// 멈춘다 — Windows 에서 엑셀로 열어 둔 파일 하나 때문에 업무가 반쯤 지워진 채 남고, `index.md`
+/// 가 먼저 지워졌으면 업무 리스트에서는 사라진 채 파일만 남는다. 폴더 이름 바꾸기는 그 안의
+/// 파일이 하나라도 열려 있으면 통째로 막히므로(편입이 기대는 그 성질이다), 막히면 아무것도
+/// 지워지지 않았고 사유에 쥐고 있는 파일 이름이 실린다.
+///
+/// 그래도 지우다 멈추면 남은 것을 원래 이름으로 되돌려 둔다. 바뀐 이름으로 남은 폴더는
+/// 업무 리스트에서 찾을 길이 없다.
+pub fn delete_task(root: &Path, folder: &Path) -> Result<()> {
+    ensure_deletable(root, folder)?;
+    let doomed = doomed_path(folder);
+    fs::rename(folder, &doomed)
+        .map_err(|e| move_error("업무 폴더를 지우지 못했습니다", folder, e))?;
+    if let Err(e) = fs::remove_dir_all(&doomed) {
+        let err = move_error("업무 폴더를 끝까지 지우지 못했습니다", &doomed, e);
+        if fs::rename(&doomed, folder).is_err() {
+            // 되돌리기마저 막혔다 — 남은 파일이 어디 있는지는 알려야 한다.
+            return Err(AppError::new(
+                &err.kind,
+                format!("{} · 남은 파일: {}", err.message, doomed.display()),
+            ));
+        }
+        return Err(err);
+    }
+    Ok(())
+}
+
+/// 지우는 동안 업무 폴더가 잠시 쓰는 이름. 같은 자리(`Tasks/`)라 이름 바꾸기가 볼륨을 넘지
+/// 않고, 점으로 시작하므로 Obsidian 은 보여 주지 않는다. 앞서 끊긴 삭제가 남긴 것이 있으면
+/// 번호를 붙여 비켜 간다.
+fn doomed_path(folder: &Path) -> PathBuf {
+    let name = folder.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let parent = folder.parent().unwrap_or(folder);
+    let mut path = parent.join(format!(".삭제 중 {}", name));
+    let mut n = 2;
+    while path.exists() {
+        path = parent.join(format!(".삭제 중 {} ({})", name, n));
+        n += 1;
+    }
+    path
+}
+
+/// 지워도 되는 업무 폴더인지 본다 — `Tasks/` 의 직계 자식이면서 `index.md` 를 든 폴더뿐이다.
+fn ensure_deletable(root: &Path, folder: &Path) -> Result<()> {
+    // `create_task` 가 업무 폴더를 `Tasks/` 에만 만들므로(`root/Tasks/[YYYY-MM] 제목`), 이
+    // 검사 하나가 Vault 바깥 · Archive · 템플릿 · Vault 루트 자신을 한꺼번에 막는다.
+    // `fsops::safe_join` 은 쓸 수 없다 — 그쪽은 상대 경로를 검사하는 함수이고 여기 오는
+    // 것은 절대 경로다.
     let tasks_dir = root.join(TASKS_DIR);
     if folder.parent() != Some(tasks_dir.as_path()) {
         return Err(AppError::new(
@@ -814,14 +869,13 @@ pub fn discard_task(root: &Path, folder: &Path) -> Result<()> {
         ));
     }
     // 업무 폴더는 `index.md` 를 갖는다. 이것이 없으면 업무가 아니라 사용자가 `Tasks/` 에
-    // 손으로 넣어 둔 무언가이고, 그것을 지울 권한은 이 함수에 없다.
+    // 손으로 넣어 둔 무언가이고, 그것을 지울 권한은 여기에 없다.
     if !folder.join("index.md").is_file() {
         return Err(AppError::new(
             "invalid_path",
             format!("index.md 가 없어 업무 폴더로 볼 수 없습니다: {}", folder.display()),
         ));
     }
-    fs::remove_dir_all(folder)?;
     Ok(())
 }
 
@@ -2381,6 +2435,73 @@ pub(crate) mod tests {
 
         discard_task(v.path(), &folder).unwrap();
         assert!(!folder.exists());
+    }
+
+    // -- delete_task ---------------------------------------------------------
+
+    #[test]
+    fn deleting_removes_the_task_and_everything_in_it() {
+        let v = TempVault::new("delete");
+        let t = make(v.path(), "지울 업무");
+        let keep = make(v.path(), "남는 업무");
+        let folder = PathBuf::from(&t.folder);
+        fs::create_dir_all(folder.join("attachments/로그")).unwrap();
+        fs::write(folder.join("attachments/로그/error.log"), "x").unwrap();
+        fs::write(folder.join("회의록.md"), "- [ ] 안건").unwrap();
+        fs::write(folder.join(SNAPSHOT_FILE), "{}").unwrap();
+
+        delete_task(v.path(), &folder).unwrap();
+
+        assert!(!folder.exists());
+        // 잠시 쓴 이름도 남지 않는다.
+        let left: Vec<_> = fs::read_dir(v.path().join(TASKS_DIR))
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        let kept = PathBuf::from(&keep.folder).file_name().unwrap().to_string_lossy().into_owned();
+        assert_eq!(left, vec![kept]);
+        let tasks = scan(v.path()).unwrap();
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].id, keep.id);
+    }
+
+    #[test]
+    fn deleting_refuses_what_discarding_refuses() {
+        let v = TempVault::new("delete-guard");
+        let root = v.path();
+        let stray = root.join(TASKS_DIR).join("손으로 넣은 폴더");
+        fs::create_dir_all(&stray).unwrap();
+        fs::write(stray.join("자료.txt"), "지워지면 안 된다").unwrap();
+
+        for outside in [
+            root.to_path_buf(),
+            root.join(TASKS_DIR),
+            root.join(TEMPLATES_DIR),
+            root.join(ARCHIVE_DIR).join("[2026-09] 보관된 업무"),
+            root.parent().unwrap().join("남의 폴더"),
+            stray.clone(),
+        ] {
+            let err = delete_task(root, &outside).unwrap_err();
+            assert_eq!(err.kind, "invalid_path", "{}", outside.display());
+        }
+        assert!(stray.join("자료.txt").is_file());
+        assert!(root.join(TEMPLATES_DIR).is_dir());
+    }
+
+    #[test]
+    fn deleting_steps_around_a_leftover_from_an_interrupted_delete() {
+        // 앞서 끊긴 삭제가 남긴 폴더가 같은 이름을 차지하고 있어도 막히지 않고, 그것을 건드리지도 않는다.
+        let v = TempVault::new("delete-leftover");
+        let t = make(v.path(), "다시 지우는 업무");
+        let folder = PathBuf::from(&t.folder);
+        let leftover = doomed_path(&folder);
+        fs::create_dir_all(&leftover).unwrap();
+        fs::write(leftover.join("남은.txt"), "x").unwrap();
+
+        delete_task(v.path(), &folder).unwrap();
+
+        assert!(!folder.exists());
+        assert!(leftover.join("남은.txt").is_file());
     }
 
     // -- 업무 편입 -----------------------------------------------------------

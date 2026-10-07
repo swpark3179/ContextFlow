@@ -441,6 +441,21 @@ export interface RenameState {
   title: string;
 }
 
+/**
+ * [업무 삭제] 대화상자. 확인은 업무 제목을 그대로 다시 입력하는 것이다 — 파일 삭제
+ * (`DelState`)와 같은 방식이고, 지우는 것이 업무 하나 전체라 더 가볍게 할 이유가 없다.
+ */
+export interface TaskDelState {
+  folder: string;
+  title: string;
+  /** 함께 지워지는 파일 · 폴더 수. 탐색기에 보이는 것만 센다. 목록을 못 읽었으면 `null`. */
+  files: number | null;
+  dirs: number | null;
+  confirm: string;
+  busy: boolean;
+  error: string;
+}
+
 export interface TemplateDraft {
   name: string;
   desc: string;
@@ -626,6 +641,7 @@ interface State {
   absorb: AbsorbState | null;
   split: SplitState | null;
   ren: RenameState | null;
+  taskDel: TaskDelState | null;
   tplNew: TemplateDraft | null;
   openTpl: Record<string, boolean>;
   catMgr: CatMgrState | null;
@@ -653,6 +669,10 @@ interface Actions {
   /** 보관한 뒤의 업무(경로가 바뀌었을 수 있다). 실패하면 `null`. */
   archiveNow: (folder: string, opts?: { close?: boolean }) => Promise<TaskMeta | null>;
   restoreTask: (folder: string) => Promise<void>;
+  /** [업무 삭제] 대화상자를 연다. 지울 수 있는 것은 살아 있는 업무뿐이다. */
+  askDeleteTask: (folder: string) => Promise<void>;
+  /** 대화상자에서 확인한 업무를 지운다 — 되돌릴 수 없다. */
+  deleteTask: () => Promise<void>;
   /**
    * 업무들에 카테고리를 지정한다(`null` = 해제). 값이 잘못됐거나 한 건이라도 지정하지
    * 못했으면 토스트를 띄우고 `false`.
@@ -1246,6 +1266,7 @@ export const useStore = create<State & Actions>((set, get) => ({
   absorb: null,
   split: null,
   ren: null,
+  taskDel: null,
   tplNew: null,
   openTpl: {},
   catMgr: null,
@@ -1597,6 +1618,68 @@ export const useStore = create<State & Actions>((set, get) => ({
       await get().reloadTemplates();
     } catch (e) {
       get().fail(e, "재개하지 못했습니다");
+    }
+  },
+
+  askDeleteTask: async (folder) => {
+    const task = get().tasks.find((t) => t.folder === folder);
+    // 보관된 업무는 지우지 않는다 — 'move' 방식이면 `Archive/` 에 있어 백엔드가 받지 않고,
+    // 메뉴도 살아 있는 업무에서만 이 항목을 연다.
+    if (!task || isArchived(task, get().settings.archDays)) return;
+    // 무엇이 함께 사라지는지 보여 주려고 센다. 못 읽어도 대화상자는 연다 — 수는 덤이다.
+    const list = await api.listTaskFiles(folder).catch(() => null);
+    set({
+      statusMenuOpen: false,
+      ren: null,
+      taskDel: {
+        folder,
+        title: task.title,
+        files: list ? list.filter((f) => !f.dir).length : null,
+        dirs: list ? list.filter((f) => f.dir).length : null,
+        confirm: "",
+        busy: false,
+        error: "",
+      },
+    });
+  },
+
+  /**
+   * 업무를 통째로 지운다. 휴지통을 거치지 않으며 되돌릴 수 없다.
+   *
+   * **오늘의 한일은 건드리지 않는다.** 그 업무로 올라가 있던 줄은 취소선으로 남는다 — 그날
+   * 그 일을 한 것은 사실이고, 줄을 치우고 싶으면 도크의 ✕ 가 있다. 파일을 안 붙인 업무를
+   * 완료할 때(`logAndDiscard`)와 다른 까닭은, 저쪽은 그 일을 한 줄로 **접는** 것이고 이쪽은
+   * 업무를 **버리는** 것이라 대신 남길 줄이 없기 때문이다.
+   */
+  deleteTask: async () => {
+    const { taskDel, settings } = get();
+    if (!taskDel || taskDel.busy || taskDel.confirm.trim() !== taskDel.title.trim()) return;
+    const { folder, title } = taskDel;
+    const relFolder = get().tasks.find((t) => t.folder === folder)?.relFolder ?? basename(folder);
+    set({ taskDel: { ...taskDel, busy: true, error: "" } });
+    try {
+      // 곧 지울 파일이지만 내려쓴다. 줄 서 있던 저장이 지운 **뒤에** 도착하면
+      // `write_text_file` 이 부모 폴더까지 만들며 써서 업무 폴더를 되살린다. 지우기가 막혀
+      // 업무가 남는 경우에도 쓰던 글은 남아 있어야 한다.
+      if (get().activeFolder === folder) await get().saveAll();
+      await api.deleteTask(settings.vault, folder);
+      // 창을 닫고 그 업무의 화면 상태를 버린다 — 다시 열 업무가 없다. 다른 업무를 자동으로
+      // 열지 않는 것은 보관과 같은 이유다(`reloadVault(true)`).
+      if (get().activeFolder === folder) get().closeTask();
+      set((s) => {
+        const { [folder]: _deleted, ...rest } = s.uiCache;
+        return { uiCache: rest, taskDel: null };
+      });
+      get().toast("업무를 완전히 삭제했습니다", `${title} · ${relFolder}`, TOAST.danger);
+      await get().reloadVault(true);
+      // 템플릿 화면의 회차 기록은 그 템플릿으로 만든 업무들의 Run Log 에서 읽는다.
+      await get().reloadTemplates();
+    } catch (e) {
+      // 대개 다른 프로그램이 파일을 쥐고 있어서다. 대화상자를 열어 둔 채 사유를 붙여 두면
+      // 그 파일을 닫고 그 자리에서 다시 누를 수 있다 — 편입과 같다.
+      const error = api.errMessage(e);
+      set((s) => ({ taskDel: s.taskDel ? { ...s.taskDel, busy: false, error } : null }));
+      get().fail(e, "업무를 삭제하지 못했습니다");
     }
   },
 

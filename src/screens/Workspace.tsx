@@ -384,6 +384,31 @@ export default function Workspace() {
                   {s.obsidianOk ? "index.md" : "탐색기 폴백"}
                 </span>
               </Box>
+              {/* 되돌릴 수 없는 항목은 맨 아래, 선 하나 너머에 따로 둔다. 살아 있는 업무만 —
+                  보관된 업무는 'move' 방식이면 Archive 에 있어 지울 수 없다(`vault::delete_task`). */}
+              {!isArchived(task, s.settings.archDays) && (
+                <>
+                  <div style={{ height: 1, background: "#f0ede7", margin: "3px 0" }} />
+                  <Box
+                    onClick={() => void s.askDeleteTask(task.folder)}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      padding: "6px 8px",
+                      borderRadius: 4,
+                      cursor: "pointer",
+                      fontSize: 12.5,
+                      color: "#a83c3c",
+                    }}
+                    hover={{ background: "#fdf2f1" }}
+                  >
+                    <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#c04a4a" }} />
+                    <span style={{ flex: 1 }}>업무 삭제…</span>
+                    <span style={{ fontSize: 11, color: "#6a665e" }}>되돌릴 수 없음</span>
+                  </Box>
+                </>
+              )}
             </div>
           </>
         )}
