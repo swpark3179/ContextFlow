@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import * as api from "../lib/api";
-import { mergeIntoIndex } from "../lib/assist/brief";
+import { applyBriefFile, briefFiles, mergeIntoIndex, planFiles, type BriefFile, type BriefPlan } from "../lib/assist/brief";
 import { ISSUE_INDEX_HEADING, insertEntry, issueFiles, pickIssueFiles, type IssueFile } from "../lib/assist/issue";
 import { joinPath } from "../lib/format";
 import { overviewOf } from "../lib/iwms/material";
@@ -127,6 +127,71 @@ export async function taskIssueFiles(folder: string): Promise<IssueFile[]> {
     }
   }
   return issueFiles(docs);
+}
+
+/**
+ * 간략 입력 정리가 프롬프트에 싣는 업무 폴더의 글 파일 개요 — 이슈 추가와 같은 후보(`pickIssueFiles`)에 열린
+ * 할 일까지(`briefFiles`). 읽지 못한 파일은 뺀다.
+ */
+export async function taskBriefFiles(folder: string): Promise<BriefFile[]> {
+  const s = useStore.getState();
+  if (s.activeFolder !== folder) return [];
+  const docs: { path: string; text: string }[] = [];
+  for (const f of pickIssueFiles(s.files)) {
+    try {
+      docs.push({ path: f.p, text: await readTaskText(folder, f.p) });
+    } catch {
+      // 지워졌거나 읽을 수 없는 파일 — 건너뛴다.
+    }
+  }
+  return briefFiles(docs);
+}
+
+export interface BriefApplied {
+  /** 쓴 파일(계획 순서). */
+  paths: string[];
+  /** 그 사이 바뀌어 체크하지 못한 할 일 수. */
+  missed: number;
+  /** 고른 섹션을 찾지 못해 기본 섹션에 넣은 수. */
+  fellBack: number;
+}
+
+/**
+ * 간략 입력 정리를 쓴다 — 파일마다 체크와 덧붙이기를 한 번에(`applyBriefFile`), 편집기와 같은 길로
+ * (`applyToTaskFile`). 끝나면 첫 파일(보통 index.md) 탭으로 돌아가 넣은 자리를 보인다.
+ *
+ * 한 파일이라도 실패하면 그 파일 이름을 붙여 던진다. 앞서 쓴 파일은 그대로 두는데, 덧붙이기는 없는 줄만 넣고
+ * 체크는 열린 줄만 바꾸므로 다시 눌러도 겹쳐 들어가지 않는다.
+ */
+export async function applyBrief(folder: string, plan: BriefPlan): Promise<BriefApplied> {
+  const files = planFiles(plan);
+  let missed = 0;
+  let fellBack = 0;
+  let reveal: Reveal | null = null;
+  for (const f of files) {
+    let line = 0;
+    try {
+      await applyToTaskFile(folder, f.path, (old) => {
+        const r = applyBriefFile(old, f.blocks, f.checks);
+        missed += r.missed;
+        fellBack += r.fellBack;
+        line = r.line;
+        return r.text;
+      });
+    } catch (e) {
+      const msg = api.errMessage(e);
+      throw new Error(msg.includes(f.path) ? msg : `${f.path} — ${msg}`);
+    }
+    reveal ??= { folder, path: f.path, line };
+  }
+  if (reveal && files.length > 1) {
+    // 첫 파일 탭으로 돌아간다 — 그 탭의 모드 그대로.
+    const s = useStore.getState();
+    const tab = s.ui.openTabs.find((t) => t.path === reveal!.path);
+    if (s.activeFolder === folder && tab) await s.openFile(reveal.path, tab.mode);
+  }
+  if (reveal) useAssist.getState().setReveal(reveal);
+  return { paths: files.map((f) => f.path), missed, fellBack };
 }
 
 /** 이슈를 쓸 곳과 쓸 글 — 팝업이 사람이 고른 대로 만든다. */

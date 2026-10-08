@@ -148,7 +148,7 @@ export const AI_FEATURES: { id: AiFeature; label: string; note: string }[] = [
   {
     id: "task.brief",
     label: "간략 입력 정리",
-    note: "한두 줄 입력을 개요 · 할 일 · 일정으로 정리하고 빠진 것을 묻는 일 — 짧게 여러 번 묻는다, 업무 내용이 나간다",
+    note: "한두 줄 입력(요구사항 · 끝낸 일 · 상황)을 정리해 적을 파일 · 섹션을 고르고 빠진 것을 묻는 일 — 짧게 여러 번 묻는다, 업무 파일의 이름 · 제목 · 열린 할 일이 함께 나간다",
   },
   {
     id: "task.issue",
