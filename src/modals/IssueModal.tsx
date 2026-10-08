@@ -32,7 +32,7 @@ import MarkdownView from "../components/MarkdownView";
 import { applyIssue, taskIssueFiles, taskOverview, useAssist, type IssuePlan } from "../store/assistStore";
 import { routeInfo, routeRun, useAi } from "../store/aiStore";
 import { useStore } from "../store/useStore";
-import { AssistHead, Notice, RouteLabel, chipStyle } from "./AssistParts";
+import { AssistHead, Notice, RouteLabel, chipStyle, selectStyle } from "./AssistParts";
 import {
   GhostButton,
   Modal,
@@ -578,15 +578,3 @@ function IssueView({ folder }: { folder: string }) {
     </Modal>
   );
 }
-
-const selectStyle = {
-  width: "100%",
-  height: 28,
-  border: "1px solid #ddd8cf",
-  borderRadius: 5,
-  padding: "0 6px",
-  fontSize: 12,
-  background: "#fff",
-  outline: "none",
-  color: "#23211e",
-} as const;

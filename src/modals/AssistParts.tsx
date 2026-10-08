@@ -1,7 +1,7 @@
 import type { CSSProperties, ReactNode } from "react";
 import type { RouteInfo } from "../store/aiStore";
 
-/** 업무 AI 도우미 팝업(위키 가이드 · 간략 입력 정리)이 함께 쓰는 조각. */
+/** 업무 AI 도우미 팝업(위키 가이드 · 간략 입력 정리 · 이슈 추가)이 함께 쓰는 조각. */
 
 export function AssistHead({ title, task, children }: { title: string; task: string; children?: ReactNode }) {
   return (
@@ -95,3 +95,16 @@ export function chipStyle(on: boolean): CSSProperties {
     textOverflow: "ellipsis",
   };
 }
+
+/** 쓸 곳 고르기의 파일 · 섹션 목록. */
+export const selectStyle: CSSProperties = {
+  width: "100%",
+  height: 28,
+  border: "1px solid #ddd8cf",
+  borderRadius: 5,
+  padding: "0 6px",
+  fontSize: 12,
+  background: "#fff",
+  outline: "none",
+  color: "#23211e",
+};

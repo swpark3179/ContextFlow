@@ -5,15 +5,10 @@ import type { FileEntry } from "../tree";
 import { sanitizeFolderName } from "../vaultPaths";
 import { escapeDelims } from "../wiki/blocks";
 import type { Route } from "../wiki/pipeline";
-import {
-  RUN_LOG_HEADING,
-  isoDate,
-  shortDate,
-  splitHead,
-  weekdayOf,
-  type BriefItem,
-  type BriefTodo,
-} from "./brief";
+import { isoDate, shortDate, weekdayOf, type BriefItem, type BriefTodo } from "./brief";
+import { HEADING_RE, RUN_LOG_HEADING, eachOutsideFence, headingKey, outlineOf, splitHead } from "./outline";
+
+export { outlineOf };
 
 /**
  * 이슈 추가 — 업무를 하다 새로 생긴 일(추가 업무 · 테스트 회신의 특이사항 · 문제)을 짧게 적으면 정리해서,
@@ -49,8 +44,6 @@ export const OVERVIEW_CAP = 1_500;
 const FILES_CAP = 30;
 const FILE_BYTES_CAP = 256 * 1024;
 const FILES_TOTAL_CAP = 10_000;
-const HEADINGS_CAP = 20;
-const HEAD_CAP = 200;
 const REPAIR_TAIL = 6_000;
 
 export type IssueKind = "work" | "test" | "problem" | "other";
@@ -118,40 +111,6 @@ const attr = (s: string) => s.replace(/"/g, "'").replace(/[\r\n]+/g, " ");
 // ---------------------------------------------------------------------------
 // 후보 파일 (순수)
 // ---------------------------------------------------------------------------
-
-const HEADING_RE = /^(#{1,6})\s+(.*?)\s*$/;
-const FENCE_RE = /^\s*(```+|~~~+)/;
-
-/** 코드 펜스 밖의 줄마다 `fn(줄, 번호)` — 펜스 안의 `#` 은 제목이 아니다. */
-function eachOutsideFence(lines: string[], fn: (line: string, i: number) => boolean | void): void {
-  let fence: string | null = null;
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!;
-    const f = FENCE_RE.exec(line);
-    if (f) {
-      if (fence === null) fence = f[1]![0]!;
-      else if (f[1]![0] === fence) fence = null;
-      continue;
-    }
-    if (fence !== null) continue;
-    if (fn(line, i) === true) return;
-  }
-}
-
-/** 원문 → 1~3단계 제목(펜스 밖)과 본문 앞부분. frontmatter 는 뺀다. */
-export function outlineOf(text: string): { headings: { level: number; text: string; raw: string }[]; head: string } {
-  const body = splitHead(text).body.replace(/\r\n/g, "\n");
-  const headings: { level: number; text: string; raw: string }[] = [];
-  eachOutsideFence(body.split("\n"), (line) => {
-    const h = HEADING_RE.exec(line);
-    if (h && h[1]!.length <= 3 && h[2]) headings.push({ level: h[1]!.length, text: h[2], raw: line.trim() });
-    return headings.length >= HEADINGS_CAP;
-  });
-  // 앞부분은 무엇을 적는 문서인지 보이려는 것 — 코드는 뺀다.
-  const prose = body.replace(/(```|~~~)[\s\S]*?(\1|$)/g, " ");
-  const head = cut(prose.replace(/\s+/g, " ").trim(), HEAD_CAP);
-  return { headings, head };
-}
 
 /**
  * 프롬프트에 실을 후보 파일. 글 파일(`.md` · `.txt`)만 — 브레인스토밍(`.bs.md`), 다른 업무에서 옮겨 온 참고
@@ -347,12 +306,6 @@ export function safeStem(raw: string, max = 80): string {
 export function issueName(raw: string, fallback: string): string {
   const clean = (s: string) => safeStem(oneLine(s).replace(/^\d{4}-\d{2}-\d{2}\s*/, ""), NAME_CAP);
   return clean(raw) || clean(fallback) || "이슈";
-}
-
-/** 제목 줄 비교 — 단계와 글이 같으면 같은 제목. */
-function headingKey(line: string): string | null {
-  const h = HEADING_RE.exec(line.trim());
-  return h && h[2] ? `${h[1]!.length} ${h[2]}` : null;
 }
 
 /**

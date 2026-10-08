@@ -57,7 +57,7 @@ export const PROMPT_HOOKS: { id: PromptHook; label: string; note: string }[] = [
   {
     id: "task.brief",
     label: "간략 입력 정리",
-    note: "한두 줄 입력을 개요 · 할 일 · 일정으로 정리하는 요청의 출력 형식 앞 (예: 할 일을 쪼개는 단위 · 담당 표기)",
+    note: "한두 줄 입력(요구사항 · 끝낸 일 · 상황)을 정리하고 적을 곳을 고르는 요청의 출력 형식 앞 (예: 할 일을 쪼개는 단위 · 진행을 적는 문서)",
   },
   {
     id: "task.issue",

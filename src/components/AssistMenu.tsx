@@ -15,7 +15,7 @@ export default function AssistMenu({ folder }: { folder: string }) {
 
   const items: [string, string, () => void][] = [
     ["위키 가이드", "위키에서 절차 · 주의점", () => openGuide(folder)],
-    ["간략 입력 정리", "한두 줄 → 개요 · 할 일 · 일정", () => openBrief(folder)],
+    ["간략 입력 정리", "요구사항 · 끝낸 일 · 상황 → 알맞은 곳에", () => openBrief(folder)],
     ["이슈 추가", "새 이슈 → 새 파일 · 기존 파일에 기입", () => openIssue(folder)],
   ];
 

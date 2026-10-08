@@ -75,8 +75,10 @@ vi.mock("@tauri-apps/api/core", () => ({
 vi.stubGlobal("window", { setTimeout, clearTimeout });
 
 const { useStore, DEFAULT_SETTINGS } = await import("./useStore");
-const { applyIssue, applyToTaskFile, taskIssueFiles, taskOverview, useAssist } = await import("./assistStore");
-const { mergeIntoIndex } = await import("../lib/assist/brief");
+const { applyBrief, applyIssue, applyToTaskFile, taskBriefFiles, taskIssueFiles, taskOverview, useAssist } = await import(
+  "./assistStore"
+);
+const { mergeIntoIndex, planBrief } = await import("../lib/assist/brief");
 const { appendGuide } = await import("../lib/assist/guide");
 
 const FM = "---\nid: task-1\nupdated: 2026-10-04 09:00\n---\n";
@@ -253,5 +255,87 @@ describe("taskIssueFiles", () => {
     expect(files[1]!.headings.map((h) => h.raw)).toEqual(["## 버퍼 제목"]);
     useStore.setState({ activeFolder: OTHER });
     expect(await taskIssueFiles(FOLDER)).toEqual([]);
+  });
+});
+
+describe("applyBrief", () => {
+  const ISSUE = "이슈/2026-10-05 B카드사 실패.md";
+  const INDEX = `${FM}## 개요\n디스크의 개요\n\n## 할 일\n- [ ] QA팀 검증 받기\n`;
+  const ISSUE_DOC = "# B카드사 실패\n\n## 처리할 일\n- [ ] 원인 확인\n\n## 처리 기록\n";
+  const activePath = () => useStore.getState().ui.activeTab.split("|")[1];
+  const plan = () =>
+    planBrief(
+      {
+        summary: [],
+        goals: [],
+        todos: [],
+        schedule: [],
+        refs: [],
+        unknowns: [],
+        done: [
+          {
+            text: "QA팀 검증 완료",
+            from: ["in"],
+            todo: { id: "f1.c1", path: "index.md", raw: "- [ ] QA팀 검증 받기", text: "QA팀 검증 받기" },
+            to: null,
+          },
+        ],
+        notes: [{ text: "카드사 회신 대기", from: ["in"], to: { path: ISSUE, heading: "## 처리 기록" } }],
+      },
+      [],
+      "2026-10-08",
+    );
+
+  it("writes every file the same way the editor does, then comes back to the first one", async () => {
+    disk[`${FOLDER}/index.md`] = INDEX;
+    disk[`${FOLDER}/${ISSUE}`] = ISSUE_DOC;
+    open();
+    const res = await applyBrief(FOLDER, plan());
+    expect(res).toEqual({ paths: ["index.md", ISSUE], missed: 0, fellBack: 0 });
+    const index = disk[`${FOLDER}/index.md`]!;
+    expect(index).toBe(
+      `${FM}## 개요\n디스크의 개요\n\n## 할 일\n- [x] QA팀 검증 받기\n\n## 진행 기록\n- 10/08(목) 완료 — QA팀 검증 완료\n`,
+    );
+    expect(disk[`${FOLDER}/${ISSUE}`]).toBe(`${ISSUE_DOC}- 10/08(목) 카드사 회신 대기\n`);
+    expect(activePath()).toBe("index.md");
+    const reveal = useAssist.getState().reveal!;
+    expect(reveal.path).toBe("index.md");
+    expect(index.split("\n")[reveal.line]).toBe("## 진행 기록");
+
+    // 다시 눌러도 겹쳐 들어가지 않는다 — 체크는 이미 했으니 못 했다고 센다.
+    const again = await applyBrief(FOLDER, plan());
+    expect(again.missed).toBe(1);
+    expect(disk[`${FOLDER}/index.md`]).toBe(index);
+    expect(disk[`${FOLDER}/${ISSUE}`]).toBe(`${ISSUE_DOC}- 10/08(목) 카드사 회신 대기\n`);
+  });
+
+  it("names the file that failed", async () => {
+    disk[`${FOLDER}/index.md`] = INDEX;
+    disk[`${FOLDER}/${ISSUE}`] = ISSUE_DOC;
+    open();
+    failWrite = `${FOLDER}/${ISSUE}`;
+    await expect(applyBrief(FOLDER, plan())).rejects.toThrow(ISSUE);
+  });
+
+  it("writes nothing when another task is open now", async () => {
+    open();
+    useStore.setState({ activeFolder: OTHER });
+    await expect(applyBrief(FOLDER, plan())).rejects.toThrow("다른 업무로 옮겨 갔습니다");
+    expect(writes()).toHaveLength(0);
+    expect(useAssist.getState().reveal).toBeNull();
+  });
+});
+
+describe("taskBriefFiles", () => {
+  it("outlines the open task's notes with their open to-dos, preferring unsaved buffers", async () => {
+    disk[`${FOLDER}/메모.md`] = "## 디스크\n- [ ] 디스크 할 일\n";
+    open({ "메모.md": { text: "## 버퍼\n- [ ] 버퍼 할 일\n- [x] 끝낸 일\n", saved: "" } });
+    const entry = (p: string) => ({ p, name: p, dir: false, size: "1 KB", bytes: 10, bin: false, link: null });
+    useStore.setState({ files: [entry("메모.md"), entry("index.md")] });
+    const files = await taskBriefFiles(FOLDER);
+    expect(files.map((f) => f.path)).toEqual(["index.md", "메모.md"]);
+    expect(files[1]!.todos).toEqual([{ id: "f2.c1", text: "버퍼 할 일", raw: "- [ ] 버퍼 할 일", heading: "## 버퍼" }]);
+    useStore.setState({ activeFolder: OTHER });
+    expect(await taskBriefFiles(FOLDER)).toEqual([]);
   });
 });
