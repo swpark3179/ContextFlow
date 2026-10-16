@@ -1,8 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { Box } from "../lib/ui";
-import { extOf, LANG, statusOf } from "../lib/design";
+import { extOf, LANG, statusOf, TOAST } from "../lib/design";
 import { fmValue, mdParse, splitFrontmatter } from "../lib/markdown";
+import {
+  parseTableSource,
+  placeTable,
+  spliceBlock,
+  tableToMarkdown,
+  type TableModel,
+} from "../lib/mdTable";
 import { cutLine } from "../lib/editing";
 import { clipboardImage, insertOwnLine, resolveImageSrc } from "../lib/images";
 import { basename, joinPath } from "../lib/format";
@@ -11,6 +18,36 @@ import { useAssist } from "../store/assistStore";
 import type { Block } from "../lib/markdown";
 import BrainstormPane, { BrainstormViewTabs } from "./BrainstormPane";
 import MarkdownView from "./MarkdownView";
+import TableModal from "../modals/TableModal";
+
+/**
+ * 열려 있는 표 팝업이 확정되면 쓸 자리.
+ *
+ * * `text` — 텍스트 에디터의 `[from, to)`. `snap` 은 연 순간의 편집기 글이다 — 확정할 때 글이
+ *   그대로여야 그 자리가 맞는다. `sel` · `scroll` 은 취소했을 때 커서를 돌려놓을 자리다.
+ * * `view` — 뷰어에서 고른 표. 문서의 `[start, end)` 줄이고, `lines` 는 연 순간의 그 줄들이다.
+ */
+type TableEdit = { seq: number; path: string; model: TableModel; edit: boolean } & (
+  | { kind: "text"; from: number; to: number; snap: string; sel: [number, number]; scroll: number }
+  | { kind: "view"; start: number; end: number; lines: string[] }
+);
+
+let tableSeq = 0;
+
+/**
+ * 편집기 머리띠의 표 아이콘. `overflow: visible` 은 빼면 안 된다 — `global.css` 의
+ * `scrollbar-gutter: stable` 이 `overflow: hidden`(svg 의 기본값)인 이 작은 상자에 스크롤바 자리를
+ * 잡아 그림이 통째로 가려진다.
+ */
+function TableIcon() {
+  return (
+    <svg width="14" height="12" viewBox="0 0 14 12" aria-hidden style={{ display: "block", overflow: "visible" }}>
+      <rect x="0.6" y="0.6" width="12.8" height="10.8" rx="1.6" fill="none" stroke="currentColor" strokeWidth="1.2" />
+      <rect x="1.2" y="1.2" width="11.6" height="3" fill="currentColor" opacity="0.22" />
+      <path d="M0.6 4.2h12.8M0.6 7.8h12.8M5 4.2v7.2M9.2 4.2v7.2" fill="none" stroke="currentColor" strokeWidth="1.1" />
+    </svg>
+  );
+}
 
 const MODE_BADGE: Record<TabMode, { label: string; fg: string; bg: string; bar: string }> = {
   md: { label: "MD", fg: "#2f6f80", bg: "#e8f3f5", bar: "#3f8ea3" },
@@ -82,6 +119,8 @@ export default function EditorPane() {
   const [caret, setCaret] = useState({ ln: 1, col: 1 });
   /** 스크립트를 끈 HTML 탭. 기본은 실행이고, 여기 들어온 경로만 srcdoc 으로 되돌아간다. */
   const [noScript, setNoScript] = useState<Record<string, boolean>>({});
+  /** 열려 있는 표 팝업. `null` = 닫힘. */
+  const [tableEd, setTableEd] = useState<TableEdit | null>(null);
 
   const task = s.tasks.find((t) => t.folder === activeFolder);
   const tab = ui.openTabs.find((t) => `${t.mode}|${t.path}` === ui.activeTab) ?? null;
@@ -255,6 +294,113 @@ export default function EditorPane() {
       el.setSelectionRange(cut.from, cut.from);
       showCaret(el);
     });
+  };
+
+  /**
+   * 머리띠의 표 아이콘. 커서가 놓인 자리에 표 팝업을 연다 — 커서가 표 안이면 그 표를 고친다.
+   *
+   * 커서가 편집기에 없으면(다른 곳을 눌렀거나 아직 누르지 않았다) 넣을 자리가 없다. 아이콘은
+   * 누를 때 초점을 가져가지 않으므로(`onMouseDown`) 편집기에 있던 커서는 그대로 남아 있다.
+   * 넣을 수 없는 자리(코드 블록 · 프런트마터 · 줄 중간)는 `placeTable` 이 가린다.
+   */
+  const openTableFromEditor = () => {
+    if (!tab) return;
+    const el = textArea.current;
+    if (!el || document.activeElement !== el) {
+      s.toast("표를 넣을 자리를 먼저 클릭하세요", "텍스트 에디터에 커서를 둔 뒤 다시 누릅니다", TOAST.warn);
+      return;
+    }
+    const from = el.selectionStart ?? 0;
+    const to = el.selectionEnd ?? from;
+    const p = placeTable(el.value, from, to, !editingBodyOnly);
+    if (p.kind === "deny") {
+      s.toast(p.title, p.sub, TOAST.warn);
+      return;
+    }
+    setTableEd({
+      seq: ++tableSeq,
+      kind: "text",
+      path: tab.path,
+      model: p.model,
+      edit: p.kind === "edit",
+      from: p.from,
+      to: p.to,
+      snap: el.value,
+      sel: [from, to],
+      scroll: el.scrollTop,
+    });
+  };
+
+  /** 뷰어에서 표를 우클릭해 [표 편집] 을 골랐다. 블록의 줄은 본문 기준이라 본문이 시작하는 줄을 더한다. */
+  const openTableFromView = (b: Block) => {
+    if (!tab || !doc) return;
+    const start = split.bodyLine + b.line;
+    const end = split.bodyLine + b.end;
+    const lines = doc.text.split("\n").slice(start, end);
+    const model = parseTableSource(lines);
+    if (!model) {
+      s.toast("이 표는 고칠 수 없습니다", "표 안에 다른 표가 들어 있습니다", TOAST.warn);
+      return;
+    }
+    setTableEd({ seq: ++tableSeq, kind: "view", path: tab.path, model, edit: true, start, end, lines });
+  };
+
+  /**
+   * 표 팝업을 확정했다. 텍스트 에디터면 붙여넣기 · Ctrl+X 와 같이 `insertText` 로 웹뷰에 맡겨
+   * 되돌리기(Ctrl+Z)가 네이티브 그대로 남게 하고, 뷰어면 그 줄들을 바꿔 곧바로 저장한다.
+   * 연 뒤에 글이 바뀌었으면(창에 돌아와 다시 읽었다) 엉뚱한 자리에 쓰지 않고 알린다.
+   */
+  const commitTable = (ed: TableEdit, model: TableModel) => {
+    setTableEd(null);
+    const md = tableToMarkdown(model);
+    const st = useStore.getState();
+    if (ed.kind === "view") {
+      void st.replaceTable(ed.path, ed.start, ed.end, ed.lines, md).then((ok) => {
+        if (!ok) useStore.getState().toast("그사이 문서가 바뀌어 표를 고치지 않았습니다", "", TOAST.warn);
+      });
+      return;
+    }
+    const el = textArea.current;
+    if (!el || !el.isConnected || st.ui.activeTab !== `text|${ed.path}` || el.value !== ed.snap) {
+      st.toast("그사이 문서가 바뀌어 표를 넣지 않았습니다", "", TOAST.warn);
+      return;
+    }
+    const value = el.value;
+    const r = ed.edit
+      ? {
+          from: ed.from,
+          to: ed.to,
+          insert: md,
+          caret: ed.from + md.length,
+          text: value.slice(0, ed.from) + md + value.slice(ed.to),
+        }
+      : spliceBlock(value, ed.from, ed.to, md);
+    el.focus({ preventScroll: true });
+    el.setSelectionRange(r.from, r.to);
+    let native = false;
+    try {
+      native = document.execCommand("insertText", false, r.insert);
+    } catch {
+      native = false;
+    }
+    if (!native) onEdit(r.text);
+    else el.setSelectionRange(r.caret, r.caret);
+    // 새 값이 그려진 뒤라야 캐럿이 붙는다(직접 고친 길) — 지금 놓으면 다시 그리면서 끝으로 밀린다.
+    requestAnimationFrame(() => {
+      el.setSelectionRange(r.caret, r.caret);
+      showCaret(el);
+    });
+  };
+
+  /** 취소 — 텍스트 에디터면 커서와 스크롤을 연 순간 그대로 돌려놓는다. */
+  const cancelTable = (ed: TableEdit) => {
+    setTableEd(null);
+    if (ed.kind !== "text") return;
+    const el = textArea.current;
+    if (!el || !el.isConnected || useStore.getState().ui.activeTab !== `text|${ed.path}`) return;
+    el.focus({ preventScroll: true });
+    el.setSelectionRange(ed.sel[0], ed.sel[1]);
+    el.scrollTop = ed.scroll;
   };
 
   return (
@@ -472,7 +618,7 @@ export default function EditorPane() {
         <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", background: "#fff" }}>
           <PaneHeader
             label="마크다운 뷰어"
-            hint="체크박스 클릭 · 이미지 붙여넣기(Ctrl+V)"
+            hint="체크박스 클릭 · 이미지 붙여넣기(Ctrl+V) · 표 우클릭 편집"
             action="텍스트로 편집"
             onAction={() => void s.setTabMode(tab.path, "md", "text")}
           />
@@ -491,6 +637,7 @@ export default function EditorPane() {
             onPasteImage={(img) => void s.appendImage(tab.path, img)}
             reveal={revealHere ? Math.max(0, revealHere.line - split.bodyLine) : undefined}
             onRevealed={() => useAssist.getState().setReveal(null)}
+            onEditTable={openTableFromView}
           />
         </div>
       )}
@@ -558,7 +705,31 @@ export default function EditorPane() {
               viewer ? (dirty ? "저장 후 뷰어로 열기" : "뷰어로 열기") : undefined
             }
             onAction={viewer ? () => void s.setTabMode(tab.path, "text", viewer) : undefined}
-          />
+          >
+            {viewer === "md" && (
+              <Box
+                // 누르는 순간 편집기의 커서를 뺏지 않는다 — 그 커서가 표를 넣을 자리다.
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={openTableFromEditor}
+                role="button"
+                aria-label="표 넣기"
+                title="표 넣기 — 커서 자리에 표를 만듭니다 (커서가 표 안이면 그 표를 고칩니다)"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  height: 19,
+                  padding: "0 5px",
+                  marginRight: 2,
+                  borderRadius: 3,
+                  color: "#6a665e",
+                  cursor: "pointer",
+                }}
+                hover={{ background: "#ece9e3", color: "#2f5cbb" }}
+              >
+                <TableIcon />
+              </Box>
+            )}
+          </PaneHeader>
           {editingBodyOnly && (
             <div
               style={{
@@ -656,6 +827,16 @@ export default function EditorPane() {
           </PaneHeader>
           <BrainstormPane path={tab.path} />
         </div>
+      )}
+
+      {tableEd && (
+        <TableModal
+          key={tableEd.seq}
+          initial={tableEd.model}
+          editing={tableEd.edit}
+          onConfirm={(m) => commitTable(tableEd, m)}
+          onCancel={() => cancelTable(tableEd)}
+        />
       )}
     </div>
   );
