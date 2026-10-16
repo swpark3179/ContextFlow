@@ -1,10 +1,20 @@
-import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import { Box } from "../lib/ui";
 import { GREEN, LANG, TOAST } from "../lib/design";
 import { copyText } from "../lib/clipboard";
 import { useStore } from "../store/useStore";
 import type { Block, Seg, TableAlign } from "../lib/markdown";
 import { clipboardImage, type ClipImage } from "../lib/images";
+import { codeLang, highlight, HIGHLIGHT_LIMIT, type TokenKind } from "../lib/highlight";
 
 /**
  * 읽기 화면이다. 그래서 앱의 다른 곳(11.5px 위주의 조밀한 UI)보다 본문이 크고 행간이
@@ -154,7 +164,33 @@ function Inline({ segs }: { segs: Seg[] }) {
 }
 
 /**
+ * 문법 강조의 색. 앱의 글자색 단계와 같은 바탕(#fbfaf7)에서 대비 4.5:1 이상인 색만 쓴다 —
+ * 주석은 `TEXT.sub` 를 기울여 낮춘다. 보라는 쓰지 않는다(AI 전용 색이다, `design.ts`). 글자
+ * 굵기는 바꾸지 않는다 — 고정폭 글꼴에서 굵기가 섞이면 줄이 들쭉날쭉해 보인다.
+ */
+const TOKEN_STYLE: Partial<Record<TokenKind, CSSProperties>> = {
+  kw: { color: "#b03a2e" },
+  tag: { color: "#b03a2e" },
+  type: { color: "#2f6f80" },
+  prop: { color: "#2f6f80" },
+  fn: { color: "#8f5d17" },
+  attr: { color: "#8f5d17" },
+  str: { color: "#256b47" },
+  num: { color: "#2f5cbb" },
+  lit: { color: "#2f5cbb" },
+  meta: { color: "#7c6a1b" },
+  var: { color: "#9a4a14" },
+  com: { color: "#6a665e", fontStyle: "italic" },
+  op: { color: "#4e4a43" },
+  punct: { color: "#4e4a43" },
+};
+
+/**
  * 코드 블록 카드.
+ *
+ * 펜스에 언어를 적었고 그 언어를 알면(`codeLang` — Java · Python · SQL · 웹 언어) 문법을 칠하고
+ * 머리띠에 언어 이름과 점을 단다. 언어가 없거나 모르는 언어면 예전처럼 한 가지 색이다. 칠하는
+ * 것은 보이는 모양뿐이다 — [복사] 는 언제나 원문 그대로를 옮긴다.
  *
  * 기본 상한(`1x`)은 노트를 읽는 화면에서 코드가 본문을 밀어내지 않게 하려는 것이고,
  * 긴 로그를 읽을 때는 머리띠 오른쪽에서 `2x` · `full` 로 늘린다. 잘렸을 때는
@@ -192,6 +228,13 @@ function CodeCard({ code, lang }: { code: string; lang: string }) {
     return () => ro.disconnect();
   }, [code]);
 
+  const info = codeLang(lang);
+  // 큰 로그를 칠하느라 뷰어가 멈추지 않게 상한을 둔다. 다시 그릴 때마다 자르지 않게 기억해 둔다.
+  const tokens = useMemo(
+    () => (info && code.length <= HIGHLIGHT_LIMIT ? highlight(code, info.lang) : null),
+    [code, info?.lang],
+  );
+
   const count = code.length ? code.split("\n").length : 0;
   /**
    * `full` 의 줄 수. 뷰어 높이에서 카드의 머리띠 · 테두리 · 위아래 틈 · 가로 스크롤바를
@@ -206,7 +249,7 @@ function CodeCard({ code, lang }: { code: string; lang: string }) {
   const clipped = count > limit;
   /** `1x` 안에 다 들어가는 블록은 단계를 바꿔도 달라지는 것이 없으므로 고르개를 숨긴다. */
   const sizable = count > CODE_LINES["1x"];
-  const label = LANG[lang.toLowerCase()] ?? lang;
+  const label = info?.label ?? LANG[lang.toLowerCase()] ?? lang;
 
   /**
    * `full` 로 늘린 카드는 뷰어 맨 위에 붙여야 화면을 채운다 — 카드가 화면 아래쪽에
@@ -264,6 +307,12 @@ function CodeCard({ code, lang }: { code: string; lang: string }) {
           borderBottom: "1px solid #e9e5dd",
         }}
       >
+        {info && (
+          <span
+            aria-hidden
+            style={{ width: 7, height: 7, borderRadius: "50%", flex: "0 0 7px", background: info.dot }}
+          />
+        )}
         <span
           style={{
             fontFamily: "'Roboto Mono',monospace",
@@ -366,7 +415,17 @@ function CodeCard({ code, lang }: { code: string; lang: string }) {
           tabSize: 4,
         }}
       >
-        {code}
+        {tokens
+          ? tokens.map((t, i) =>
+              TOKEN_STYLE[t.kind] ? (
+                <span key={i} style={TOKEN_STYLE[t.kind]}>
+                  {t.text}
+                </span>
+              ) : (
+                t.text
+              ),
+            )
+          : code}
       </pre>
     </div>
   );
