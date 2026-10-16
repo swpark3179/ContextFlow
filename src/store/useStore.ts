@@ -5,6 +5,7 @@ import type { FileEntry } from "../lib/tree";
 import { AI_SIGNAL_KINDS, normalizeStatus, TOAST, type AiSignalKind } from "../lib/design";
 import { basename, daysSince, hhmm, joinPath, nowStamp, today } from "../lib/format";
 import { setImageWidth, splitFrontmatter, toggleTaskLine } from "../lib/markdown";
+import { replaceTableLines } from "../lib/mdTable";
 import { rebaseIndexDoc } from "../lib/indexDoc";
 import {
   categoryErrorMessage,
@@ -757,6 +758,11 @@ interface Actions {
   appendImage: (path: string, img: ClipImage) => Promise<boolean>;
   /** 뷰어에서 이미지 크기 단계를 골랐다. `line` 은 **문서** 기준, `null` 은 원래 크기. */
   setImageWidth: (path: string, line: number, idx: number, width: number | null) => Promise<void>;
+  /**
+   * 뷰어에서 고친 표를 문서의 `[start, end)` 줄에 쓴다. 그 줄들이 `expect` 와 다르면(그사이
+   * 바뀌었다) 쓰지 않고 `false`.
+   */
+  replaceTable: (path: string, start: number, end: number, expect: string[], md: string) => Promise<boolean>;
   /** 버퍼 하나를 내려쓴다. 같은 경로의 저장은 앞 저장이 파일을 쓴 뒤에 돈다(`saveQueue`). */
   saveDoc: (path: string) => Promise<void>;
   saveAll: () => Promise<void>;
@@ -2032,6 +2038,19 @@ export const useStore = create<State & Actions>((set, get) => ({
     // 체크박스와 같다 — 한 번의 완결된 동작이라 자동 저장을 기다리지 않는다.
     get().editDoc(path, next);
     await get().saveDoc(path);
+  },
+
+  replaceTable: async (path, start, end, expect, md) => {
+    const doc = get().ui.docs[path];
+    if (!doc) return false;
+    const next = replaceTableLines(doc.text, start, end, expect, md);
+    if (next === null) return false;
+    // 체크박스 · 이미지 크기와 같다 — 표 고치기는 한 번의 완결된 동작이라 자동 저장을 기다리지 않는다.
+    if (next !== doc.text) {
+      get().editDoc(path, next);
+      await get().saveDoc(path);
+    }
+    return true;
   },
 
   saveDoc: async (path) => {

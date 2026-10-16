@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Box } from "../lib/ui";
 import { GREEN, LANG, TOAST } from "../lib/design";
 import { copyText } from "../lib/clipboard";
@@ -490,8 +490,11 @@ function ImageCard({
 /**
  * 표 카드. 본문보다 한 단 작은 글씨로 조밀하게 그리고, 넓은 표는 글줄 폭을 넘기지
  * 않도록 **표만** 가로로 스크롤한다 — 본문 전체가 옆으로 밀리면 읽던 자리를 잃는다.
+ *
+ * 합친 칸(HTML 표의 `colspan` · `rowspan`)은 `spans` 대로 넓히고 덮인 칸은 그리지 않는다.
+ * 칸 안의 줄바꿈(`<br>`)은 줄을 바꿔 그린다. `onMenu` 가 있으면 우클릭이 표 메뉴를 연다.
  */
-function TableCard({ b }: { b: Block }) {
+function TableCard({ b, onMenu }: { b: Block; onMenu?: (x: number, y: number) => void }) {
   const cell = (a: TableAlign, head: boolean) => ({
     padding: "5px 10px",
     border: "1px solid #e6e2da",
@@ -500,9 +503,27 @@ function TableCard({ b }: { b: Block }) {
     fontWeight: head ? 600 : 400,
     color: head ? "#23211e" : "#3a3630",
     minWidth: 40,
+    whiteSpace: "pre-line" as const,
   });
+  /** `r` 은 머리 줄을 0 으로 센다. 덮인 칸이면 `null`. */
+  const span = (r: number, c: number) => {
+    const sp = b.spans[r]?.[c];
+    if (!sp) return {};
+    if (!sp.rs) return null;
+    return { colSpan: sp.cs > 1 ? sp.cs : undefined, rowSpan: sp.rs > 1 ? sp.rs : undefined };
+  };
   return (
-    <div style={{ margin: "10px 0", overflowX: "auto" }}>
+    <div
+      style={{ margin: "10px 0", overflowX: "auto" }}
+      onContextMenu={
+        onMenu
+          ? (e) => {
+              e.preventDefault();
+              onMenu(e.clientX, e.clientY);
+            }
+          : undefined
+      }
+    >
       <table
         style={{
           borderCollapse: "collapse",
@@ -514,11 +535,15 @@ function TableCard({ b }: { b: Block }) {
       >
         <thead>
           <tr style={{ background: "#f4f2ed" }}>
-            {b.head.map((segs, c) => (
-              <th key={c} style={cell(b.align[c], true)}>
-                <Inline segs={segs} />
-              </th>
-            ))}
+            {b.head.map((segs, c) => {
+              const sp = span(0, c);
+              if (!sp) return null;
+              return (
+                <th key={c} {...sp} style={cell(b.align[c], true)}>
+                  <Inline segs={segs} />
+                </th>
+              );
+            })}
           </tr>
         </thead>
         {b.rows.length > 0 && (
@@ -526,17 +551,149 @@ function TableCard({ b }: { b: Block }) {
             {b.rows.map((row, r) => (
               // 줄무늬는 넓은 표에서 눈이 옆 줄로 미끄러지지 않게 하는 정도로만 옅게 둔다.
               <tr key={r} style={{ background: r % 2 ? "#fbfaf7" : "#fff" }}>
-                {row.map((segs, c) => (
-                  <td key={c} style={cell(b.align[c], false)}>
-                    <Inline segs={segs} />
-                  </td>
-                ))}
+                {row.map((segs, c) => {
+                  const sp = span(r + 1, c);
+                  if (!sp) return null;
+                  return (
+                    <td key={c} {...sp} style={cell(b.align[c], false)}>
+                      <Inline segs={segs} />
+                    </td>
+                  );
+                })}
               </tr>
             ))}
           </tbody>
         )}
       </table>
     </div>
+  );
+}
+
+/**
+ * 표 우클릭 메뉴. 탐색기의 `ContextMenu` 와 같은 껍데기다 — 바깥을 누르거나 Esc 로 닫고,
+ * 화면 밖으로 넘치면 안쪽으로 되접는다.
+ */
+function TableMenu({
+  x,
+  y,
+  b,
+  onEdit,
+  onClose,
+}: {
+  x: number;
+  y: number;
+  b: Block;
+  onEdit: () => void;
+  onClose: () => void;
+}) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [pos, setPos] = useState({ x, y });
+  useLayoutEffect(() => {
+    if (!ref.current) return;
+    const M = 8;
+    const r = ref.current.getBoundingClientRect();
+    let nx = x;
+    let ny = y;
+    if (nx + r.width > window.innerWidth - M) nx = Math.max(M, window.innerWidth - M - r.width);
+    if (ny + r.height > window.innerHeight - M) ny = Math.max(M, y - r.height);
+    setPos({ x: nx, y: ny });
+  }, [x, y]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      // 앱의 Esc(맨 위 레이어 닫기)는 이 메뉴를 모른다 — 여기서 닫고 거기까지 가지 않게 한다.
+      e.preventDefault();
+      onClose();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [onClose]);
+
+  /** 칸마다의 크기를 든 표는 HTML 표다(GFM 표는 빈 배열). */
+  const html = b.spans.length > 0;
+  return (
+    <>
+      <div
+        onClick={onClose}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          onClose();
+        }}
+        style={{ position: "fixed", inset: 0, zIndex: 80 }}
+      />
+      <div
+        ref={ref}
+        style={{
+          position: "fixed",
+          zIndex: 81,
+          minWidth: 200,
+          left: pos.x,
+          top: pos.y,
+          background: "#fff",
+          border: "1px solid #d9d4ca",
+          borderRadius: 6,
+          boxShadow: "0 12px 30px rgba(35,33,30,.20)",
+          padding: 4,
+          animation: "pIn .1s ease-out",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "5px 8px 6px 8px",
+            borderBottom: "1px solid #f0ede7",
+            marginBottom: 3,
+          }}
+        >
+          <span
+            style={{
+              fontFamily: "'Roboto Mono',monospace",
+              fontSize: 8.5,
+              fontWeight: 600,
+              borderRadius: 2,
+              padding: "1px 3px",
+              color: "#2f6f80",
+              background: "#e8f3f5",
+            }}
+          >
+            {html ? "HTML" : "MD"}
+          </span>
+          <span style={{ fontSize: 11.5, fontWeight: 600, color: "#3a3630" }}>
+            표 · {b.head.length}열 × {b.rows.length + 1}행
+          </span>
+        </div>
+        <Box
+          onClick={onEdit}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            padding: "6px 8px",
+            borderRadius: 4,
+            cursor: "pointer",
+          }}
+          hover={{ background: "#f2efe9" }}
+        >
+          <span
+            style={{
+              fontFamily: "'Roboto Mono',monospace",
+              fontSize: 9,
+              fontWeight: 600,
+              borderRadius: 2,
+              padding: "1px 4px",
+              color: "#2f5cbb",
+              background: "#eef3fd",
+            }}
+          >
+            ▦
+          </span>
+          <span style={{ fontSize: 12, color: "#3a3630", flex: 1 }}>표 편집</span>
+          <span style={{ fontSize: 11, color: "#6a665e" }}>그리드 편집기</span>
+        </Box>
+      </div>
+    </>
   );
 }
 
@@ -557,6 +714,7 @@ export default function MarkdownView({
   inline,
   reveal,
   onRevealed,
+  onEditTable,
 }: {
   blocks: Block[];
   /**
@@ -575,8 +733,16 @@ export default function MarkdownView({
   reveal?: number;
   /** `reveal` 로 스크롤했다. 요청을 지우는 데 쓴다. */
   onRevealed?: () => void;
+  /**
+   * 표를 우클릭해 [표 편집] 을 골랐다. 블록의 `line` · `end` 는 `onToggle` 과 같이 본문 기준이다.
+   * 주지 않으면(위키 화면) 표 우클릭은 평소와 같다.
+   */
+  onEditTable?: (b: Block) => void;
 }) {
   const [port, setPort] = useState<HTMLDivElement | null>(null);
+  const [tableMenu, setTableMenu] = useState<{ x: number; y: number; b: Block } | null>(null);
+  // 문서가 바뀌면(다른 탭 · 다시 읽기) 메뉴가 가리키던 표의 줄이 맞지 않을 수 있다.
+  useEffect(() => setTableMenu(null), [blocks]);
   const list = useRef<HTMLDivElement | null>(null);
   // 블록 하나가 목록의 자식 하나다(블록마다 뿌리 요소 하나를 그린다) — 그래서 n번째 자식이 n번째 블록이다.
   useEffect(() => {
@@ -638,7 +804,14 @@ export default function MarkdownView({
           {blocks.map((b, i) => {
             const first = i === 0;
             if (b.isFence) return <CodeCard key={b.key} code={b.code} lang={b.lang} />;
-            if (b.isTable) return <TableCard key={b.key} b={b} />;
+            if (b.isTable)
+              return (
+                <TableCard
+                  key={b.key}
+                  b={b}
+                  onMenu={onEditTable ? (x, y) => setTableMenu({ x, y, b }) : undefined}
+                />
+              );
             if (b.isImage)
               return (
                 <ImageCard
@@ -806,6 +979,18 @@ export default function MarkdownView({
           })}
         </div>
       </div>
+      {tableMenu && onEditTable && (
+        <TableMenu
+          x={tableMenu.x}
+          y={tableMenu.y}
+          b={tableMenu.b}
+          onClose={() => setTableMenu(null)}
+          onEdit={() => {
+            setTableMenu(null);
+            onEditTable(tableMenu.b);
+          }}
+        />
+      )}
     </Viewport.Provider>
   );
 }

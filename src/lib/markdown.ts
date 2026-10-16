@@ -14,6 +14,8 @@
  *   ``` 세 글자가 본문에 남는다.
  * * **표(GFM)** — 비교 · 일정 · 담당 같은 정리는 노트에서 표로 쓰는 것이 보통이다.
  *   읽지 않으면 `| a | b |` 줄과 `|---|` 구분 줄이 문단으로 흩어져 파이프만 남는다.
+ *   칸 안의 `<br>` 은 칸 안의 줄바꿈으로 읽는다. 칸을 합친 표는 GFM 으로 적을 수 없어
+ *   HTML `<table>` 로 저장되므로(`mdTable.ts`) 그 표도 같은 표 블록으로 읽는다.
  *
  * * **이미지** — `![alt](경로)` 와 Obsidian 의 `![[파일.png]]`. 붙여넣은 스크린샷이
  *   업무 폴더의 `images/` 에 저장되고 링크가 들어오므로(`useStore.saveImage`) 뷰어가
@@ -26,6 +28,7 @@
  * 고쳐야 할 줄이 어디인지가 그것으로 정해진다(`toggleTaskLine`).
  */
 import { GREEN } from "./design";
+import { htmlInlineToMd, parseHtmlTable } from "./htmlTable";
 
 export interface Seg {
   key: string;
@@ -39,10 +42,24 @@ export interface Seg {
 
 export type TableAlign = "" | "left" | "center" | "right";
 
+/**
+ * 표 칸 하나가 차지하는 크기. 합친 칸은 왼쪽 위 칸이 `rs × cs` 를 갖고, 그것이 덮은 칸은
+ * `0 × 0` 이다(그리지 않는다). 병합은 HTML 표에만 있다 — GFM 표에는 그런 문법이 없다.
+ */
+export interface TableSpan {
+  rs: number;
+  cs: number;
+}
+
 export interface Block {
   key: string;
   /** 파싱한 원본에서 이 블록이 시작하는 줄(0부터). `toggleTaskLine` 이 쓴다. */
   line: number;
+  /**
+   * 이 블록이 끝난 다음 줄(포함하지 않는다). 여러 줄에 걸치는 블록(펜스 · 표)만 `line + 1`
+   * 보다 크다. 표를 고칠 때 바꿔 쓸 줄의 범위가 이것이다(`replaceTableLines`).
+   */
+  end: number;
   isH1: boolean;
   isH2: boolean;
   isH3: boolean;
@@ -63,6 +80,10 @@ export interface Block {
   head: Seg[][];
   /** 본문 줄들. 모든 줄은 머리 줄과 같은 칸 수로 맞춰져 있다. */
   rows: Seg[][][];
+  /**
+   * 칸마다의 크기 — `[0]` 이 머리 줄, `[1..]` 이 본문 줄. 합친 칸이 없는 표(GFM)는 빈 배열이다.
+   */
+  spans: TableSpan[][];
   /** 이미지 — `src` · `alt` · `width` · `imgIdx` 만 의미가 있다. */
   isImage: boolean;
   /** 적힌 그대로의 경로(꺾쇠만 벗긴다). 풀어 읽는 것은 `resolveImageSrc` 다. */
@@ -121,6 +142,7 @@ function base(key: string, line: number): Block {
   return {
     key,
     line,
+    end: line + 1,
     isH1: false,
     isH2: false,
     isH3: false,
@@ -134,6 +156,7 @@ function base(key: string, line: number): Block {
     align: [],
     head: [],
     rows: [],
+    spans: [],
     isImage: false,
     src: "",
     alt: "",
@@ -315,7 +338,7 @@ export function splitRow(line: string): string[] {
 }
 
 /** 구분 줄이면 열마다의 정렬을, 아니면 `null`. 파이프가 하나도 없으면 구분선(`---`)이다. */
-function delimRow(line: string): TableAlign[] | null {
+export function delimRow(line: string): TableAlign[] | null {
   if (!line.includes("|")) return null;
   const cells = splitRow(line);
   if (!cells.every((c) => DELIM_CELL.test(c))) return null;
@@ -324,6 +347,30 @@ function delimRow(line: string): TableAlign[] | null {
     const r = c.endsWith(":");
     return l && r ? "center" : r ? "right" : l ? "left" : "";
   });
+}
+
+/**
+ * 표 칸 안의 `<br>` — GFM 표의 칸은 한 줄이라, 칸 안에서 줄을 바꾸려면 이 태그를 쓴다
+ * (GitHub · Obsidian 공통). 편집기는 이것을 칸 안의 줄바꿈으로 고치고, 뷰어는 줄을 바꿔 그린다.
+ */
+export function brToNewline(cell: string): string {
+  return cell.replace(/<br\s*\/?>/gi, "\n");
+}
+
+/** HTML 표가 시작하는 줄. 마크다운의 HTML 블록과 같이 앞에 세 칸까지만 들여쓸 수 있다. */
+export const HTML_TABLE_OPEN = /^ {0,3}<table(?:\s[^<>]*)?>/i;
+const HTML_TABLE_CLOSE = /<\/table\s*>/i;
+
+/**
+ * `at` 줄에서 열린 HTML 표가 끝나는 줄(포함). 닫는 태그가 없거나 그 전에 펜스가 열리면 `-1` —
+ * 코드 블록 안에 적힌 `</table>` 까지 끌어와 본문을 표로 삼키지 않게 한다.
+ */
+export function htmlTableEnd(lines: string[], at: number): number {
+  for (let k = at; k < lines.length; k++) {
+    if (k > at && FENCE.test(lines[k])) return -1;
+    if (HTML_TABLE_CLOSE.test(lines[k])) return k;
+  }
+  return -1;
 }
 
 export function mdParse(src: string): Block[] {
@@ -367,6 +414,7 @@ export function mdParse(src: string): Block[] {
       }
       out.push({
         ...base(key, at),
+        end: Math.min(j + 1, lines.length),
         isFence: true,
         lang: info.split(/[\s,:]/)[0] ?? "",
         code: trimTail(dedent(body, pad)).join("\n"),
@@ -379,6 +427,36 @@ export function mdParse(src: string): Block[] {
     i++;
     const line = raw.replace(/\s+$/, "");
     if (!line.trim()) continue;
+
+    // HTML 표 — 병합한 칸이 있는 표는 이렇게 저장된다(`tableToMarkdown`). 읽지 못하면
+    // 예전처럼 줄마다 문단으로 둔다.
+    if (HTML_TABLE_OPEN.test(line)) {
+      const last = htmlTableEnd(lines, at);
+      const grid = last >= 0 ? parseHtmlTable(lines.slice(at, last + 1).join("\n")) : null;
+      if (grid) {
+        const n = grid.rows[0].length;
+        const align: TableAlign[] = Array.from({ length: n }, (_, c) => {
+          for (const r of grid.rows) if (r[c]?.align) return r[c]!.align;
+          return "";
+        });
+        const segRow = (r: number, tag: string) =>
+          grid.rows[r].map((x, c) =>
+            mdSegs(x ? htmlInlineToMd(x.html, { display: true }) : "", `${key}${tag}${r}c${c}`),
+          );
+        stack.length = 0;
+        out.push({
+          ...base(key, at),
+          end: last + 1,
+          isTable: true,
+          align,
+          head: segRow(0, "h"),
+          rows: grid.rows.slice(1).map((_, r) => segRow(r + 1, "r")),
+          spans: grid.rows.map((r) => r.map((x) => (x ? { rs: x.rs, cs: x.cs } : { rs: 0, cs: 0 }))),
+        });
+        i = last + 1;
+        continue;
+      }
+    }
 
     // 들여쓴 `---` 도 구분선으로 읽는다. CommonMark 는 네 칸부터 코드 블록으로 보지만
     // 이 뷰어에는 그런 문법이 없어서, 그대로 두면 본문에 `---` 세 글자가 남는다.
@@ -498,15 +576,16 @@ export function mdParse(src: string): Block[] {
       // 표는 빈 줄이나 파이프가 없는 줄에서 끝난다. 펜스가 열리면 거기서도 끝난다.
       while (j < lines.length && lines[j].trim() && lines[j].includes("|") && !FENCE.test(lines[j])) {
         const r = rows.length;
-        rows.push(fit(splitRow(lines[j])).map((t, c) => mdSegs(t, `${key}r${r}c${c}`)));
+        rows.push(fit(splitRow(lines[j])).map((t, c) => mdSegs(brToNewline(t), `${key}r${r}c${c}`)));
         j++;
       }
       stack.length = 0;
       out.push({
         ...base(key, at),
+        end: j,
         isTable: true,
         align,
-        head: fit(headCells).map((t, c) => mdSegs(t, `${key}h${c}`)),
+        head: fit(headCells).map((t, c) => mdSegs(brToNewline(t), `${key}h${c}`)),
         rows,
       });
       i = j;
