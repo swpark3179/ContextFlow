@@ -81,8 +81,8 @@ export default function IwmsTemplatesCard() {
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 12.5, fontWeight: 500 }}>남은 시간을 모두 배분</div>
           <div style={{ ...hintStyle, marginTop: 2 }}>
-            기준시간에서 그날 이미 입력된 분을 뺀 나머지를 고른 업무들에 나눠 채웁니다. 끄면 업무마다 걸렸을 법한 분만
-            제안합니다.
+            정제할 때 기준시간에서 그날 이미 입력된 분을 뺀 나머지를 고른 업무들에 나눠 채웁니다. 검토 화면에서 분을
+            고쳐도 다른 줄은 그대로입니다. 끄면 업무마다 걸렸을 법한 분만 제안합니다.
           </div>
         </div>
         <Toggle on={settings.fillToStandard} onClick={() => void save({ fillToStandard: !settings.fillToStandard })} />
