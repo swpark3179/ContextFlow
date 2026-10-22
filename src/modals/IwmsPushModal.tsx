@@ -38,7 +38,8 @@ const EXAMPLES = 30;
  *
  * 흐름: 그날 기록 · 대가 선택 · 입력 이력을 읽고 → i-WMS 의 그날 현황을 읽고(세션이 없으면 연결) →
  * 업무 폴더에서 재료를 모아 AI 에 묻는다. 결과는 줄마다 고칠 수 있는 초안이다 — 카테고리 · 분 · 상세내용.
- * 분은 남은 시간(기준 − 이미 입력)에 맞게 앱이 맞추고, 사람이 고친 분은 그대로 둔다.
+ * 분은 정제할 때 남은 시간(기준 − 이미 입력)에 맞게 앱이 맞추고, 사람이 고친 분은 그대로 둔다. 그 뒤 분을 고쳐도
+ * 다른 줄은 다시 나누지 않는다 — 합을 기준에 다시 맞추고 싶으면 [분 다시 나누기].
  *
  * 이미 i-WMS 에 넣은 줄은 기본으로 뺀다 — 다시 넣으면 같은 일이 두 번 들어간다.
  */
@@ -180,13 +181,11 @@ function PushView({ day }: { day: string }) {
   const draftOf = (id: number) => drafts.find((d) => d.entryId === id);
   const thisRun = rows.reduce((n, t) => n + (draftOf(t.entry.id)?.minutes ?? 0), 0);
 
-  const update = (id: number, patch: Partial<Draft>, refitAfter = false) => {
-    setDrafts((prev) => {
-      const next = prev.map((d) =>
-        d.entryId === id ? { ...d, ...patch, edited: { ...d.edited, ...patch.edited } } : d,
-      );
-      return refitAfter && iday ? refit(next, remainingOf(iday), settings) : next;
-    });
+  /** 고친 줄만 바꾼다 — 분을 고쳐도 다른 줄은 다시 나누지 않는다. 합이 기준과 달라도 되는 날이 있다. */
+  const update = (id: number, patch: Partial<Draft>) => {
+    setDrafts((prev) =>
+      prev.map((d) => (d.entryId === id ? { ...d, ...patch, edited: { ...d.edited, ...patch.edited } } : d)),
+    );
   };
 
   const setIncluding = (t: Target, on: boolean) => {
@@ -194,7 +193,8 @@ function PushView({ day }: { day: string }) {
     if (on) next.add(t.entry.id);
     else next.delete(t.entry.id);
     setIncluded(next);
-    // 새로 넣은 줄에 초안이 없으면 AI 없이 빈 초안을 만든다 — [다시 정제] 로 채울 수 있다.
+    // 새로 넣은 줄에 초안이 없으면 AI 없이 빈 초안을 만든다 — [다시 정제] 로 채울 수 있다. 다른 줄의 분은
+    // 건드리지 않는다(빼기도 그렇다). 0분이라 미리보기 전에 분을 넣으라고 짚는다.
     if (on && iday && table && !draftOf(t.entry.id)) {
       const blank: Draft = {
         entryId: t.entry.id,
@@ -209,7 +209,7 @@ function PushView({ day }: { day: string }) {
         edited: {},
         issues: ["정제하지 않은 줄입니다 — [다시 정제] 를 누르거나 직접 채우세요"],
       };
-      setDrafts((prev) => refit([...prev, blank], remainingOf(iday), settings));
+      setDrafts((prev) => [...prev, blank]);
     }
   };
 
@@ -400,7 +400,6 @@ function PushView({ day }: { day: string }) {
                 disabled={busy}
                 onCategory={(c) => update(d.entryId, { category: c, edited: { category: true } })}
                 onMinutes={(m) => update(d.entryId, { minutes: m, edited: { minutes: true } })}
-                onMinutesDone={() => update(d.entryId, {}, true)}
                 onNote={(n) => update(d.entryId, { note: n, edited: { note: true } })}
                 onExclude={() => setIncluding(t, false)}
               />
@@ -847,7 +846,6 @@ function DraftRow({
   disabled,
   onCategory,
   onMinutes,
-  onMinutesDone,
   onNote,
   onExclude,
 }: {
@@ -858,7 +856,6 @@ function DraftRow({
   disabled: boolean;
   onCategory: (c: IwmsCategory | null) => void;
   onMinutes: (m: number) => void;
-  onMinutesDone: () => void;
   onNote: (n: string) => void;
   onExclude: () => void;
 }) {
@@ -955,7 +952,6 @@ function DraftRow({
           value={d.minutes}
           disabled={disabled}
           onChange={(e) => onMinutes(Math.max(0, Math.min(1440, Math.round(Number(e.target.value) || 0))))}
-          onBlur={onMinutesDone}
           style={{ ...cellInput, height: 28, width: "100%", padding: "0 6px", fontFamily: "'Roboto Mono',monospace" }}
         />
         <span style={{ fontSize: 11, color: TEXT.sub }}>{d.edited.minutes ? "분 · 고정" : "분"}</span>
