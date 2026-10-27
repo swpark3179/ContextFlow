@@ -35,8 +35,9 @@ import MarkdownView from "../components/MarkdownView";
 import { applyBrief, taskBriefFiles, taskOverview, useAssist } from "../store/assistStore";
 import { routeInfo, routeRun, useAi } from "../store/aiStore";
 import { useStore } from "../store/useStore";
-import { AssistHead, Notice, RouteLabel, chipStyle, selectStyle } from "./AssistParts";
+import { AssistHead, EscNote, Notice, RouteLabel, chipStyle, selectStyle } from "./AssistParts";
 import { GhostButton, Modal, ModalFooter, PrimaryButton, inputFocus, inputStyle, labelStyle } from "./Modal";
+import { SlidePane, useEscGuard, useStepDir } from "./motion";
 
 /**
  * 간략 입력 정리 — 한두 줄로 적은 요구사항 · 끝낸 일 · 지금 상황을 정리해 업무 폴더의 알맞은 파일 · 섹션에 넣는다.
@@ -92,6 +93,13 @@ function BriefView({ folder }: { folder: string }) {
   const [thinkAt, setThinkAt] = useState<number | null>(null);
   const [thought, setThought] = useState(0);
   const abort = useRef<AbortController | null>(null);
+  const panel = useRef<HTMLDivElement | null>(null);
+
+  /** 보이는 칸 — 입력(0) · 정리본(1). 바뀔 때 가는 쪽으로 넘어간다. */
+  const view = phase === "input" || (phase === "thinking" && !draft) ? 0 : 1;
+  const dir = useStepDir(view);
+  /** 입력 칸에 친 것이 있으면 첫 Esc 는 경고만 한다 — 한두 줄이라도 다시 치게 하지 않는다. */
+  const guard = useEscGuard(panel, phase === "input" && !!input.trim());
 
   useEffect(() => {
     let alive = true;
@@ -269,265 +277,279 @@ function BriefView({ folder }: { folder: string }) {
     : [];
 
   return (
-    <Modal width={1000} zIndex={77} onClose={dismiss} panelStyle={{ height: 620, maxHeight: "90vh" }}>
+    <Modal
+      width={1000}
+      zIndex={77}
+      onClose={dismiss}
+      panelStyle={{ height: 620, maxHeight: "90vh" }}
+      panelRef={panel}
+    >
       <AssistHead title="간략 입력 정리" task={task?.title ?? ""}>
         <RouteLabel info={info} />
       </AssistHead>
       {/* 진행선 — AI 가 정리하는 동안. */}
       <div style={{ flex: "0 0 2px", height: 2 }}>{phase === "thinking" && <AiRail />}</div>
 
-      {(phase === "input" || (phase === "thinking" && !draft)) && (
-        <div style={{ flex: "1 1 auto", minHeight: 0, overflowY: "auto", padding: "12px 16px" }}>
-          {!info.run && (
-            <Notice tone="error">
-              AI 연결이 없습니다 — 설정 → AI 연결 → 기능별 연결에서 '간략 입력 정리' 연결을 고르세요
-            </Notice>
-          )}
-          {error && <Notice tone={error === "취소했습니다" ? "muted" : "error"}>{error}</Notice>}
-          <div style={{ ...labelStyle, marginTop: 10 }}>지금 업무</div>
-          <div
-            style={{
-              border: "1px dashed #ddd8cf",
-              borderRadius: 6,
-              padding: "8px 10px",
-              background: "#faf9f6",
-              fontSize: 12,
-              lineHeight: 1.7,
-              color: "#4a463f",
-            }}
-          >
-            <div style={{ fontWeight: 600 }}>
-              {task?.title}
-              {task?.category && (
-                <span style={{ fontWeight: 400, color: TEXT.sub }}> · {catLabel(task.category)}</span>
+      {/* 입력 ↔ 정리본 — 정리하면 오른쪽에서 들어오고, [입력 고치기] 는 왼쪽에서 돌아온다. */}
+      <div style={{ flex: "1 1 auto", minHeight: 0, position: "relative", overflow: "hidden", display: "flex" }}>
+        <SlidePane key={view} dir={dir} style={{ flex: "1 1 auto", minWidth: 0, minHeight: 0, display: "flex" }}>
+          {view === 0 && (
+            <div style={{ flex: "1 1 auto", minWidth: 0, minHeight: 0, overflowY: "auto", padding: "12px 16px" }}>
+              {!info.run && (
+                <Notice tone="error">
+                  AI 연결이 없습니다 — 설정 → AI 연결 → 기능별 연결에서 '간략 입력 정리' 연결을 고르세요
+                </Notice>
               )}
-            </div>
-            <div style={{ color: TEXT.sub, whiteSpace: "pre-wrap", maxHeight: 90, overflow: "hidden" }}>
-              {loading ? (
-                // 개요 · 파일은 디스크에서 읽는다(AI 가 아니다) — 회색 스켈레톤으로 자리만.
-                <span style={{ display: "flex", flexDirection: "column", gap: 6, padding: "4px 0" }} title="업무 파일을 읽는 중">
-                  <Skeleton width="92%" height={9} />
-                  <Skeleton width="64%" height={9} />
-                </span>
-              ) : overview.trim() ? (
-                overview.slice(0, 300)
-              ) : (
-                "(개요가 아직 비어 있습니다)"
-              )}
-            </div>
-            {!loading && files.length > 0 && (
-              <div style={{ color: TEXT.sub }}>
-                글 파일 {files.length}개 — {files.slice(0, 6).map((f) => f.path).join(" · ")}
-                {files.length > 6 ? " …" : ""}
-              </div>
-            )}
-          </div>
-
-          <div style={{ ...labelStyle, marginTop: 14 }}>적을 것 — 새 요구사항 · 끝낸 일 · 지금 상황, 한두 줄이면 됩니다</div>
-          <TextArea
-            autoFocus
-            value={input}
-            disabled={phase !== "input"}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && canStart) {
-                e.preventDefault();
-                void runRound();
-              }
-            }}
-            placeholder={"예: QA팀 검증 끝남, 결제 실패 0건. PG사가 API 키 발급을 다음 주로 미룸\n예: 다음주 금요일까지 결제 PG사 교체, QA팀 검증 받아야 함"}
-            rows={5}
-            style={{
-              ...inputStyle,
-              height: "auto",
-              padding: "8px 9px",
-              lineHeight: 1.6,
-              resize: "vertical",
-              fontFamily: "inherit",
-            }}
-            focusStyle={inputFocus}
-          />
-          <div style={{ fontSize: 11, color: "#6a665e", lineHeight: 1.7, marginTop: 6 }}>
-            적은 것과 업무 제목 · 카테고리 · 태그 · 지금 개요, 업무 폴더 글 파일의 이름 · 제목 · 열린 할 일 · 앞부분이 AI
-            연결로 나갑니다. 적힌 사실만 정리해 알맞은 파일 · 섹션을 제안하고(끝낸 일은 맞는 할 일의 체크까지), 새
-            요구사항에 빠진 것은 선택지나 입력으로 되묻습니다(최대 {BRIEF_ROUNDS}바퀴). 쓰기 전에 고를 수 있습니다.{" "}
-            {input.length > INPUT_CAP ? `앞 ${INPUT_CAP.toLocaleString()}자만 보냅니다. ` : ""}Ctrl+Enter 로 시작합니다.
-          </div>
-          {phase === "thinking" && (
-            <ThinkingLine
-              name={info.name}
-              since={thinkAt}
-              partial={partial}
-              thought={thought}
-              margin="9px 0 0"
-              onCancel={() => abort.current?.abort()}
-            />
-          )}
-        </div>
-      )}
-
-      {(phase === "review" || phase === "saving" || (phase === "thinking" && draft)) && (
-        <div style={{ flex: "1 1 auto", minHeight: 0, display: "flex" }}>
-          {/* 왼쪽 — 입력과 질문 */}
-          <div
-            style={{
-              flex: "0 0 420px",
-              minWidth: 0,
-              overflowY: "auto",
-              borderRight: "1px solid #efebe4",
-              padding: "10px 14px 14px 14px",
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", marginBottom: 5 }}>
-              <span style={{ ...labelStyle, marginBottom: 0 }}>적은 것</span>
-              <div style={{ flex: 1 }} />
-              {phase === "review" && (
-                <Box
-                  onClick={() => setPhase("input")}
-                  style={{ fontSize: 11.5, color: "#3a6fd8", cursor: "pointer" }}
-                  hover={{ textDecoration: "underline" }}
-                >
-                  입력 고치기
-                </Box>
-              )}
-            </div>
-            <div
-              style={{
-                fontSize: 12.5,
-                lineHeight: 1.6,
-                whiteSpace: "pre-wrap",
-                wordBreak: "break-word",
-                background: "#f7f5f1",
-                border: "1px solid #ece8e0",
-                borderRadius: 6,
-                padding: "7px 9px",
-              }}
-            >
-              {input}
-            </div>
-            {counts.length > 0 && (
-              <div style={{ fontSize: 11.5, color: TEXT.sub, marginTop: 5 }}>
-                정리: {counts.map(([k, n]) => `${k} ${n}`).join(" · ")}
-              </div>
-            )}
-
-            {qa.length > 0 && (
-              <div style={{ marginTop: 12 }}>
-                <div style={labelStyle}>앞서 답한 것</div>
-                {qa.map((q) => (
-                  <div key={q.id} style={{ fontSize: 11.5, lineHeight: 1.6, color: "#3a3630", marginBottom: 3 }}>
-                    <span style={{ color: "#6a665e" }}>{q.ask}</span> → {q.unknown ? "모름" : q.answer}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {questions.length > 0 && (
-              <div style={{ marginTop: 12 }}>
-                <div style={labelStyle}>더 알려 주세요 — 답하지 않은 것은 "확인 필요" 로 남습니다</div>
-                {questions.map((q, n) => (
-                  <QuestionCard
-                    key={q.id}
-                    n={n + 1}
-                    q={q}
-                    a={answers[q.id] ?? NO_ANSWER}
-                    custom={!!custom[q.id]}
-                    disabled={phase !== "review"}
-                    onCustom={(on) => setCustom((p) => ({ ...p, [q.id]: on }))}
-                    onChange={(patch) => setAnswer(q.id, patch)}
-                  />
-                ))}
-              </div>
-            )}
-            {draft && !questions.length && (
-              <div style={{ fontSize: 11.5, color: "#6a665e", lineHeight: 1.7, marginTop: 12 }}>
-                {round >= BRIEF_ROUNDS
-                  ? "보완은 여기까지입니다. 정해지지 않은 것은 “확인 필요” 에 남깁니다."
-                  : "더 물을 것이 없습니다."}
-              </div>
-            )}
-          </div>
-
-          {/* 오른쪽 — 정리본 미리보기 */}
-          <div style={{ flex: "1 1 auto", minWidth: 0, overflowY: "auto", paddingBottom: 14 }}>
-            {phase === "thinking" && (
-              <ThinkingLine
-                name={info.name}
-                since={thinkAt}
-                partial={partial}
-                thought={thought}
-                margin="9px 14px 0"
-                onCancel={() => abort.current?.abort()}
-              />
-            )}
-            {error && <Notice tone={error === "취소했습니다" ? "muted" : draft ? "warn" : "error"}>{error}</Notice>}
-            {dropped > 0 && (
-              <Notice tone="warn">
-                근거(적은 것 · 답)를 댈 수 없는 항목 {dropped}개를 뺐습니다 — 필요하면 직접 적거나 답으로 알려 주세요
-              </Notice>
-            )}
-            {unplaced > 0 && (
-              <Notice tone="warn">
-                AI 가 고른 자리 {unplaced}곳이 이 업무 폴더에 없어 기본 자리(index.md)로 돌렸습니다
-              </Notice>
-            )}
-            {draft && !hasContent(draft) && (
-              <Notice tone="muted">정리할 사실이 아직 없습니다 — 질문에 답하거나 입력을 고쳐 보세요</Notice>
-            )}
-            {draft && hasContent(draft) && (
-              <div style={{ padding: "10px 18px 0 18px" }}>
-                <div style={{ ...labelStyle, marginBottom: 2 }}>
-                  쓸 내용 — 섹션 끝에 없는 줄만 덧붙이고, 이미 적힌 줄은 지우거나 바꾸지 않습니다
+              {error && <Notice tone={error === "취소했습니다" ? "muted" : "error"}>{error}</Notice>}
+              <div style={{ ...labelStyle, marginTop: 10 }}>지금 업무</div>
+              <div
+                style={{
+                  border: "1px dashed #ddd8cf",
+                  borderRadius: 6,
+                  padding: "8px 10px",
+                  background: "#faf9f6",
+                  fontSize: 12,
+                  lineHeight: 1.7,
+                  color: "#4a463f",
+                }}
+              >
+                <div style={{ fontWeight: 600 }}>
+                  {task?.title}
+                  {task?.category && (
+                    <span style={{ fontWeight: 400, color: TEXT.sub }}> · {catLabel(task.category)}</span>
+                  )}
                 </div>
-                {groups.map((g) => (
-                  <div key={g.path} style={{ marginTop: 12 }}>
-                    <div
-                      style={{
-                        fontFamily: "'Roboto Mono',monospace",
-                        fontSize: 11.5,
-                        fontWeight: 600,
-                        color: "#3a3630",
-                        wordBreak: "break-all",
-                      }}
+                <div style={{ color: TEXT.sub, whiteSpace: "pre-wrap", maxHeight: 90, overflow: "hidden" }}>
+                  {loading ? (
+                    // 개요 · 파일은 디스크에서 읽는다(AI 가 아니다) — 회색 스켈레톤으로 자리만.
+                    <span style={{ display: "flex", flexDirection: "column", gap: 6, padding: "4px 0" }} title="업무 파일을 읽는 중">
+                      <Skeleton width="92%" height={9} />
+                      <Skeleton width="64%" height={9} />
+                    </span>
+                  ) : overview.trim() ? (
+                    overview.slice(0, 300)
+                  ) : (
+                    "(개요가 아직 비어 있습니다)"
+                  )}
+                </div>
+                {!loading && files.length > 0 && (
+                  <div style={{ color: TEXT.sub }}>
+                    글 파일 {files.length}개 — {files.slice(0, 6).map((f) => f.path).join(" · ")}
+                    {files.length > 6 ? " …" : ""}
+                  </div>
+                )}
+              </div>
+
+              <div style={{ ...labelStyle, marginTop: 14 }}>적을 것 — 새 요구사항 · 끝낸 일 · 지금 상황, 한두 줄이면 됩니다</div>
+              <TextArea
+                autoFocus
+                value={input}
+                disabled={phase !== "input"}
+                onChange={(e) => {
+                  guard.disarm();
+                  setInput(e.target.value);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && canStart) {
+                    e.preventDefault();
+                    void runRound();
+                  }
+                }}
+                placeholder={"예: QA팀 검증 끝남, 결제 실패 0건. PG사가 API 키 발급을 다음 주로 미룸\n예: 다음주 금요일까지 결제 PG사 교체, QA팀 검증 받아야 함"}
+                rows={5}
+                style={{
+                  ...inputStyle,
+                  height: "auto",
+                  padding: "8px 9px",
+                  lineHeight: 1.6,
+                  resize: "vertical",
+                  fontFamily: "inherit",
+                }}
+                focusStyle={inputFocus}
+              />
+              <div style={{ fontSize: 11, color: "#6a665e", lineHeight: 1.7, marginTop: 6 }}>
+                적은 것과 업무 제목 · 카테고리 · 태그 · 지금 개요, 업무 폴더 글 파일의 이름 · 제목 · 열린 할 일 · 앞부분이 AI
+                연결로 나갑니다. 적힌 사실만 정리해 알맞은 파일 · 섹션을 제안하고(끝낸 일은 맞는 할 일의 체크까지), 새
+                요구사항에 빠진 것은 선택지나 입력으로 되묻습니다(최대 {BRIEF_ROUNDS}바퀴). 쓰기 전에 고를 수 있습니다.{" "}
+                {input.length > INPUT_CAP ? `앞 ${INPUT_CAP.toLocaleString()}자만 보냅니다. ` : ""}Ctrl+Enter 로 시작합니다.
+              </div>
+              {phase === "thinking" && (
+                <ThinkingLine
+                  name={info.name}
+                  since={thinkAt}
+                  partial={partial}
+                  thought={thought}
+                  margin="9px 0 0"
+                  onCancel={() => abort.current?.abort()}
+                />
+              )}
+            </div>
+          )}
+
+          {view === 1 && (
+            <div style={{ flex: "1 1 auto", minWidth: 0, minHeight: 0, display: "flex" }}>
+              {/* 왼쪽 — 입력과 질문 */}
+              <div
+                style={{
+                  flex: "0 0 420px",
+                  minWidth: 0,
+                  overflowY: "auto",
+                  borderRight: "1px solid #efebe4",
+                  padding: "10px 14px 14px 14px",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", marginBottom: 5 }}>
+                  <span style={{ ...labelStyle, marginBottom: 0 }}>적은 것</span>
+                  <div style={{ flex: 1 }} />
+                  {phase === "review" && (
+                    <Box
+                      onClick={() => setPhase("input")}
+                      style={{ fontSize: 11.5, color: "#3a6fd8", cursor: "pointer" }}
+                      hover={{ textDecoration: "underline" }}
                     >
-                      {g.path}
-                    </div>
-                    {g.checks.map((c) => (
-                      <CheckRow
-                        key={c.key}
-                        c={c}
-                        on={!off.has(c.key)}
-                        disabled={phase !== "review"}
-                        onToggle={() => toggle(c.key)}
-                      />
+                      입력 고치기
+                    </Box>
+                  )}
+                </div>
+                <div
+                  style={{
+                    fontSize: 12.5,
+                    lineHeight: 1.6,
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                    background: "#f7f5f1",
+                    border: "1px solid #ece8e0",
+                    borderRadius: 6,
+                    padding: "7px 9px",
+                  }}
+                >
+                  {input}
+                </div>
+                {counts.length > 0 && (
+                  <div style={{ fontSize: 11.5, color: TEXT.sub, marginTop: 5 }}>
+                    정리: {counts.map(([k, n]) => `${k} ${n}`).join(" · ")}
+                  </div>
+                )}
+
+                {qa.length > 0 && (
+                  <div style={{ marginTop: 12 }}>
+                    <div style={labelStyle}>앞서 답한 것</div>
+                    {qa.map((q) => (
+                      <div key={q.id} style={{ fontSize: 11.5, lineHeight: 1.6, color: "#3a3630", marginBottom: 3 }}>
+                        <span style={{ color: "#6a665e" }}>{q.ask}</span> → {q.unknown ? "모름" : q.answer}
+                      </div>
                     ))}
-                    {g.blocks.map((b) => (
-                      <BlockCard
-                        key={b.key}
-                        b={b}
-                        on={!off.has(b.key)}
-                        exists={sectionExists(files, b)}
-                        files={files ?? []}
-                        editing={editing === b.key}
+                  </div>
+                )}
+
+                {questions.length > 0 && (
+                  <div style={{ marginTop: 12 }}>
+                    <div style={labelStyle}>더 알려 주세요 — 답하지 않은 것은 "확인 필요" 로 남습니다</div>
+                    {questions.map((q, n) => (
+                      <QuestionCard
+                        key={q.id}
+                        n={n + 1}
+                        q={q}
+                        a={answers[q.id] ?? NO_ANSWER}
+                        custom={!!custom[q.id]}
                         disabled={phase !== "review"}
-                        preview={previews.get(b.key) ?? []}
-                        onToggle={() => toggle(b.key)}
-                        onEdit={() => setEditing(editing === b.key ? null : b.key)}
-                        onMove={(to) => move(b, to)}
+                        onCustom={(on) => setCustom((p) => ({ ...p, [q.id]: on }))}
+                        onChange={(patch) => setAnswer(q.id, patch)}
                       />
                     ))}
                   </div>
-                ))}
+                )}
+                {draft && !questions.length && (
+                  <div style={{ fontSize: 11.5, color: "#6a665e", lineHeight: 1.7, marginTop: 12 }}>
+                    {round >= BRIEF_ROUNDS
+                      ? "보완은 여기까지입니다. 정해지지 않은 것은 “확인 필요” 에 남깁니다."
+                      : "더 물을 것이 없습니다."}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-        </div>
-      )}
+
+              {/* 오른쪽 — 정리본 미리보기 */}
+              <div style={{ flex: "1 1 auto", minWidth: 0, overflowY: "auto", paddingBottom: 14 }}>
+                {phase === "thinking" && (
+                  <ThinkingLine
+                    name={info.name}
+                    since={thinkAt}
+                    partial={partial}
+                    thought={thought}
+                    margin="9px 14px 0"
+                    onCancel={() => abort.current?.abort()}
+                  />
+                )}
+                {error && <Notice tone={error === "취소했습니다" ? "muted" : draft ? "warn" : "error"}>{error}</Notice>}
+                {dropped > 0 && (
+                  <Notice tone="warn">
+                    근거(적은 것 · 답)를 댈 수 없는 항목 {dropped}개를 뺐습니다 — 필요하면 직접 적거나 답으로 알려 주세요
+                  </Notice>
+                )}
+                {unplaced > 0 && (
+                  <Notice tone="warn">
+                    AI 가 고른 자리 {unplaced}곳이 이 업무 폴더에 없어 기본 자리(index.md)로 돌렸습니다
+                  </Notice>
+                )}
+                {draft && !hasContent(draft) && (
+                  <Notice tone="muted">정리할 사실이 아직 없습니다 — 질문에 답하거나 입력을 고쳐 보세요</Notice>
+                )}
+                {draft && hasContent(draft) && (
+                  <div style={{ padding: "10px 18px 0 18px" }}>
+                    <div style={{ ...labelStyle, marginBottom: 2 }}>
+                      쓸 내용 — 섹션 끝에 없는 줄만 덧붙이고, 이미 적힌 줄은 지우거나 바꾸지 않습니다
+                    </div>
+                    {groups.map((g) => (
+                      <div key={g.path} style={{ marginTop: 12 }}>
+                        <div
+                          style={{
+                            fontFamily: "'Roboto Mono',monospace",
+                            fontSize: 11.5,
+                            fontWeight: 600,
+                            color: "#3a3630",
+                            wordBreak: "break-all",
+                          }}
+                        >
+                          {g.path}
+                        </div>
+                        {g.checks.map((c) => (
+                          <CheckRow
+                            key={c.key}
+                            c={c}
+                            on={!off.has(c.key)}
+                            disabled={phase !== "review"}
+                            onToggle={() => toggle(c.key)}
+                          />
+                        ))}
+                        {g.blocks.map((b) => (
+                          <BlockCard
+                            key={b.key}
+                            b={b}
+                            on={!off.has(b.key)}
+                            exists={sectionExists(files, b)}
+                            files={files ?? []}
+                            editing={editing === b.key}
+                            disabled={phase !== "review"}
+                            preview={previews.get(b.key) ?? []}
+                            onToggle={() => toggle(b.key)}
+                            onEdit={() => setEditing(editing === b.key ? null : b.key)}
+                            onMove={(to) => move(b, to)}
+                          />
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </SlidePane>
+      </div>
 
       <ModalFooter>
         {phase === "input" && (
           <>
-            <div style={{ flex: 1 }} />
+            <EscNote armed={guard.armed} />
             {draft && <GhostButton onClick={() => setPhase("review")}>← 정리본으로</GhostButton>}
             <GhostButton onClick={dismiss}>닫기</GhostButton>
             <PrimaryButton onClick={() => void runRound()} disabled={!canStart}>
@@ -555,8 +577,12 @@ function BriefView({ folder }: { folder: string }) {
             <div style={{ flex: 1 }} />
             <GhostButton onClick={dismiss}>닫기</GhostButton>
             {questions.length > 0 && round < BRIEF_ROUNDS && (
-              <GhostButton onClick={() => phase === "review" && hasAnswers && void runRound()}>
-                <span style={{ color: hasAnswers ? undefined : "#b5b0a6" }}>답 반영해 다시 정리</span>
+              <GhostButton
+                onClick={() => void runRound()}
+                disabled={phase !== "review" || !hasAnswers}
+                title={hasAnswers ? undefined : "질문에 하나라도 답하면 누를 수 있습니다"}
+              >
+                답 반영해 다시 정리
               </GhostButton>
             )}
             <PrimaryButton onClick={onSave} disabled={!canSave} busy={phase === "saving"} minWidth={120}>

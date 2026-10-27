@@ -1,7 +1,7 @@
-import { Input } from "../lib/ui";
+import { BusyLabel, Input } from "../lib/ui";
 import { sanitizeFolderName } from "../lib/vaultPaths";
 import { useStore } from "../store/useStore";
-import { GhostButton, Modal, ModalFooter, PrimaryButton, inputFocus, inputStyle } from "./Modal";
+import { GhostButton, Modal, ModalFooter, PrimaryButton, inputFocus, inputStyle, useSubmit } from "./Modal";
 
 /**
  * 업무명 변경. 제목만 바꾸는 것이 아니라 디스크의 업무 폴더 이름까지 함께 바뀌므로,
@@ -9,6 +9,8 @@ import { GhostButton, Modal, ModalFooter, PrimaryButton, inputFocus, inputStyle 
  */
 export default function RenameTaskModal() {
   const s = useStore();
+  // 바꾸는 동안 다시 누르지 못하게 — 두 번째 요청은 이미 바뀐 옛 폴더 이름을 찾다가 실패한다.
+  const [busy, submit] = useSubmit();
   const ren = s.ren;
   if (!ren) return null;
 
@@ -22,11 +24,12 @@ export default function RenameTaskModal() {
   const changed = !!title && title !== task?.title;
 
   const commit = () => {
-    if (changed) void s.renameTask(ren.folder, title);
+    if (changed) void submit(() => s.renameTask(ren.folder, title));
   };
+  const close = () => !busy && s.set({ ren: null });
 
   return (
-    <Modal width={480} zIndex={76} onClose={() => s.set({ ren: null })}>
+    <Modal width={480} zIndex={76} onClose={close}>
       <div
         style={{
           flex: "0 0 40px",
@@ -50,9 +53,15 @@ export default function RenameTaskModal() {
             value={ren.title}
             onChange={(e) => s.set({ ren: { ...ren, title: e.target.value } })}
             onKeyDown={(e) => {
-              if (e.key === "Enter") commit();
-              else if (e.key === "Escape") s.set({ ren: null });
+              // 한글 조합 중의 Enter 는 글자를 확정하는 키다 — "마이그레이션" 을 치다 이름이 바뀌지 않게.
+              if (e.key === "Enter" && !e.nativeEvent.isComposing) commit();
+              else if (e.key === "Escape") {
+                // 여기서 끝낸다 — App 의 Esc 까지 가면 그 아래 레이어도 닫힌다.
+                e.preventDefault();
+                close();
+              }
             }}
+            readOnly={busy}
             style={inputStyle}
             focusStyle={inputFocus}
           />
@@ -91,9 +100,13 @@ export default function RenameTaskModal() {
 
       <ModalFooter>
         <div style={{ flex: 1 }} />
-        <GhostButton onClick={() => s.set({ ren: null })}>취소</GhostButton>
-        <PrimaryButton disabled={!changed} onClick={commit}>
-          이름 변경
+        <GhostButton onClick={close} disabled={busy}>
+          취소
+        </GhostButton>
+        <PrimaryButton disabled={!changed} busy={busy} onClick={commit} minWidth={96}>
+          <BusyLabel busy={busy} color="#fff" idle="이름 변경">
+            바꾸는 중
+          </BusyLabel>
         </PrimaryButton>
       </ModalFooter>
     </Modal>

@@ -1,8 +1,9 @@
 import { useMemo } from "react";
+import { BusyLabel } from "../lib/ui";
 import { extOf, extStyle } from "../lib/design";
 import { dirsOf } from "../lib/tree";
 import { useStore } from "../store/useStore";
-import { GhostButton, Modal, ModalFooter, OptionCard, PrimaryButton, labelStyle } from "./Modal";
+import { GhostButton, Modal, ModalFooter, OptionCard, PrimaryButton, labelStyle, useSubmit } from "./Modal";
 
 const MODES: [("copy" | "link"), string, string][] = [
   [
@@ -21,12 +22,15 @@ export default function ImportModal() {
   const s = useStore();
   const drop = s.drop;
   const folders = useMemo(() => dirsOf(s.files), [s.files]);
+  // 가져오는 동안 다시 누르지 못하게 — 두 번 누르면 같은 파일이 `(2)` 로 한 벌 더 들어온다.
+  const [busy, submit] = useSubmit();
   if (!drop) return null;
 
   const task = s.tasks.find((t) => t.folder === s.activeFolder);
+  const close = () => !busy && s.set({ drop: null });
 
   return (
-    <Modal width={460} zIndex={76} onClose={() => s.set({ drop: null })}>
+    <Modal width={460} zIndex={76} onClose={close}>
       <div style={{ padding: "14px 16px 12px 16px", borderBottom: "1px solid #f0ede7" }}>
         <div style={{ fontSize: 14, fontWeight: 600 }}>외부 파일을 업무 폴더로 가져오기</div>
         <div style={{ fontSize: 11.5, color: "#6a665e", marginTop: 4 }}>
@@ -105,7 +109,7 @@ export default function ImportModal() {
                 on={drop.mode === k}
                 label={label}
                 desc={desc}
-                onClick={() => s.set({ drop: { ...drop, mode: k } })}
+                onClick={() => !busy && s.set({ drop: { ...drop, mode: k } })}
               />
             ))}
           </div>
@@ -114,6 +118,7 @@ export default function ImportModal() {
           <div style={labelStyle}>대상 폴더</div>
           <select
             value={drop.target}
+            disabled={busy}
             onChange={(e) => s.set({ drop: { ...drop, target: e.target.value } })}
             style={{
               width: "100%",
@@ -153,9 +158,13 @@ export default function ImportModal() {
           {task?.relFolder ?? ""}
           {drop.target}
         </span>
-        <GhostButton onClick={() => s.set({ drop: null })}>취소</GhostButton>
-        <PrimaryButton onClick={() => void s.commitImport()}>
-          {drop.mode === "copy" ? "복사해서 가져오기" : "링크로 연결"}
+        <GhostButton onClick={close} disabled={busy}>
+          취소
+        </GhostButton>
+        <PrimaryButton onClick={() => void submit(() => s.commitImport())} busy={busy} minWidth={132}>
+          <BusyLabel busy={busy} color="#fff" idle={drop.mode === "copy" ? "복사해서 가져오기" : "링크로 연결"}>
+            가져오는 중
+          </BusyLabel>
         </PrimaryButton>
       </ModalFooter>
     </Modal>

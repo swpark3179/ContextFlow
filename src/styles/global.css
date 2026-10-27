@@ -79,6 +79,14 @@ html,
 body {
   scrollbar-gutter: auto;
 }
+/*
+ * svg 도 기본이 `overflow: hidden` 이라 스크롤 상자로 쳐진다 — 위의 규칙이 작은 아이콘(9 ~ 14px) 안에
+ * 스크롤바 폭만큼 자리를 잡아 그림이 통째로 사라진다. 아이콘마다 `overflow: visible` 을 달던 것을
+ * 여기서 한 번에 푼다. svg 는 스크롤하지 않는다.
+ */
+svg {
+  scrollbar-gutter: auto;
+}
 ::-webkit-scrollbar {
   width: 11px;
   height: 11px;
@@ -408,6 +416,23 @@ body {
 }
 .cf-pulse-ring {
   animation: cfPulseRing 900ms ease-out 2;
+}
+/* 키보드로 닿은 행 · 칸 — 마우스로 누를 때는 테두리를 그리지 않는다. */
+.cf-focus:focus {
+  outline: none;
+}
+.cf-focus:focus-visible {
+  outline: 2px solid #3a6fd8;
+  outline-offset: -2px;
+}
+/* 줄에 올렸을 때만 보이는 단추(오늘의 한일 ✕) — 평소에는 목록이 조용하고, 키보드로 들어와도 보인다. */
+.cf-reveal {
+  opacity: 0;
+  transition: opacity var(--m-quick);
+}
+.cf-reveal-host:hover .cf-reveal,
+.cf-reveal-host:focus-within .cf-reveal {
+  opacity: 1;
 }
 /* 앱 전역의 단추 · 행 호버(`Box` · `Span`)가 바뀌는 시간. */
 .cf-hover {

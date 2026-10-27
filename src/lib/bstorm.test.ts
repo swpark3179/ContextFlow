@@ -1,20 +1,29 @@
 import { describe, expect, it } from "vitest";
 import {
   addChildAt,
+  ancestorPaths,
   ancestorTitles,
+  carryIds,
+  centerOn,
+  fitCamera,
+  foldedPlaced,
   layout,
+  matchPaths,
   mapAt,
   newNode,
   nodeAt,
   parseBstorm,
   removeAt,
+  revealRect,
   seedBstorm,
   serializeBstorm,
   setFm,
   TREE_HEADING,
   trimmedBlock,
   trimmedLine,
+  unfoldTo,
   walkNodes,
+  zoomAround,
   type BsNode,
 } from "./bstorm";
 
@@ -359,5 +368,141 @@ describe("layout", () => {
 
   it("has no size for an empty tree", () => {
     expect(layout([])).toEqual({ placed: [], width: 0, height: 0 });
+  });
+});
+
+describe("foldedPlaced", () => {
+  const roots = parseBstorm(DOC).roots;
+
+  it("parks every node of a collapsed branch on the collapsed ancestor", () => {
+    const lay = layout(roots, { "0.0": true });
+    const anchor = lay.placed.find((p) => p.path === "0.0")!;
+    const hidden = foldedPlaced(roots, { "0.0": true }, lay.placed);
+    expect(hidden.map((h) => h.path)).toEqual(["0.0.0", "0.0.1"]);
+    for (const h of hidden) {
+      expect(h.anchor).toBe("0.0");
+      expect(h.x).toBe(anchor.x);
+      expect(h.y + h.h / 2).toBeCloseTo(anchor.y + anchor.h / 2, 5);
+    }
+  });
+
+  it("anchors a nested fold on the outermost visible fold", () => {
+    const c = { "0": true, "0.0": true };
+    const hidden = foldedPlaced(roots, c, layout(roots, c).placed);
+    expect(hidden.every((h) => h.anchor === "0")).toBe(true);
+    expect(hidden).toHaveLength(4);
+  });
+
+  it("hides nothing when nothing is collapsed", () => {
+    expect(foldedPlaced(roots, {}, layout(roots).placed)).toEqual([]);
+  });
+});
+
+describe("unfoldTo", () => {
+  it("lists ancestors from the root down", () => {
+    expect(ancestorPaths("0.1.2")).toEqual(["0", "0.1"]);
+    expect(ancestorPaths("0")).toEqual([]);
+  });
+
+  it("opens only the collapsed ancestors and keeps the node's own fold", () => {
+    const next = unfoldTo({ "0": true, "0.1": true, "0.1.2": true, "1": true }, "0.1.2");
+    expect(next).toEqual({ "0.1.2": true, "1": true });
+  });
+
+  it("returns the same object when nothing hides the node", () => {
+    const c = { "1": true };
+    expect(unfoldTo(c, "0.1")).toBe(c);
+  });
+});
+
+describe("matchPaths", () => {
+  const n = (title: string, children: BsNode[] = []): BsNode => ({ ...newNode(title), children });
+  const before = [n("뿌리", [n("가"), n("나", [n("나-1")]), n("다")])];
+
+  it("follows the siblings that slide up after a delete", () => {
+    const m = matchPaths(before, removeAt(before, "0.0"));
+    expect(m.get("0.0")).toBe("0.1");
+    expect(m.get("0.0.0")).toBe("0.1.0");
+    expect(m.get("0.1")).toBe("0.2");
+  });
+
+  it("leaves an inserted node unmatched", () => {
+    const after = [n("뿌리", [n("가"), n("새"), n("나", [n("나-1")]), n("다")])];
+    const m = matchPaths(before, after);
+    expect(m.has("0.1")).toBe(false);
+    expect(m.get("0.2")).toBe("0.1");
+    expect(m.get("0.3")).toBe("0.2");
+  });
+
+  it("keeps a node whose title or status changed in place", () => {
+    const after = mapAt(before, "0.1", (x) => ({ ...x, title: "나'", status: "adopted" }));
+    const m = matchPaths(before, after);
+    expect(m.get("0.1")).toBe("0.1");
+    expect(m.get("0.1.0")).toBe("0.1.0");
+  });
+
+  it("does not mistake a new empty sibling for an old empty one", () => {
+    const a = [n("뿌리", [n("가"), n(""), n("나")])];
+    const { roots: b, path } = addChildAt(a, "0");
+    const m = matchPaths(a, b);
+    expect(m.has(path)).toBe(false);
+    expect(m.get("0.1")).toBe("0.1");
+  });
+});
+
+describe("carryIds", () => {
+  it("keeps ids across a delete and gives new nodes new ids", () => {
+    let k = 0;
+    const fresh = () => `n${++k}`;
+    const roots = parseBstorm(DOC).roots;
+    const ids = carryIds([], new Map(), roots, fresh);
+    expect(new Set(ids.values()).size).toBe(walkNodes(roots).length);
+
+    const removed = removeAt(roots, "0.0");
+    const after = carryIds(roots, ids, removed, fresh);
+    expect(after.get("0.0")).toBe(ids.get("0.1"));
+
+    const { roots: grown, path } = addChildAt(removed, "0");
+    const again = carryIds(removed, after, grown, fresh);
+    expect([...after.values()]).not.toContain(again.get(path));
+  });
+});
+
+describe("camera", () => {
+  it("keeps the canvas point under the anchor when zooming", () => {
+    const cam = { zoom: 1, panX: 40, panY: 20 };
+    const next = zoomAround(cam, 1.5, 300, 200);
+    // 화면 (300,200) 아래의 캔버스 좌표가 그대로다.
+    expect((300 - next.panX) / next.zoom).toBeCloseTo((300 - cam.panX) / cam.zoom, 6);
+    expect((200 - next.panY) / next.zoom).toBeCloseTo((200 - cam.panY) / cam.zoom, 6);
+  });
+
+  it("clamps the zoom", () => {
+    expect(zoomAround({ zoom: 1, panX: 0, panY: 0 }, 9, 0, 0).zoom).toBe(1.6);
+    expect(zoomAround({ zoom: 1, panX: 0, panY: 0 }, 0.01, 0, 0).zoom).toBe(0.4);
+  });
+
+  it("centers a rect", () => {
+    const cam = centerOn({ x: 100, y: 50, w: 200, h: 40 }, 800, 600, 1);
+    expect(cam.panX + 200 * cam.zoom).toBe(400);
+    expect(cam.panY + 70 * cam.zoom).toBe(300);
+  });
+
+  it("reveals an off-screen rect with the least movement and leaves a visible one alone", () => {
+    const cam = { zoom: 1, panX: 0, panY: 0 };
+    expect(revealRect(cam, { x: 100, y: 100, w: 210, h: 40 }, 800, 600)).toBeNull();
+    const right = revealRect(cam, { x: 900, y: 100, w: 210, h: 40 }, 800, 600, 32, 52)!;
+    expect(900 + 210 + right.panX).toBe(800 - 32);
+    expect(right.panY).toBe(0);
+    const below = revealRect(cam, { x: 100, y: 700, w: 210, h: 40 }, 800, 600, 32, 52)!;
+    expect(700 + 40 + below.panY).toBe(600 - 52);
+  });
+
+  it("fits the tree and never zooms past 100%", () => {
+    expect(fitCamera(200, 100, 1000, 800, 28).zoom).toBe(1);
+    const big = fitCamera(1600, 400, 1000, 800, 28);
+    expect(big.zoom).toBeCloseTo((1000 - 56) / 1600, 6);
+    expect(big.panX).toBe(28);
+    expect(fitCamera(9000, 400, 1000, 800, 28).zoom).toBe(0.4);
   });
 });

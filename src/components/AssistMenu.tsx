@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Box } from "../lib/ui";
+import { Box, Popover } from "../lib/ui";
 import { VIOLET } from "../lib/design";
 import { useAssist } from "../store/assistStore";
 
@@ -44,49 +44,32 @@ export default function AssistMenu({ folder }: { folder: string }) {
         <span style={{ fontSize: 9, opacity: 0.7 }}>▼</span>
       </Box>
       {open && (
-        <>
-          <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 25 }} />
-          <div
-            style={{
-              position: "absolute",
-              top: 31,
-              right: 0,
-              zIndex: 30,
-              background: "#fff",
-              border: "1px solid #d9d4ca",
-              borderRadius: 6,
-              boxShadow: "0 10px 26px rgba(35,33,30,.16)",
-              padding: 4,
-              minWidth: 300,
-              animation: "pIn .12s ease-out",
-            }}
-          >
-            {items.map(([label, hint, run]) => (
-              <Box
-                key={label}
-                onClick={() => {
-                  setOpen(false);
-                  run();
-                }}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  padding: "6px 8px",
-                  borderRadius: 4,
-                  cursor: "pointer",
-                  fontSize: 12.5,
-                  color: "#3a3630",
-                }}
-                hover={{ background: "#f2efe9" }}
-              >
-                <div style={{ width: 7, height: 7, borderRadius: "50%", background: VIOLET }} />
-                <span style={{ flex: 1, whiteSpace: "nowrap" }}>{label}</span>
-                <span style={{ fontSize: 11, color: "#6a665e", whiteSpace: "nowrap" }}>{hint}</span>
-              </Box>
-            ))}
-          </div>
-        </>
+        <Popover onClose={() => setOpen(false)} origin="top right" style={{ top: 31, right: 0, minWidth: 300 }}>
+          {items.map(([label, hint, run]) => (
+            <Box
+              key={label}
+              onClick={() => {
+                setOpen(false);
+                run();
+              }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "6px 8px",
+                borderRadius: 4,
+                cursor: "pointer",
+                fontSize: 12.5,
+                color: "#3a3630",
+              }}
+              hover={{ background: "#f2efe9" }}
+            >
+              <div style={{ width: 7, height: 7, borderRadius: "50%", background: VIOLET }} />
+              <span style={{ flex: 1, whiteSpace: "nowrap" }}>{label}</span>
+              <span style={{ fontSize: 11, color: "#6a665e", whiteSpace: "nowrap" }}>{hint}</span>
+            </Box>
+          ))}
+        </Popover>
       )}
     </div>
   );

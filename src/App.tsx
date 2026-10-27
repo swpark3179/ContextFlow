@@ -37,6 +37,24 @@ import { useAssist } from "./store/assistStore";
 import { useWiki } from "./store/wikiStore";
 import { startIndexSync } from "./store/indexSync";
 
+/**
+ * Esc 로 취소한 끌기 — 아직 누르고 있는 손을 떼면 그 click 이 끌기를 시작한 행에 떨어져 파일을 고르거나
+ * 폴더를 접었다. 손을 뗄 때 뒤따르는 click 하나만 삼킨다. 다른 곳에서 떼어 click 이 오지 않아도
+ * 뗀 순간 거둬들이므로 그다음 클릭은 그대로 간다.
+ */
+function swallowReleaseClick() {
+  const eat = (e: MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+  };
+  const up = () => {
+    window.removeEventListener("pointerup", up, true);
+    window.setTimeout(() => window.removeEventListener("click", eat, true), 0);
+  };
+  window.addEventListener("click", eat, true);
+  window.addEventListener("pointerup", up, true);
+}
+
 export default function App() {
   const s = useStore();
 
@@ -146,7 +164,10 @@ export default function App() {
         // 겹쳐 있는 레이어 중 **맨 위 하나만** 닫는다. 순서는 화면에 쌓인 순서
         // (각 모달의 zIndex)와 같아야 하고, 진행 중인 드래그가 가장 위다.
         if (e.defaultPrevented) return; // 네이티브 <select> 등이 이미 소비했다
-        if (st.fileDrag) st.set({ fileDrag: null });
+        if (st.fileDrag) {
+          st.set({ fileDrag: null });
+          swallowReleaseClick();
+        }
         else if (st.ctx) st.set({ ctx: null });
         else if (st.tabCtx) st.set({ tabCtx: null });
         else if (st.catCtx) st.set({ catCtx: null });

@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { Box } from "../lib/ui";
+import { Box, useExitSnapshot } from "../lib/ui";
 import { basename } from "../lib/format";
 import { extStyle } from "../lib/design";
 import { BSTORM_EXT } from "../lib/bstorm";
@@ -17,28 +17,44 @@ import { tabKey } from "../lib/tabs";
  * 내려쓴다(`closeAllTabs` · `closeOtherTabs`).
  */
 export default function TabMenu() {
+  const ctx = useStore((s) => s.tabCtx);
+  const has = useStore((s) => !!s.tabCtx && s.ui.openTabs.some((t) => tabKey(t) === s.tabCtx?.key));
+  // 탭이 그 사이에 닫혔으면(저장 실패 · 업무 전환) 가리킬 것이 없다.
+  if (!ctx || !has) return null;
+  // 우클릭한 자리마다 새로 연다 — 닫히는 잔상(`useExitSnapshot`)은 안쪽이 사라질 때 돈다.
+  return <TabMenuPanel key={`${ctx.key}|${ctx.x}|${ctx.y}`} />;
+}
+
+function TabMenuPanel() {
   const s = useStore();
   const ctx = s.tabCtx;
   const ref = useRef<HTMLDivElement | null>(null);
-  const [pos, setPos] = useState({ x: 0, y: 0 });
+  useExitSnapshot(ref, "menu");
+  const [pos, setPos] = useState({ x: 0, y: 0, origin: "0 0" });
 
-  // 메뉴 크기를 알게 된 뒤 화면 안으로 되접는다 — `ContextMenu` 와 같은 규칙이다.
+  // 메뉴 크기를 알게 된 뒤 화면 안으로 되접는다 — `ContextMenu` 와 같은 규칙이다. 되접힌 쪽에서도
+  // 누른 자리에서 자라나도록 `transform-origin` 을 함께 옮긴다.
   useLayoutEffect(() => {
     if (!ctx || !ref.current) return;
     const M = 8;
     const r = ref.current.getBoundingClientRect();
     let x = ctx.x;
     let y = ctx.y;
-    if (x + r.width > window.innerWidth - M) x = Math.max(M, window.innerWidth - M - r.width);
-    if (y + r.height > window.innerHeight - M) y = Math.max(M, ctx.y - r.height);
-    setPos({ x, y });
+    let ox = "0";
+    let oy = "0";
+    if (x + r.width > window.innerWidth - M) {
+      x = Math.max(M, window.innerWidth - M - r.width);
+      ox = `${Math.round(ctx.x - x)}px`;
+    }
+    if (y + r.height > window.innerHeight - M) {
+      y = Math.max(M, ctx.y - r.height);
+      oy = "100%";
+    }
+    setPos({ x, y, origin: `${ox} ${oy}` });
   }, [ctx]);
 
-  if (!ctx) return null;
-
-  const tab = s.ui.openTabs.find((t) => tabKey(t) === ctx.key);
-  // 탭이 그 사이에 닫혔으면(저장 실패 · 업무 전환) 가리킬 것이 없다.
-  if (!tab) return null;
+  const tab = ctx ? s.ui.openTabs.find((t) => tabKey(t) === ctx.key) : undefined;
+  if (!ctx || !tab) return null;
 
   const total = s.ui.openTabs.length;
   const others = total - 1;
@@ -100,6 +116,8 @@ export default function TabMenu() {
       />
       <div
         ref={ref}
+        role="menu"
+        className="cf-menu"
         style={{
           position: "fixed",
           zIndex: 81,
@@ -109,9 +127,9 @@ export default function TabMenu() {
           borderRadius: 6,
           boxShadow: "0 12px 30px rgba(35,33,30,.20)",
           padding: 4,
-          animation: "pIn .1s ease-out",
           left: pos.x || ctx.x,
           top: pos.y || ctx.y,
+          transformOrigin: pos.origin,
         }}
       >
         <div
@@ -156,6 +174,8 @@ export default function TabMenu() {
           <div key={i.key} style={{ display: "flex", flexDirection: "column" }}>
             {i.sep && <div style={{ height: 1, background: "#f0ede7", margin: "3px 0" }} />}
             <Box
+              role="menuitem"
+              aria-disabled={i.off || undefined}
               onClick={() => {
                 if (i.off) return;
                 i.run();

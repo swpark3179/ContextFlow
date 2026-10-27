@@ -1,5 +1,5 @@
-import { useCallback, useMemo, useState } from "react";
-import { Box, BusyLabel, Input, Span } from "../lib/ui";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Box, BusyLabel, CheckMark, Collapse, Input, Span } from "../lib/ui";
 import { statusOf } from "../lib/design";
 import type { TaskMeta } from "../lib/api";
 import {
@@ -21,6 +21,7 @@ import {
 } from "../lib/category";
 import { isArchived, openCategoryHub, useStore } from "../store/useStore";
 import CategoryPicker from "../components/CategoryPicker";
+import { useLeaving } from "./motion";
 import {
   GhostButton,
   inputFocus,
@@ -94,6 +95,13 @@ function CategoryBody() {
   const { archDays } = s.settings;
   /** [다시 시도] 가 도는 중 — `busy` 만으로는 지정 줄의 [지정] 과 가를 수 없다. */
   const [retrying, setRetrying] = useState(false);
+  /** 방금 끝난 일괄 지정 — 꼬리에 "✓ n건에 지정했습니다" 가 떴다가 사라진다. */
+  const [assigned, setAssigned] = useState<{ n: number; seq: number } | null>(null);
+  useEffect(() => {
+    if (!assigned) return;
+    const t = window.setTimeout(() => setAssigned(null), 3000);
+    return () => window.clearTimeout(t);
+  }, [assigned]);
 
   /** 트리는 진행 · 보관 전체에서 만든다 — 범위를 바꿔도 왼쪽이 흔들리지 않게. */
   const nodes = useMemo(() => knownCategories(tasks), [tasks]);
@@ -133,6 +141,18 @@ function CategoryBody() {
         .includes(q);
     return { scoped, rows: q ? scoped.filter(hit) : scoped };
   }, [tasks, archDays, nodes, node, scope, query]);
+
+  /**
+   * 지정 · 이동으로 목록에서 빠지는 업무는 그 자리에서 접히며 나간다 — 아래 줄이 한꺼번에 튀어 오르지 않게.
+   * 바꾸는 중(또는 막 끝난 렌더)의 변화만이다. 다른 카테고리 · 범위 · 검색으로 옮겨 가면 목록째 바뀐다.
+   */
+  const wasBusy = useRef(m.busy);
+  const lastNode = useRef(node);
+  const leavingRows = useLeaving(rows, (t) => t.folder, (m.busy || wasBusy.current) && lastNode.current === node);
+  useEffect(() => {
+    wasBusy.current = m.busy;
+    lastNode.current = node;
+  });
 
   // 고르는 목록에서 자기 철자는 세지 않고(`exclude`), 경로 폼은 자기 자신 · 하위를 내놓지 않는다
   // (`hideNode`). 렌더마다 새 함수를 넘기면 picker 가 철자 목록을 매번 다시 만든다.
@@ -210,6 +230,16 @@ function CategoryBody() {
   })();
   const editReady = !m.busy && ok && n > 0;
 
+  /** 일괄 지정 — 선택에서 빠진 업무가 실제로 지정된 업무다(못 바꾼 업무는 골라 둔 채로 남는다). */
+  const assign = async () => {
+    const before = m.sel;
+    await s.applyCatMgr();
+    const after = useStore.getState().catMgr;
+    if (!after) return;
+    const n = before.filter((f) => !after.sel.includes(f)).length;
+    if (n > 0) setAssigned((a) => ({ n, seq: (a?.seq ?? 0) + 1 }));
+  };
+
   const retry = async () => {
     setRetrying(true);
     try {
@@ -271,7 +301,10 @@ function CategoryBody() {
           flex: "1 1 auto",
           minHeight: 0,
           display: "flex",
-          ...(m.busy && { pointerEvents: "none", opacity: 0.6 }),
+          // 바꾸는 동안 흐리게 — 곧바로 바뀌면 깜빡인 것처럼 보인다.
+          opacity: m.busy ? 0.6 : 1,
+          transition: "opacity 140ms",
+          pointerEvents: m.busy ? "none" : undefined,
         }}
       >
         {/* -- 왼쪽: 카테고리 트리 ------------------------------------------- */}
@@ -611,7 +644,7 @@ function CategoryBody() {
                 disabled={!assignReady}
                 busy={m.busy && !retrying}
                 minWidth={118}
-                onClick={() => void s.applyCatMgr()}
+                onClick={() => void assign()}
               >
                 <span style={{ maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   <BusyLabel
@@ -634,7 +667,9 @@ function CategoryBody() {
               overflowY: "auto",
               padding: "4px 9px 8px 9px",
               borderTop: "1px solid #efece5",
-              ...(edit && { opacity: 0.55, pointerEvents: "none" }),
+              opacity: edit ? 0.55 : 1,
+              transition: "opacity 140ms",
+              pointerEvents: edit ? "none" : undefined,
             }}
           >
             {empty && (
@@ -664,17 +699,18 @@ function CategoryBody() {
                 )}
               </div>
             )}
-            {rows.map((t) => (
-              <TaskLine
-                key={t.folder}
-                task={t}
-                depth={segments(node).length}
-                archived={arch(t)}
-                on={!edit && picked.has(t.folder)}
-                check={!edit}
-                after={after(t)}
-                onClick={(shift) => s.toggleCatSel(t.folder, shift, visible)}
-              />
+            {leavingRows.map(({ item: t, leaving }) => (
+              <Collapse key={t.folder} open={!leaving} style={leaving ? { pointerEvents: "none" } : undefined}>
+                <TaskLine
+                  task={t}
+                  depth={segments(node).length}
+                  archived={arch(t)}
+                  on={!edit && !leaving && picked.has(t.folder)}
+                  check={!edit}
+                  after={leaving ? undefined : after(t)}
+                  onClick={(shift) => s.toggleCatSel(t.folder, shift, visible)}
+                />
+              </Collapse>
             ))}
           </div>
 
@@ -760,8 +796,40 @@ function CategoryBody() {
       </div>
 
       <ModalFooter>
-        <span style={{ fontSize: 11, color: "#6a665e", flex: 1, minWidth: 0 }}>
-          폴더는 그대로 두고 index.md 의 category 한 줄만 고칩니다 · updated 는 바뀌지 않습니다
+        {/* 일괄 지정이 끝나면 같은 자리에 확인이 떴다가 흐려진다 — 두 글은 한 칸에 겹쳐 있어 줄이 흔들리지 않는다. */}
+        <span style={{ flex: 1, minWidth: 0, display: "grid" }}>
+          <span
+            style={{
+              gridArea: "1 / 1",
+              fontSize: 11,
+              color: "#6a665e",
+              opacity: assigned ? 0 : 1,
+              transition: "opacity 140ms",
+            }}
+          >
+            폴더는 그대로 두고 index.md 의 category 한 줄만 고칩니다 · updated 는 바뀌지 않습니다
+          </span>
+          {assigned && (
+            <span
+              key={assigned.seq}
+              role="status"
+              className="cf-chip"
+              style={{
+                gridArea: "1 / 1",
+                alignSelf: "center",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 5,
+                fontSize: 11.5,
+                fontWeight: 600,
+                color: "#256b47",
+                animationDelay: "0ms",
+              }}
+            >
+              <CheckMark size={10} />
+              {assigned.n}건에 지정했습니다
+            </span>
+          )}
         </span>
         <GhostButton onClick={close}>닫기</GhostButton>
       </ModalFooter>

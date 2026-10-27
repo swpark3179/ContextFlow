@@ -7,10 +7,12 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type ReactNode,
 } from "react";
-import { Box } from "../lib/ui";
-import { GREEN, LANG, TOAST } from "../lib/design";
+import { Box, CheckMark, EASE_OUT, reducedMotion, Span, useExitSnapshot } from "../lib/ui";
+import { GREEN, LANG, TEXT, TOAST } from "../lib/design";
 import { copyText } from "../lib/clipboard";
+import { codeClip } from "../lib/codeClip";
 import { useStore } from "../store/useStore";
 import type { Block, Seg, TableAlign } from "../lib/markdown";
 import { clipboardImage, type ClipImage } from "../lib/images";
@@ -141,20 +143,25 @@ function Inline({ segs }: { segs: Seg[] }) {
           const target = (rawTarget ?? "").trim();
           const label = alias.join("|").trim() || links?.label?.(target) || target;
           const go = links && target ? () => links.open(target) : undefined;
+          // 누를 수 있는 링크만 올렸을 때 밑줄이 진해진다 — 아무 일도 없을 링크가 눌릴 것처럼 굴지 않게.
           return (
-            <span
+            <Span
               key={g.key}
               title={target}
               onClick={go}
               style={{
                 display: "inline",
                 color: "#3a6fd8",
-                borderBottom: "1px solid #cddcf8",
+                borderBottomWidth: 1,
+                borderBottomStyle: "solid",
+                borderBottomColor: "#cddcf8",
+                borderRadius: 2,
                 cursor: go ? "pointer" : undefined,
               }}
+              hover={go ? { background: "#eef3fd", borderBottomColor: "#3a6fd8" } : undefined}
             >
               {label}
-            </span>
+            </Span>
           );
         }
         return <span key={g.key}>{g.text}</span>;
@@ -185,6 +192,147 @@ const TOKEN_STYLE: Partial<Record<TokenKind, CSSProperties>> = {
   punct: { color: "#4e4a43" },
 };
 
+/** 코드 블록 높이 · 그림 너비가 흘러가는 시간. 한 단계 바꾸는 것이라 m-base 보다 조금 길다. */
+const RESIZE_MS = 240;
+
+function SegButton({
+  on,
+  width,
+  height,
+  title,
+  font,
+  onPick,
+  children,
+}: {
+  on: boolean;
+  width: number;
+  height: number;
+  title?: string;
+  font?: CSSProperties;
+  onPick: () => void;
+  children: ReactNode;
+}) {
+  const [hover, setHover] = useState(false);
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={on}
+      title={title}
+      onClick={on ? undefined : onPick}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        position: "relative",
+        width,
+        height,
+        flex: `0 0 ${width}px`,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 4,
+        margin: 0,
+        padding: 0,
+        border: 0,
+        borderRadius: 3,
+        background: "transparent",
+        fontFamily: "inherit",
+        fontSize: 11,
+        fontWeight: 600,
+        whiteSpace: "nowrap",
+        userSelect: "none",
+        cursor: on ? "default" : "pointer",
+        color: on || hover ? TEXT.ink : TEXT.sub,
+        transition: "color 140ms",
+        ...font,
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+/**
+ * 몇 칸 중 하나를 고르는 스위치 — 코드 블록 높이 · 그림 크기 · 편집기의 [뷰어 | 텍스트]. 흰 손잡이 하나가
+ * 고른 칸으로 미끄러진다(예전에는 칸마다 바탕이 순간 바뀌었다). 칸 폭은 같아야 손잡이가 맞는다.
+ * `value` 가 어느 칸도 아니면(문서에 손으로 적은 그림 너비) 손잡이를 숨긴다.
+ */
+export function Segmented({
+  options,
+  value,
+  onPick,
+  seg,
+  height = 16,
+  pad = 1,
+  font,
+  label,
+  className,
+  style,
+}: {
+  options: { id: string; label: ReactNode; title?: string }[];
+  value: string | null;
+  onPick: (id: string) => void;
+  /** 칸 하나의 폭(px). */
+  seg: number;
+  height?: number;
+  pad?: number;
+  font?: CSSProperties;
+  /** 스위치 전체의 이름(`aria-label`). */
+  label: string;
+  className?: string;
+  style?: CSSProperties;
+}) {
+  const at = options.findIndex((o) => o.id === value);
+  return (
+    <div
+      role="radiogroup"
+      aria-label={label}
+      className={className}
+      style={{
+        position: "relative",
+        flex: "0 0 auto",
+        display: "flex",
+        padding: pad,
+        borderRadius: 4,
+        background: "#ebe7df",
+        lineHeight: "normal",
+        ...style,
+      }}
+    >
+      <span
+        aria-hidden
+        className="cf-mv"
+        style={{
+          position: "absolute",
+          top: pad,
+          left: pad,
+          width: seg,
+          height,
+          borderRadius: 3,
+          background: "#fff",
+          boxShadow: "0 1px 1px rgba(35,33,30,.12)",
+          transform: `translateX(${Math.max(0, at) * seg}px)`,
+          opacity: at < 0 ? 0 : 1,
+          transition: `transform 160ms ${EASE_OUT}, opacity 140ms`,
+        }}
+      />
+      {options.map((o) => (
+        <SegButton
+          key={o.id}
+          on={o.id === value}
+          width={seg}
+          height={height}
+          title={o.title}
+          font={font}
+          onPick={() => onPick(o.id)}
+        >
+          {o.label}
+        </SegButton>
+      ))}
+    </div>
+  );
+}
+
 /**
  * 코드 블록 카드.
  *
@@ -199,6 +347,8 @@ const TOKEN_STYLE: Partial<Record<TokenKind, CSSProperties>> = {
  */
 function CodeCard({ code, lang }: { code: string; lang: string }) {
   const [copied, setCopied] = useState(false);
+  /** [복사] 를 누른 횟수. 처음 그릴 때는 글자를 페이드하지 않는다. */
+  const [copyN, setCopyN] = useState(0);
   const [size, setSize] = useState<CodeSize>("1x");
   const view = useContext(Viewport);
   const card = useRef<HTMLDivElement | null>(null);
@@ -246,15 +396,20 @@ function CodeCard({ code, lang }: { code: string; lang: string }) {
     Math.floor((view.height - CODE_GAP * 2 - CODE_CHROME - CODE_PAD - hBar) / CODE_LH),
   );
   const limit = size === "full" ? fullLines : CODE_LINES[size];
-  const clipped = count > limit;
+  const clip = codeClip({ count, limit, pad: CODE_PAD, lh: CODE_LH, bar: hBar });
+  const clipped = clip.clipped;
+  /** 잘림이 풀려 머리띠의 줄 수가 사라지는 동안에도 마지막 숫자를 든다(0 으로 바뀌며 사라지지 않게). */
+  const lastHidden = useRef(clip.hidden);
+  if (clip.hidden) lastHidden.current = clip.hidden;
   /** `1x` 안에 다 들어가는 블록은 단계를 바꿔도 달라지는 것이 없으므로 고르개를 숨긴다. */
   const sizable = count > CODE_LINES["1x"];
   const label = info?.label ?? LANG[lang.toLowerCase()] ?? lang;
 
   /**
-   * `full` 로 늘린 카드는 뷰어 맨 위에 붙여야 화면을 채운다 — 카드가 화면 아래쪽에
-   * 걸쳐 있으면 늘어난 높이의 대부분이 화면 밖에 있다. 높이가 바뀐 **뒤에** 옮겨야
-   * 문서 끝 가까이의 카드도 끝까지 올라온다(그 전에는 스크롤할 자리가 없다).
+   * `full` 로 늘린 카드는 뷰어 맨 위(10px 아래)에 붙여야 화면을 채운다 — 카드가 화면 아래쪽에
+   * 걸쳐 있으면 늘어난 높이의 대부분이 화면 밖에 있다. 높이는 `RESIZE_MS` 동안 자라므로 곧바로
+   * 부드럽게 굴리고, 다 자란 뒤 한 번 더 맞춘다 — 문서 끝 가까이의 카드는 그때야 스크롤할 자리가 생긴다.
+   * 동작 줄이기면 높이가 곧바로 바뀌므로 한 번에 옮긴다.
    */
   useEffect(() => {
     if (!align.current || size !== "full") return;
@@ -262,8 +417,18 @@ function CodeCard({ code, lang }: { code: string; lang: string }) {
     const el = card.current;
     const port = view.el;
     if (!el || !port) return;
-    const off = el.getBoundingClientRect().top - port.getBoundingClientRect().top;
-    port.scrollTop += off - CODE_GAP;
+    const go = (smooth: boolean) => {
+      const off = el.getBoundingClientRect().top - port.getBoundingClientRect().top;
+      if (Math.abs(off - CODE_GAP) < 1) return;
+      port.scrollTo({ top: port.scrollTop + off - CODE_GAP, behavior: smooth ? "smooth" : "auto" });
+    };
+    if (reducedMotion()) {
+      go(false);
+      return;
+    }
+    go(true);
+    const t = window.setTimeout(() => go(true), RESIZE_MS + 40);
+    return () => window.clearTimeout(t);
   }, [size, view.el]);
 
   const pick = (next: CodeSize) => {
@@ -280,8 +445,12 @@ function CodeCard({ code, lang }: { code: string; lang: string }) {
       }
       // 성공은 버튼이 스스로 말한다 — 토스트를 겹쳐 띄우면 같은 말을 두 번 한다.
       setCopied(true);
+      setCopyN((n) => n + 1);
       window.clearTimeout(timer.current);
-      timer.current = window.setTimeout(() => setCopied(false), 1600);
+      timer.current = window.setTimeout(() => {
+        setCopied(false);
+        setCopyN((n) => n + 1);
+      }, 1600);
     });
   };
 
@@ -323,88 +492,88 @@ function CodeCard({ code, lang }: { code: string; lang: string }) {
         >
           {label || "코드"}
         </span>
-        <div style={{ flex: 1 }} />
-        {clipped && (
+        {/*
+          잘렸을 때만 보인다 — 몇 줄 중 몇 줄이 아래에 남았는지. 단계를 바꿔 다 보이게 되면 자리를
+          지킨 채 옅게 사라진다(옆의 고르개가 흔들리지 않게).
+        */}
+        {sizable && (
           <span
-            style={{ fontFamily: "'Roboto Mono',monospace", fontSize: 11.5, color: "#6a665e" }}
-            title={`${limit}줄까지 보이고 나머지는 안에서 스크롤합니다`}
+            aria-hidden={!clipped}
+            className="cf-mv"
+            style={{
+              fontFamily: "'Roboto Mono',monospace",
+              fontSize: 11.5,
+              color: TEXT.sub,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              minWidth: 0,
+              opacity: clipped ? 1 : 0,
+              transition: "opacity 140ms",
+            }}
+            title={clipped ? `${limit}줄까지 보이고 나머지는 안에서 스크롤합니다` : undefined}
           >
-            {count}줄
+            {count}줄 · 아래 {lastHidden.current}줄 더
           </span>
         )}
+        <div style={{ flex: 1 }} />
         {sizable && (
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 1,
-              padding: 1,
-              borderRadius: 4,
-              background: "#ebe7df",
-            }}
-          >
-            {CODE_SIZES.map((k) => {
-              const on = k === size;
-              return (
-                <Box
-                  key={k}
-                  onClick={() => pick(k)}
-                  title={SIZE_TITLE[k]}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    height: 16,
-                    padding: "0 5px",
-                    borderRadius: 3,
-                    fontFamily: "'Roboto Mono',monospace",
-                    fontSize: 11.5,
-                    fontWeight: on ? 600 : 500,
-                    cursor: on ? "default" : "pointer",
-                    userSelect: "none",
-                    color: on ? "#3a3630" : "#6a665e",
-                    background: on ? "#fff" : "transparent",
-                    boxShadow: on ? "0 1px 1px rgba(0,0,0,.06)" : undefined,
-                  }}
-                  hover={on ? undefined : { color: "#3a3630" }}
-                >
-                  {k}
-                </Box>
-              );
-            })}
-          </div>
+          <Segmented
+            label="코드 블록 높이"
+            options={CODE_SIZES.map((k) => ({ id: k, label: k, title: SIZE_TITLE[k] }))}
+            value={size}
+            onPick={(k) => pick(k as CodeSize)}
+            seg={34}
+            font={{ fontFamily: "'Roboto Mono',monospace", fontSize: 10.5 }}
+          />
         )}
+        {/* 누르면 초록 "복사됨" 으로 폭째 바뀌고 1.6초 뒤 돌아온다 — 성공을 버튼 자신이 말한다. */}
         <Box
           onClick={copy}
+          role="button"
+          aria-live="polite"
           title="블록 전체를 클립보드로 복사합니다"
+          className="cf-mv"
           style={{
+            flex: "0 0 auto",
             display: "flex",
             alignItems: "center",
+            justifyContent: "center",
+            gap: 4,
+            width: copied ? 62 : 38,
             height: 18,
-            padding: "0 6px",
             borderRadius: 3,
+            overflow: "hidden",
+            whiteSpace: "nowrap",
             fontSize: 11,
             fontWeight: 600,
             cursor: "pointer",
-            color: copied ? "#256b47" : "#6a665e",
+            color: copied ? "#256b47" : TEXT.sub,
             background: copied ? "#e9f4ee" : "transparent",
+            transition: `width 160ms ${EASE_OUT}, background-color 140ms, color 140ms`,
           }}
           hover={copied ? undefined : { background: "#e6e2da", color: "#3a3630" }}
         >
-          {copied ? "복사됨" : "복사"}
+          {copied && <CheckMark size={9} />}
+          <span key={copied ? "y" : "n"} className={copyN ? "cf-fade" : undefined}>
+            {copied ? "복사됨" : "복사"}
+          </span>
         </Box>
       </div>
       <pre
         ref={box}
+        className="cf-mv"
         style={{
           margin: 0,
           padding: CODE_PAD,
           /*
-            상한을 넘을 때만 상한을 두고, 그 값에 **아래쪽 여백은 넣지 않는다**.
-            여백은 스크롤되는 내용의 일부라 상한 안에 넣으면 그 자리에 다음 줄의
-            머리가 몇 px 비쳐 "여덟 줄" 이 여덟 줄 반이 된다. 끝까지 내리면 여백은
-            그때 제대로 보인다(스크롤 높이에는 그대로 들어 있다).
+            잘릴 때의 상한에는 **아래쪽 여백을 넣지 않는다**. 여백은 스크롤되는 내용의 일부라
+            상한 안에 넣으면 그 자리에 다음 줄의 머리가 몇 px 비쳐 "여덟 줄" 이 여덟 줄 반이
+            된다. 끝까지 내리면 여백은 그때 제대로 보인다(스크롤 높이에는 그대로 들어 있다).
+            안 잘려도 상한은 내용 높이의 숫자다 — 단계를 바꿀 때 높이가 흘러가야 한다(`codeClip`).
           */
-          maxHeight: clipped ? CODE_PAD + limit * CODE_LH + hBar : undefined,
+          maxHeight: clip.maxHeight,
+          transition: `max-height ${RESIZE_MS}ms ${EASE_OUT}`,
           overflow: "auto",
           fontFamily: "'Roboto Mono',monospace",
           fontSize: CODE_SIZE,
@@ -448,8 +617,19 @@ function ImageCard({
   onWidth?: (width: number | null) => void;
 }) {
   const [hover, setHover] = useState(false);
+  /** 고르개 안에 키보드 초점이 있다 — 마우스가 없어도 고르개가 떠 있어야 한다. */
+  const [focus, setFocus] = useState(false);
   const [broken, setBroken] = useState(false);
-  useEffect(() => setBroken(false), [url]);
+  /**
+   * 그림의 원래 너비. `원본` 을 숫자로 두어야 단계 사이를 오갈 때 너비가 흘러간다 — `auto` 와 숫자
+   * 사이는 움직일 수 없다. 읽기 전에는 모르므로 그때는 `auto` 다(그려지는 너비가 같다).
+   */
+  const [natural, setNatural] = useState(0);
+  useEffect(() => {
+    setBroken(false);
+    setNatural(0);
+  }, [url]);
+  const bar = hover || focus;
 
   if (!url || broken)
     return (
@@ -478,6 +658,10 @@ function ImageCard({
       <div
         onMouseEnter={() => setHover(true)}
         onMouseLeave={() => setHover(false)}
+        onFocus={() => setFocus(true)}
+        onBlur={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocus(false);
+        }}
         style={{ position: "relative", display: "inline-block", maxWidth: "100%" }}
       >
         <img
@@ -486,60 +670,51 @@ function ImageCard({
           title={b.alt || undefined}
           draggable={false}
           onError={() => setBroken(true)}
+          onLoad={(e) => setNatural(e.currentTarget.naturalWidth)}
+          className="cf-mv"
           style={{
             display: "block",
-            width: b.width ?? undefined,
+            width: b.width ?? (natural || undefined),
             maxWidth: "100%",
             height: "auto",
             borderRadius: 4,
             border: "1px solid #ebe7df",
+            transition: `width ${RESIZE_MS}ms ${EASE_OUT}`,
           }}
         />
-        {onWidth && hover && (
-          <div
+        {/*
+          고르개는 늘 그려 두고 투명도로만 드나든다 — 올린 순간 생겨나면 깜빡이고, 키보드로 들어온
+          초점(`focus`)에도 떠야 한다. 숨어 있는 동안에는 눌리지 않는다.
+        */}
+        {onWidth && (
+          <Segmented
+            label="그림 크기"
+            options={IMG_SIZES.map((z) => ({
+              id: z.width === null ? "orig" : String(z.width),
+              label: z.label,
+              title: z.title,
+            }))}
+            value={
+              b.width === null ? "orig" : IMG_SIZES.some((z) => z.width === b.width) ? String(b.width) : null
+            }
+            onPick={(id) => onWidth(id === "orig" ? null : Number(id))}
+            seg={38}
+            height={18}
+            pad={2}
+            className="cf-mv"
             style={{
               position: "absolute",
               top: 6,
               left: 6,
-              display: "flex",
-              alignItems: "center",
-              gap: 1,
-              padding: 2,
               borderRadius: 5,
               background: "rgba(235,231,223,.94)",
-              boxShadow: "0 1px 3px rgba(0,0,0,.12)",
-              lineHeight: "normal",
-              whiteSpace: "nowrap",
+              boxShadow: "0 2px 6px rgba(35,33,30,.12)",
+              opacity: bar ? 1 : 0,
+              transform: bar ? "none" : "translateY(-3px)",
+              pointerEvents: bar ? "auto" : "none",
+              transition: `opacity 140ms, transform 140ms ${EASE_OUT}`,
             }}
-          >
-            {IMG_SIZES.map((z) => {
-              const on = z.width === b.width;
-              return (
-                <Box
-                  key={z.label}
-                  onClick={on ? undefined : () => onWidth(z.width)}
-                  title={z.title}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    height: 18,
-                    padding: "0 7px",
-                    borderRadius: 3,
-                    fontSize: 11,
-                    fontWeight: on ? 600 : 500,
-                    cursor: on ? "default" : "pointer",
-                    userSelect: "none",
-                    color: on ? "#3a3630" : "#6a665e",
-                    background: on ? "#fff" : "transparent",
-                    boxShadow: on ? "0 1px 1px rgba(0,0,0,.06)" : undefined,
-                  }}
-                  hover={on ? undefined : { color: "#23211e", background: "rgba(255,255,255,.6)" }}
-                >
-                  {z.label}
-                </Box>
-              );
-            })}
-          </div>
+          />
         )}
       </div>
     </div>
@@ -646,16 +821,27 @@ function TableMenu({
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
-  const [pos, setPos] = useState({ x, y });
+  // 닫힐 때 잔상이 짧게 나간다 — 예전에는 한 프레임에 사라졌다.
+  useExitSnapshot(ref, "menu");
+  /** 자리와, 메뉴가 자라나는 점(`transform-origin`) — 되접힌 쪽에서도 누른 자리에서 자란다. */
+  const [pos, setPos] = useState({ x, y, origin: "0 0" });
   useLayoutEffect(() => {
     if (!ref.current) return;
     const M = 8;
     const r = ref.current.getBoundingClientRect();
     let nx = x;
     let ny = y;
-    if (nx + r.width > window.innerWidth - M) nx = Math.max(M, window.innerWidth - M - r.width);
-    if (ny + r.height > window.innerHeight - M) ny = Math.max(M, y - r.height);
-    setPos({ x: nx, y: ny });
+    let ox = "0";
+    let oy = "0";
+    if (nx + r.width > window.innerWidth - M) {
+      nx = Math.max(M, window.innerWidth - M - r.width);
+      ox = `${Math.round(x - nx)}px`;
+    }
+    if (ny + r.height > window.innerHeight - M) {
+      ny = Math.max(M, y - r.height);
+      oy = "100%";
+    }
+    setPos({ x: nx, y: ny, origin: `${ox} ${oy}` });
   }, [x, y]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -682,18 +868,20 @@ function TableMenu({
       />
       <div
         ref={ref}
+        role="menu"
+        className="cf-menu"
         style={{
           position: "fixed",
           zIndex: 81,
           minWidth: 200,
           left: pos.x,
           top: pos.y,
+          transformOrigin: pos.origin,
           background: "#fff",
           border: "1px solid #d9d4ca",
           borderRadius: 6,
           boxShadow: "0 12px 30px rgba(35,33,30,.20)",
           padding: 4,
-          animation: "pIn .1s ease-out",
         }}
       >
         <div
@@ -725,6 +913,7 @@ function TableMenu({
         </div>
         <Box
           onClick={onEdit}
+          role="menuitem"
           style={{
             display: "flex",
             alignItems: "center",
@@ -757,6 +946,57 @@ function TableMenu({
 }
 
 /**
+ * 방금 닿은 블록을 한 번 빛낸다(`cf-flash`). 블록 요소는 React 가 클래스를 쥐고 있지 않으므로 직접 붙였다
+ * 떼고, 같은 블록이 다시 불리면 처음부터 다시 돈다. 안쪽 요소의 애니메이션 끝은 세지 않는다.
+ */
+function flashOnce(el: HTMLElement): void {
+  el.classList.remove("cf-flash");
+  void el.offsetWidth;
+  el.classList.add("cf-flash");
+  const done = (e: AnimationEvent) => {
+    if (e.target !== el) return;
+    el.classList.remove("cf-flash");
+    el.removeEventListener("animationend", done);
+  };
+  el.addEventListener("animationend", done);
+}
+
+/** 체크박스 — 상자가 초록으로 차고 체크 획이 그어진다(예전에는 ☐ · ☑ 글자가 순간 바뀌었다). */
+function TaskBox({ checked }: { checked: boolean }) {
+  return (
+    // `overflow: visible` — 작은 svg 에 `scrollbar-gutter` 가 스크롤바 자리를 잡아 그림이 가려진다.
+    <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden style={{ display: "block", overflow: "visible" }}>
+      <rect
+        x="1"
+        y="1"
+        width="12"
+        height="12"
+        rx="3"
+        fill={checked ? GREEN : "#fff"}
+        stroke={checked ? GREEN : "#b5afa2"}
+        strokeWidth="1.3"
+        style={{ transition: "fill 140ms, stroke 140ms" }}
+      />
+      <path
+        className="cf-mv"
+        d="M3.8 7.2 6 9.4 10.3 4.8"
+        fill="none"
+        stroke="#fff"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeDasharray="12"
+        strokeDashoffset={checked ? 0 : 12}
+        style={{ transition: `stroke-dashoffset 180ms ${EASE_OUT}` }}
+      />
+    </svg>
+  );
+}
+
+/** 완료한 항목의 취소선 색. 회색 글(`#8a857c`)보다 한 단 옅게 — 글을 가리지 않는다. */
+const STRIKE = "#b5afa2";
+
+/**
  * 마크다운 뷰어의 본문. 편집기와 같은 탭 안에 살지만 이쪽은 **읽는 화면**이고,
  * 손댈 수 있는 것은 체크박스 하나뿐이다(`onToggle`).
  *
@@ -781,7 +1021,8 @@ export default function MarkdownView({
    * 쓴다 — 답마다 제 스크롤을 가지면 바깥 스크롤과 겹쳐 휠이 엉뚱한 곳을 굴린다.
    */
   inline?: boolean;
-  onToggle?: (line: number) => void;
+  /** 체크박스를 눌렀다. `checked` 는 누른 뒤의 상태다(머리띠의 "완료 · 파일에 저장됨" 이 쓴다). */
+  onToggle?: (line: number, checked: boolean) => void;
   /** 이미지 블록의 경로를 `<img src>` 로 바꾼다. `null` 이면 그리지 않는다. */
   imageUrl?: (b: Block) => string | null;
   /** 크기 단계를 골랐다. `line` 은 `onToggle` 과 같이 본문 기준이다. */
@@ -809,7 +1050,11 @@ export default function MarkdownView({
     let at = blocks.findIndex((b) => b.line >= reveal);
     if (at < 0) at = blocks.length - 1;
     const el = list.current.children[at];
-    if (el instanceof HTMLElement) el.scrollIntoView({ block: "start" });
+    if (el instanceof HTMLElement) {
+      // 부드럽게 굴리고, 닿은 블록이 한 번 빛난다 — 넣은 자리가 화면 어디인지 눈이 찾지 않아도 된다.
+      el.scrollIntoView({ block: "start", behavior: reducedMotion() ? "auto" : "smooth" });
+      flashOnce(el);
+    }
     onRevealed?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reveal, blocks]);
@@ -975,7 +1220,9 @@ export default function MarkdownView({
                   style={{ display: "flex", gap: 4, marginTop: 2, paddingLeft: b.indent }}
                 >
                   <Box
-                    onClick={onToggle ? () => onToggle(b.line) : undefined}
+                    onClick={onToggle ? () => onToggle(b.line, !b.checked) : undefined}
+                    role="checkbox"
+                    aria-checked={b.checked}
                     title={
                       onToggle
                         ? b.checked
@@ -991,21 +1238,41 @@ export default function MarkdownView({
                       alignItems: "center",
                       justifyContent: "center",
                       borderRadius: 4,
-                      fontSize: 13.5,
-                      lineHeight: 1,
-                      color: b.markFg,
                       cursor: onToggle ? "pointer" : "default",
                       userSelect: "none",
                     }}
-                    hover={
-                      onToggle
-                        ? { background: "#f0ede7", color: b.checked ? "#b5afa2" : GREEN }
-                        : undefined
-                    }
+                    hover={onToggle ? { background: "#f0ede7" } : undefined}
                   >
-                    {b.mark}
+                    <TaskBox checked={b.checked} />
                   </Box>
-                  {body}
+                  <div
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      fontSize: BODY,
+                      lineHeight: LH,
+                      color: b.fg,
+                      wordBreak: "break-word",
+                      transition: "color 200ms",
+                    }}
+                  >
+                    {/*
+                      취소선은 왼쪽에서 오른쪽으로 그어진다. 줄 안 요소의 배경은 여러 줄에 걸쳐 한 줄로
+                      이어 붙으므로(`box-decoration-break: slice`), 접힌 항목도 읽는 순서대로 그어진다.
+                    */}
+                    <span
+                      className="cf-mv"
+                      style={{
+                        backgroundImage: `linear-gradient(${STRIKE}, ${STRIKE})`,
+                        backgroundRepeat: "no-repeat",
+                        backgroundPosition: "0 54%",
+                        backgroundSize: `${b.checked ? 100 : 0}% 1px`,
+                        transition: `background-size 220ms ${EASE_OUT} 40ms`,
+                      }}
+                    >
+                      <Inline segs={b.segs} />
+                    </span>
+                  </div>
                 </div>
               );
 

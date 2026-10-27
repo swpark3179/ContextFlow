@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Box } from "../lib/ui";
+import { useEffect, useState } from "react";
+import { Box, CheckMark, Collapse, EASE_OUT } from "../lib/ui";
 import { GREEN } from "../lib/design";
 import CategoryPicker, { CategoryChip } from "../components/CategoryPicker";
 import { useStore } from "../store/useStore";
@@ -11,6 +11,19 @@ export default function Templates() {
   const { templates } = s;
   /** 기본 카테고리를 고르는 중인 템플릿과 입력칸 그대로의 값. */
   const [catEdit, setCatEdit] = useState<{ id: string; text: string } | null>(null);
+  /** 방금 기본 카테고리를 저장한 템플릿 — "저장됨" 이 잠깐 떴다 사라진다. */
+  const [savedCat, setSavedCat] = useState<{ id: string; n: number } | null>(null);
+  useEffect(() => {
+    if (!savedCat) return;
+    const t = window.setTimeout(() => setSavedCat((x) => (x === savedCat ? null : x)), 3100);
+    return () => window.clearTimeout(t);
+  }, [savedCat]);
+  const saveCategory = async (id: string, before: string | null, v: string | null) => {
+    await s.setTemplateCategory(id, v);
+    // 저장은 실패를 토스트로 알리고 삼킨다 — 값이 실제로 바뀌었을 때만 저장됨을 띄운다.
+    const after = useStore.getState().templates.find((t) => t.id === id)?.category ?? null;
+    if (after !== before) setSavedCat((x) => ({ id, n: (x?.n ?? 0) + 1 }));
+  };
 
   const stats = [
     {
@@ -170,7 +183,20 @@ export default function Templates() {
                     minWidth: 0,
                   }}
                 >
-                  <span style={{ fontSize: 9, color: "#6a665e" }}>{open ? "▼" : "▶"}</span>
+                  {/* 펼침 표시는 바꿔 끼우지 않고 돌린다 — 줄이 높이째 열리는 것과 같은 움직임이다. */}
+                  <span
+                    aria-hidden
+                    className="cf-mv"
+                    style={{
+                      display: "inline-block",
+                      fontSize: 9,
+                      color: "#6a665e",
+                      transform: `rotate(${open ? 90 : 0}deg)`,
+                      transition: `transform 200ms ${EASE_OUT}`,
+                    }}
+                  >
+                    ▶
+                  </span>
                   <div style={{ minWidth: 0 }}>
                     <div
                       style={{
@@ -197,9 +223,9 @@ export default function Templates() {
                             flex: "0 0 auto",
                             fontSize: 11,
                             fontWeight: 600,
-                            color: "#5a44b4",
-                            background: "#f4f0fd",
-                            border: "1px solid #e4dcf8",
+                            color: "#2f6f80",
+                            background: "#e8f3f5",
+                            border: "1px solid #c7e2e7",
                             borderRadius: 3,
                             padding: "0 4px",
                           }}
@@ -254,7 +280,7 @@ export default function Templates() {
                   −{tp.saved}
                 </div>
               </Box>
-              {open && (
+              <Collapse open={open}>
                 <div
                   style={{
                     background: "#faf9f6",
@@ -290,6 +316,29 @@ export default function Templates() {
                     >
                       이 템플릿으로 새 업무를 만들면 미리 채워집니다
                     </span>
+                    {savedCat?.id === tp.id && (
+                      <span
+                        key={savedCat.n}
+                        role="status"
+                        className="cf-chip"
+                        style={{
+                          flex: "0 0 auto",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 4,
+                          fontSize: 11,
+                          color: "#256b47",
+                          background: "#e9f4ee",
+                          border: "1px solid #c9e4d5",
+                          borderRadius: 3,
+                          padding: "0 6px",
+                          lineHeight: "16px",
+                        }}
+                      >
+                        <CheckMark size={9} color={GREEN} />
+                        저장됨
+                      </span>
+                    )}
                   </div>
                   {catEdit?.id === tp.id && (
                     <>
@@ -316,7 +365,7 @@ export default function Templates() {
                           onChange={(text) => setCatEdit({ id: tp.id, text })}
                           onCommit={(v) => {
                             setCatEdit(null);
-                            if (v !== tp.category) void s.setTemplateCategory(tp.id, v);
+                            if (v !== tp.category) void saveCategory(tp.id, tp.category ?? null, v);
                           }}
                           onCancel={() => setCatEdit(null)}
                         />
@@ -363,7 +412,7 @@ export default function Templates() {
                     </div>
                   ))}
                 </div>
-              )}
+              </Collapse>
             </div>
           );
         })}

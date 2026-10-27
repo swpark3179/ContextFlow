@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Box, BusyLabel, Span } from "../../lib/ui";
+import { Box, BusyLabel, Span, Spinner } from "../../lib/ui";
 import { AI, VIOLET } from "../../lib/design";
 import { joinPath } from "../../lib/format";
 import { mdParse, splitFrontmatter } from "../../lib/markdown";
@@ -134,18 +134,25 @@ export function PagePanel({
   const pages = status?.pages ?? [];
   const meta = pages.find((p) => p.path === path) ?? null;
   const byId = useTaskById();
-  const [content, setContent] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  /**
+   * 그리고 있는 본문과 그 페이지. 다른 페이지를 열면 새 글이 올 때까지 앞 페이지를 흐리게 남겨 둔다 —
+   * 예전에는 비웠다가 채워서 그 사이 "빈 문서입니다" 가 한 번 번쩍였다.
+   */
+  const [content, setContent] = useState<{ path: string; text: string } | null>(null);
+  const [error, setError] = useState<{ path: string; msg: string } | null>(null);
 
   useEffect(() => {
     let alive = true;
-    setContent(null);
     setError(null);
-    if (!path) return;
+    // 처음 화면으로 돌아갔다 — 다음에 여는 페이지 앞에 이 글을 흐리게 깔 이유가 없다.
+    if (!path) {
+      setContent(null);
+      return;
+    }
     void api
       .wikiReadPages(s.settings.vault, [path])
-      .then((r) => alive && setContent(r[0]?.content ?? ""))
-      .catch((e) => alive && setError(api.errMessage(e)));
+      .then((r) => alive && setContent({ path, text: r[0]?.content ?? "" }))
+      .catch((e) => alive && setError({ path, msg: api.errMessage(e) }));
     return () => {
       alive = false;
     };
@@ -153,9 +160,11 @@ export function PagePanel({
   }, [path, meta?.hash, s.settings.vault]);
 
   const blocks = useMemo(
-    () => (content === null ? [] : mdParse(splitFrontmatter(content).body)),
+    () => (content === null ? [] : mdParse(splitFrontmatter(content.text).body)),
     [content],
   );
+  /** 새 페이지의 글을 기다리는 중(앞 페이지가 흐리게 남아 있다). */
+  const waiting = !!path && content?.path !== path && error?.path !== path;
 
   const follow = (target: string) => {
     const hit = resolveLink(target, pages);
@@ -289,10 +298,35 @@ export function PagePanel({
           ))}
         </div>
       )}
-      {error && <div style={{ ...hint, color: "#c04a4a", padding: 14 }}>{error}</div>}
-      <WikiLinkContext.Provider value={wikiLinks(pages, follow)}>
-        <MarkdownView blocks={blocks} />
-      </WikiLinkContext.Provider>
+      {error?.path === path && <div style={{ ...hint, color: "#c04a4a", padding: 14 }}>{error.msg}</div>}
+      {content ? (
+        <div
+          // 새 글이 오면 다시 마운트해 들어오게 한다. 같은 페이지를 다시 읽은 것(해시 변경)이면 그대로 —
+          // 읽던 스크롤 자리를 지킨다.
+          key={content.path}
+          className="cf-fade"
+          style={{
+            flex: 1,
+            minHeight: 0,
+            display: "flex",
+            flexDirection: "column",
+            opacity: waiting ? 0.45 : 1,
+            transition: "opacity 140ms linear",
+            pointerEvents: waiting ? "none" : undefined,
+          }}
+        >
+          <WikiLinkContext.Provider value={wikiLinks(pages, follow)}>
+            <MarkdownView blocks={blocks} />
+          </WikiLinkContext.Provider>
+        </div>
+      ) : (
+        waiting && (
+          <div style={{ ...hint, padding: "14px 20px", display: "flex", alignItems: "center", gap: 7 }}>
+            <Spinner />
+            페이지를 읽는 중
+          </div>
+        )
+      )}
     </div>
   );
 }
@@ -402,6 +436,8 @@ export function LintPanel({ onOpen }: { onOpen: (path: string) => void }) {
   const refresh = useWiki((w) => w.refresh);
   const enqueue = useWiki((w) => w.enqueue);
   const [local, setLocal] = useState<api.WikiLintIssue[] | null>(null);
+  /** 기계적 점검이 도는 중 — 결과는 지우지 않고 단추에 돌기를 띄운다. */
+  const [checking, setChecking] = useState(false);
   const [aiIssues, setAiIssues] = useState<AiLintIssue[] | null>(null);
   const [busy, setBusy] = useState(false);
   /** AI 검토를 시작한 시각 — 단추가 경과를 보여 준다. */
@@ -409,12 +445,20 @@ export function LintPanel({ onOpen }: { onOpen: (path: string) => void }) {
   const [error, setError] = useState<string | null>(null);
   const { vault, archDays } = s.settings;
 
-  const runLocal = () =>
+  const runLocal = () => {
+    let alive = true;
+    setChecking(true);
     void api
       .wikiLintLocal(vault, archDays)
-      .then(setLocal)
-      .catch((e) => setError(api.errMessage(e)));
+      .then((r) => alive && setLocal(r))
+      .catch((e) => alive && setError(api.errMessage(e)))
+      .finally(() => alive && setChecking(false));
+    return () => {
+      alive = false;
+    };
+  };
 
+  // 패널은 탭을 옮겨도 남으므로(`Wiki.tsx`) 탭마다 다시 돌지 않는다 — 위키가 바뀌었을 때만.
   useEffect(runLocal, [vault, archDays, status]);
 
   const runAi = () => {
@@ -458,8 +502,17 @@ export function LintPanel({ onOpen }: { onOpen: (path: string) => void }) {
       }}
     >
       <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-        <Box style={smallBtn} hover={{ background: "#f2efe9" }} onClick={runLocal}>
-          다시 점검
+        <Box
+          role="button"
+          aria-disabled={checking}
+          style={{ ...smallBtn, gap: 6, minWidth: 74, justifyContent: "center", cursor: checking ? "default" : "pointer" }}
+          hover={checking ? undefined : { background: "#f2efe9" }}
+          onClick={() => {
+            if (!checking) runLocal();
+          }}
+        >
+          {checking && <Spinner />}
+          {checking ? "점검 중" : "다시 점검"}
         </Box>
         {(status?.moved.length ?? 0) > 0 && (
           <Box style={smallBtn} hover={{ background: "#f2efe9" }} onClick={relink}>
@@ -491,6 +544,12 @@ export function LintPanel({ onOpen }: { onOpen: (path: string) => void }) {
         <div style={{ fontSize: 12, fontWeight: 600, color: "#6a665e", marginBottom: 6 }}>
           기계적 점검 {local ? `· ${local.length}건` : ""}
         </div>
+        {!local && checking && (
+          <div style={{ ...hint, display: "flex", alignItems: "center", gap: 7 }}>
+            <Spinner />
+            점검하는 중
+          </div>
+        )}
         {local && local.length === 0 && <div style={hint}>문제가 없습니다.</div>}
         {local?.map((i, n) => {
           const stale = i.kind === "stale-source";

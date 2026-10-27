@@ -22,6 +22,7 @@ const B = "/v/Tasks/[2026-10] B";
 const C = "/v/Tasks/[2026-10] C";
 
 let reorderFails = false;
+let dayRows: unknown[] = [];
 let releaseReorder: (() => void) | null = null;
 
 function task(folder: string, over: Partial<TaskMeta> = {}): TaskMeta {
@@ -70,8 +71,9 @@ vi.mock("@tauri-apps/api/core", () => ({
         return (args.folders as string[]).map((f, i) => task(f, { order: (i + 1) * 1024 }));
       case "scan_vault":
         return [task(FOLDER, { status: "on-hold" })];
-      case "scan_templates":
       case "day_entries":
+        return dayRows;
+      case "scan_templates":
       case "list_tree":
         return [];
       default:
@@ -90,6 +92,7 @@ beforeEach(() => {
   calls.length = 0;
   reorderFails = false;
   releaseReorder = null;
+  dayRows = [];
   const s = useStore.getState();
   useStore.setState({
     settings: { ...DEFAULT_SETTINGS, vault: "/v", wikiAuto: false },
@@ -101,6 +104,7 @@ beforeEach(() => {
     toasts: [],
     fly: null,
     completing: "",
+    justArchived: "",
   });
 });
 
@@ -116,6 +120,14 @@ describe("완료 → [되돌리기]", () => {
     expect(unarchive?.args).toMatchObject({ archived: false, reopen: false });
     expect(calls.find((c) => c.cmd === "set_task_status")?.args).toMatchObject({ status: "on-hold" });
     expect(cmds().indexOf("set_task_archived")).toBeLessThan(cmds().indexOf("set_task_status"));
+  });
+
+  it("창을 닫은 업무를 빈 작업공간이 기억하고, [되돌리기] 하면 잊는다", async () => {
+    await useStore.getState().setStatus("completed");
+    expect(useStore.getState().justArchived).toBe(FOLDER);
+    useStore.getState().toasts.find((x) => x.action)!.action!.run();
+    await vi.waitFor(() => expect(useStore.getState().activeFolder).toBe(FOLDER));
+    expect(useStore.getState().justArchived).toBe("");
   });
 
   it("완료하는 동안 메뉴를 닫고 `completing` 을 세웠다가 끝나면 내린다", async () => {
@@ -157,6 +169,25 @@ describe("오늘의 한일 ✕ — [되돌리기]", () => {
     await vi.waitFor(() => expect(useStore.getState().dayLog.entries).toHaveLength(1));
     useStore.getState().dropToast(useStore.getState().toasts[0].id);
     expect(cmds()).not.toContain("remove_day_entry");
+  });
+
+  it("되돌리기를 기다리는 줄은 다시 읽어도 돌아오지 않는다", async () => {
+    useStore.setState({ dayLog: { day: "2026-10-27", entries: [entry] } });
+    useStore.getState().dropEntry(7, { undo: true });
+    // DB 에는 아직 있다 — 토스트가 닫혀야 지운다.
+    dayRows = [entry];
+    await useStore.getState().rescopeToday();
+    expect(useStore.getState().dayLog.entries).toEqual([]);
+  });
+
+  it("도크의 ＋ 는 업무가 아닌 줄을 맨 위에 넣는다", async () => {
+    useStore.setState({ dayLog: { day: "2026-10-27", entries: [entry] } });
+    vi.setSystemTime(new Date(2026, 9, 27, 10, 0));
+    expect(await useStore.getState().addTodayNote("  주간 회의 ")).toBe(true);
+    vi.useRealTimers();
+    expect(calls.find((c) => c.cmd === "note_day_entry")?.args).toMatchObject({ folder: null, title: "주간 회의" });
+    expect(useStore.getState().dayLog.entries.map((e) => e.id)).toEqual([7]);
+    expect(await useStore.getState().addTodayNote("   ")).toBe(false);
   });
 
   it("앱이 스스로 지우는 줄은 곧바로 지운다", () => {

@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
-import { Box, Input, Select } from "../lib/ui";
-import { VIOLET } from "../lib/design";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { AiRail, AiSignal, AiStep, Box, EASE_OUT, Input, Select } from "../lib/ui";
+import { AI, TEXT, VIOLET } from "../lib/design";
 import { joinPath } from "../lib/format";
 import * as api from "../lib/api";
 import { narrowHits, wikiCategoryView } from "../lib/wiki/categories";
@@ -19,6 +19,12 @@ import {
 } from "./wiki/WikiPanels";
 
 type Tab = "page" | "ask" | "lint";
+
+const TABS: [Tab, string][] = [
+  ["page", "페이지"],
+  ["ask", "AI에게 묻기"],
+  ["lint", "점검"],
+];
 
 /** 분류 트리의 순서 — 색인(index.md)과 같다. 절차가 맨 앞이다. */
 const ORDER: api.WikiKind[] = ["procedure", "topic", "entity", "source", "answer"];
@@ -44,12 +50,32 @@ const STATE_LABEL: Record<QueueItem["state"], string> = {
 };
 
 const STATE_COLOR: Record<QueueItem["state"], string> = {
-  queued: "#8a857c",
+  queued: TEXT.sub,
   running: VIOLET,
   done: "#2f7f57",
   failed: "#c04a4a",
-  canceled: "#8a857c",
+  canceled: TEXT.sub,
 };
+
+/**
+ * 값이 바뀐 횟수. 처음 그릴 때는 0 이라 움직이지 않고, 바뀔 때마다 1씩 오른다 — 그 수를 `key` 로
+ * 써서 한 번 재생하는 모션 클래스를 다시 돌린다.
+ */
+function useChanges(value: unknown): number {
+  const r = useRef({ v: value, n: 0 });
+  if (!Object.is(r.current.v, value)) r.current = { v: value, n: r.current.n + 1 };
+  return r.current.n;
+}
+
+/** 바뀐 값만 굴러 들어온다(`cf-enter`) · 튄다(`cf-bump`). */
+function Roll({ value, cls = "cf-enter", style }: { value: string | number; cls?: string; style?: React.CSSProperties }) {
+  const n = useChanges(value);
+  return (
+    <span key={n} className={n ? cls : undefined} style={{ display: "inline-block", ...style }}>
+      {value}
+    </span>
+  );
+}
 
 /**
  * LLM 위키 화면.
@@ -71,6 +97,26 @@ export default function Wiki() {
     source: true,
     answer: true,
   });
+  /** 점검 패널은 처음 열 때 올린다 — 위키 화면에 들어올 때마다 점검부터 돌릴 이유가 없다. */
+  const [lintSeen, setLintSeen] = useState(false);
+  const pick = (k: Tab) => {
+    setTab(k);
+    if (k === "lint") setLintSeen(true);
+  };
+
+  /** 탭 밑줄 하나가 고른 탭으로 미끄러진다. 글꼴이 늦게 들어와 폭이 바뀌어도 따라간다. */
+  const tabEls = useRef<Partial<Record<Tab, HTMLDivElement | null>>>({});
+  const [bar, setBar] = useState<{ x: number; w: number } | null>(null);
+  useLayoutEffect(() => {
+    const el = tabEls.current[tab];
+    if (!el) return;
+    const place = () => setBar({ x: el.offsetLeft, w: el.offsetWidth });
+    place();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(place);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [tab]);
 
   // 화면에 들어왔다 — 도크의 `+N 반영` 은 여기서 지운다.
   useEffect(() => useWiki.getState().seenFresh(), []);
@@ -148,7 +194,11 @@ export default function Wiki() {
   const ingest = routeInfo(ai, "wiki.ingest");
   const active = w.queue.filter((q) => q.state === "queued" || q.state === "running");
   const finished = w.queue.filter((q) => q.state !== "queued" && q.state !== "running");
-  const canIngest = !!ingest.run && pending.length > 0;
+  // 이미 줄 선 업무는 다시 넣어도 무시된다 — 남은 것이 없으면 단추도 쉰다.
+  const lined = new Set(active.map((q) => q.taskId));
+  const waiting = pending.filter((t) => !lined.has(t.taskId));
+  const canIngest = !!ingest.run && waiting.length > 0;
+  const progress = w.progress;
   const depthText =
     s.settings.wikiDepth === "full"
       ? `관련 페이지 최대 ${s.settings.wikiMaxPages}장`
@@ -157,6 +207,28 @@ export default function Wiki() {
   const openPage = (path: string) => {
     setOpen(path);
     setTab("page");
+  };
+
+  /**
+   * 패널 셋은 늘 그려 두고 고른 것만 보인다 — 대화 · 점검 결과(AI 검토 포함) · 페이지 스크롤이 탭을
+   * 오가도 남는다. `display: none` 이 아니라 `visibility` 로 숨기는 것은 숨기는 동안에도 스크롤 자리와
+   * 한 번 재생한 모션이 그대로 있어야 하기 때문이다(다시 보일 때 처음부터 재생되지 않게).
+   */
+  const ti = TABS.findIndex(([k]) => k === tab);
+  const panel = (k: Tab): React.CSSProperties => {
+    const on = k === tab;
+    const i = TABS.findIndex(([x]) => x === k);
+    return {
+      position: "absolute",
+      inset: 0,
+      display: "flex",
+      flexDirection: "column",
+      opacity: on ? 1 : 0,
+      visibility: on ? "visible" : "hidden",
+      pointerEvents: on ? "auto" : "none",
+      transform: on ? "none" : `translateX(${i < ti ? -16 : 16}px)`,
+      transition: `opacity 160ms linear, transform 200ms ${EASE_OUT}, visibility 0s linear ${on ? "0s" : "160ms"}`,
+    };
   };
 
   const openInObsidian = (rel: string) =>
@@ -362,28 +434,42 @@ export default function Wiki() {
           }}
         >
           <div style={{ ...head, display: "flex", alignItems: "center", gap: 6 }}>
+            {w.running && <AiSignal size={6} />}
             <span>반영</span>
-            {w.running && (
-              <span style={{ width: 6, height: 6, borderRadius: "50%", background: VIOLET }} />
+            <span style={{ fontWeight: 400 }}>
+              대기 <Roll value={pending.length} cls="cf-bump" style={{ fontFamily: "'Roboto Mono',monospace" }} />
+            </span>
+            {progress && progress.total > 0 && (
+              <span style={{ fontFamily: "'Roboto Mono',monospace", fontWeight: 500, color: AI.fg }}>
+                {Math.min(progress.done + 1, progress.total)}/{progress.total}
+              </span>
             )}
-            <span style={{ fontWeight: 400 }}>대기 {pending.length}</span>
           </div>
+          {progress && progress.total > 0 && (
+            <div style={{ padding: "2px 12px 6px" }}>
+              <AiRail pct={progress.done / progress.total} />
+            </div>
+          )}
           <div style={{ padding: "0 12px 8px", display: "flex", flexDirection: "column", gap: 6 }}>
             <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
               <Box
-                title={pending.map((t) => t.title).join("\n")}
+                role="button"
+                aria-disabled={!canIngest}
+                title={waiting.map((t) => t.title).join("\n")}
                 style={{
                   ...smallBtn,
-                  color: canIngest ? VIOLET : "#b5afa2",
-                  border: `1px solid ${canIngest ? "#d8cdf6" : "#e0dcd4"}`,
+                  color: canIngest ? AI.fg : TEXT.off,
+                  border: `1px solid ${canIngest ? AI.bd : "#e6e2da"}`,
+                  background: canIngest ? "#fff" : "#f7f5f1",
                   cursor: canIngest ? "pointer" : "default",
                   fontWeight: 600,
                 }}
+                hover={canIngest ? { background: AI.bg } : undefined}
                 onClick={() => {
                   if (canIngest) w.enqueuePending();
                 }}
               >
-                모두 반영 ({pending.length})
+                {w.running && !waiting.length ? "반영 중" : `모두 반영 (${waiting.length})`}
               </Box>
               {w.running && (
                 <Box style={smallBtn} hover={{ background: "#f2efe9" }} onClick={() => w.cancel()}>
@@ -408,13 +494,17 @@ export default function Wiki() {
                   : "반영에 쓸 AI 연결이 없습니다 — 설정 → 기능별 AI 연결"}
             </div>
             {[...active, ...finished].map((q) => (
-              <div key={q.taskId} style={{ fontSize: 11.5, lineHeight: 1.5 }}>
-                <span style={{ color: STATE_COLOR[q.state], marginRight: 6 }}>
-                  {STATE_LABEL[q.state]}
-                </span>
+              <div key={q.taskId} className="cf-enter" style={{ fontSize: 11.5, lineHeight: 1.5 }}>
+                <Roll
+                  value={STATE_LABEL[q.state]}
+                  style={{ color: STATE_COLOR[q.state], marginRight: 6, fontWeight: 600 }}
+                />
                 <span>{q.title}</span>
                 {q.state === "running" && q.step && (
-                  <span style={{ color: "#6a665e" }}> · {q.step}</span>
+                  <span>
+                    {" · "}
+                    <AiStep>{q.step}</AiStep>
+                  </span>
                 )}
                 {q.state === "done" && (
                   <span style={{ color: "#6a665e" }}> · 페이지 {q.written ?? 0}장</span>
@@ -460,7 +550,9 @@ export default function Wiki() {
       {/* ── 오른쪽: 읽기 ───────────────────────────────────────────────── */}
       <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
         <div
+          role="tablist"
           style={{
+            position: "relative",
             flex: "0 0 auto",
             display: "flex",
             gap: 2,
@@ -469,62 +561,82 @@ export default function Wiki() {
             background: "#fff",
           }}
         >
-          {(
-            [
-              ["page", "페이지"],
-              ["ask", "AI에게 묻기"],
-              ["lint", "점검"],
-            ] as [Tab, string][]
-          ).map(([k, label]) => (
+          {TABS.map(([k, label]) => (
             <Box
               key={k}
-              onClick={() => setTab(k)}
+              ref={(el) => {
+                tabEls.current[k] = el;
+              }}
+              role="tab"
+              aria-selected={tab === k}
+              onClick={() => pick(k)}
               style={{
-                padding: "5px 12px 6px",
+                padding: "5px 12px 7px",
                 fontSize: 12.5,
                 cursor: "pointer",
-                borderBottom: `2px solid ${tab === k ? "#3a6fd8" : "transparent"}`,
-                color: tab === k ? "#23211e" : "#8a857c",
+                color: tab === k ? TEXT.ink : TEXT.sub,
                 fontWeight: tab === k ? 600 : 400,
-                marginBottom: -1,
               }}
+              hover={tab === k ? undefined : { color: TEXT.ink }}
             >
               {label}
             </Box>
           ))}
+          {bar && (
+            <span
+              aria-hidden
+              className="cf-mv"
+              style={{
+                position: "absolute",
+                left: 0,
+                bottom: -1,
+                height: 2,
+                width: bar.w,
+                background: "#3a6fd8",
+                transform: `translateX(${bar.x}px)`,
+                transition: `transform 200ms ${EASE_OUT}, width 200ms ${EASE_OUT}`,
+              }}
+            />
+          )}
           {tab === "page" && open && (
             <Box
               onClick={() => setOpen(null)}
+              className="cf-fade"
               style={{
                 marginLeft: "auto",
                 alignSelf: "center",
+                marginBottom: 2,
                 fontSize: 11.5,
-                color: "#6a665e",
+                color: TEXT.sub,
                 cursor: "pointer",
-                padding: "0 6px",
+                padding: "2px 7px",
+                borderRadius: 4,
               }}
+              hover={{ background: "#f2efe9", color: TEXT.ink }}
             >
               처음으로
             </Box>
           )}
         </div>
-        {tab === "page" && <PagePanel path={open} onOpen={openPage} cats={cats} />}
         {/*
           묻기 패널은 다른 탭에서도 내리지 않는다 — 대화가 이 패널의 상태라서, 인용 칩을 눌러
           페이지를 읽으러 가는 순간 대화가 사라지면 이어서 물을 수 없다. 받는 중인 답도 그대로
-          흘러 들어온다. 위키 화면을 떠나면(다른 화면) 이 화면째 내려가며 대화도 끝난다.
+          흘러 들어온다. 위키 화면을 떠나면(다른 화면) 이 화면째 내려가며 대화도 끝난다. 페이지 ·
+          점검 패널도 같은 이유로 남겨 둔다(`panel`).
         */}
-        <div
-          style={{
-            flex: 1,
-            minHeight: 0,
-            display: tab === "ask" ? "flex" : "none",
-            flexDirection: "column",
-          }}
-        >
-          <AskPanel onOpen={openPage} cats={cats} />
+        <div style={{ position: "relative", flex: 1, minHeight: 0, overflow: "hidden" }}>
+          <div className="cf-mv" style={panel("page")} aria-hidden={tab !== "page"}>
+            <PagePanel path={open} onOpen={openPage} cats={cats} />
+          </div>
+          <div className="cf-mv" style={panel("ask")} aria-hidden={tab !== "ask"}>
+            <AskPanel onOpen={openPage} cats={cats} />
+          </div>
+          {lintSeen && (
+            <div className="cf-mv" style={panel("lint")} aria-hidden={tab !== "lint"}>
+              <LintPanel onOpen={openPage} />
+            </div>
+          )}
         </div>
-        {tab === "lint" && <LintPanel onOpen={openPage} />}
       </div>
     </div>
   );

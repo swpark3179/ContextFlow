@@ -172,8 +172,9 @@ export default function SplitModal() {
                     padding: "6px 7px",
                     borderRadius: 5,
                     cursor: "pointer",
-                    border: `1px solid ${on ? "#e0d6f8" : "transparent"}`,
-                    background: on ? "#f7f4fe" : "transparent",
+                    // 고른 것(조작)은 파랑 — 보라는 AI 가 일하는 동안만 쓴다.
+                    border: `1px solid ${on ? "#cddcf8" : "transparent"}`,
+                    background: on ? "#f7fafe" : "transparent",
                     marginBottom: 1,
                   }}
                   hover={on ? undefined : { background: "#f4f2ee" }}

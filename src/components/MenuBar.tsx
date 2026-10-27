@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Box } from "../lib/ui";
+import { useEffect, useRef, useState } from "react";
+import { Box, EASE_OUT, useExitSnapshot } from "../lib/ui";
 import { emptyNewTask, isArchived, openCategoryHub, useStore } from "../store/useStore";
 import { useAssist } from "../store/assistStore";
 import { GREEN } from "../lib/design";
@@ -11,6 +11,8 @@ interface MenuItem {
   run: () => void;
   /** 지금 할 수 없는 항목. 흐리게 그리고 눌러도 아무 일도 하지 않는다. */
   off?: boolean;
+  /** 위에 구분선을 긋는다 — 하는 일이 다른 묶음의 시작. */
+  line?: boolean;
 }
 
 type Store = ReturnType<typeof useStore.getState>;
@@ -86,6 +88,7 @@ export function menuItems(s: Store): Record<string, MenuItem[]> {
       {
         label: "다른 업무에 편입…",
         hint: "하위 폴더로",
+        line: true,
         off: noTask,
         run: () => void s.openAbsorb(s.activeFolder),
       },
@@ -94,6 +97,7 @@ export function menuItems(s: Store): Record<string, MenuItem[]> {
       {
         label: "위키 가이드…",
         hint: "AI",
+        line: true,
         off: noLive,
         run: () => useAssist.getState().openGuide(s.activeFolder),
       },
@@ -111,7 +115,7 @@ export function menuItems(s: Store): Record<string, MenuItem[]> {
       },
       // 한 번 끌어 옮기면 그 순서가 계속 이긴다 — 돌아가는 길이 있어야 한다.
       // 업무 하나가 아니라 목록 전체를 다루므로 고른 업무가 없어도 쓸 수 있다.
-      { label: "정렬 초기화 (최근 수정순)", run: () => void s.clearTaskOrder() },
+      { label: "정렬 초기화 (최근 수정순)", line: true, run: () => void s.clearTaskOrder() },
       // 이것도 목록 전체를 다룬다. 정리의 시작점인 미분류에서 연다.
       { label: "카테고리 관리…", run: () => s.openCatMgr() },
       // 전체 허브는 진행 중 업무에 카테고리가 하나도 없어도 쓰인다(보관한 업무만 분류했을 때) —
@@ -119,6 +123,7 @@ export function menuItems(s: Store): Record<string, MenuItem[]> {
       { label: "카테고리 허브 열기", run: () => void openCategoryHub(null) },
       {
         label: "Obsidian에서 열기",
+        line: true,
         off: noTask,
         run: () => void s.openTaskInObsidian(s.activeFolder),
       },
@@ -126,6 +131,7 @@ export function menuItems(s: Store): Record<string, MenuItem[]> {
       {
         label: "업무 삭제…",
         hint: "되돌릴 수 없음",
+        line: true,
         off: noLive,
         run: () => void s.askDeleteTask(s.activeFolder),
       },
@@ -147,11 +153,29 @@ export function menuItems(s: Store): Record<string, MenuItem[]> {
   };
 }
 
-/** The design's menu strip, wired to the actions it names. */
+/**
+ * The design's menu strip, wired to the actions it names.
+ *
+ * 펼친 판은 하나다 — 메뉴 사이를 옮겨 다니면 판이 옆 메뉴 밑으로 미끄러지고 내용만 바뀐다. 메뉴마다 판을
+ * 새로 띄우면 옮길 때마다 닫힘 · 열림이 겹쳐 깜빡였다. 처음 열 때만 자라나고(`cf-menu`) 닫을 때만
+ * 잔상이 나간다. Esc 로 닫는다(capture — App 의 Esc 사슬이 밑의 대화상자를 닫지 않게).
+ */
 export default function MenuBar() {
   const [open, setOpen] = useState<string | null>(null);
   const s = useStore();
   const menus = menuItems(s);
+  const heads = useRef<Record<string, HTMLDivElement | null>>({});
+
+  useEffect(() => {
+    if (!open) return;
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      e.preventDefault();
+      setOpen(null);
+    };
+    window.addEventListener("keydown", key, true);
+    return () => window.removeEventListener("keydown", key, true);
+  }, [open]);
 
   return (
     <div
@@ -169,78 +193,39 @@ export default function MenuBar() {
       onMouseLeave={() => setOpen(null)}
     >
       {Object.keys(menus).map((m) => (
-        <div key={m} style={{ position: "relative" }}>
-          <Box
-            style={{
-              fontSize: 12.5,
-              color: "#4e4a43",
-              padding: "3px 7px",
-              borderRadius: 4,
-              cursor: "default",
-              background: open === m ? "#ece8e0" : "transparent",
-            }}
-            hover={{ background: "#ece8e0" }}
-            onClick={() => setOpen(open === m ? null : m)}
-            onMouseEnter={() => open && setOpen(m)}
-          >
-            {m}
-          </Box>
-          {open === m && (
-            <div
-              style={{
-                position: "absolute",
-                top: 24,
-                left: 0,
-                minWidth: 190,
-                background: "#fff",
-                border: "1px solid #ddd8cf",
-                borderRadius: 6,
-                boxShadow: "0 12px 28px rgba(35,33,30,.18)",
-                padding: 4,
-                zIndex: 60,
-                animation: "pIn .1s ease",
-              }}
-            >
-              {menus[m].map((item) => (
-                <Box
-                  key={item.label}
-                  title={item.off ? "먼저 왼쪽 업무 리스트에서 업무를 선택하세요" : undefined}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    fontSize: 12.5,
-                    color: item.off ? "#b5afa2" : "#3a3630",
-                    padding: "5px 8px",
-                    borderRadius: 4,
-                    cursor: item.off ? "default" : "pointer",
-                    whiteSpace: "nowrap",
-                  }}
-                  hover={item.off ? undefined : { background: "#f2efe9" }}
-                  onClick={() => {
-                    if (item.off) return;
-                    setOpen(null);
-                    item.run();
-                  }}
-                >
-                  <span style={{ flex: 1 }}>{item.label}</span>
-                  {item.hint && (
-                    <span
-                      style={{
-                        fontFamily: "'Roboto Mono',monospace",
-                        fontSize: 11.5,
-                        color: "#6a665e",
-                      }}
-                    >
-                      {item.hint}
-                    </span>
-                  )}
-                </Box>
-              ))}
-            </div>
-          )}
-        </div>
+        <Box
+          key={m}
+          ref={(el) => {
+            heads.current[m] = el;
+          }}
+          role="button"
+          aria-haspopup="menu"
+          aria-expanded={open === m}
+          style={{
+            fontSize: 12.5,
+            color: "#4e4a43",
+            padding: "3px 7px",
+            borderRadius: 4,
+            cursor: "default",
+            background: open === m ? "#ece8e0" : "transparent",
+          }}
+          hover={{ background: "#ece8e0" }}
+          onClick={() => setOpen(open === m ? null : m)}
+          onMouseEnter={() => open && setOpen(m)}
+        >
+          {m}
+        </Box>
       ))}
+      {open && menus[open] && (
+        <MenuPanel
+          left={heads.current[open]?.offsetLeft ?? 8}
+          items={menus[open]}
+          onPick={(item) => {
+            setOpen(null);
+            item.run();
+          }}
+        />
+      )}
       <div style={{ flex: 1 }} />
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
         <div
@@ -257,6 +242,84 @@ export default function MenuBar() {
           {s.settings.vault}
         </span>
       </div>
+    </div>
+  );
+}
+
+function MenuPanel({
+  left,
+  items,
+  onPick,
+}: {
+  left: number;
+  items: MenuItem[];
+  onPick: (item: MenuItem) => void;
+}) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  useExitSnapshot(ref, "menu");
+  // 처음 그릴 때는 그 자리에서 자라난다. 그 뒤로 옮길 때만 미끄러진다.
+  const [moved, setMoved] = useState(false);
+  const first = useRef(left);
+  if (!moved && first.current !== left) setMoved(true);
+  return (
+    <div
+      ref={ref}
+      role="menu"
+      className="cf-menu cf-mv"
+      style={{
+        position: "absolute",
+        top: 24,
+        // 자리는 `left` 로 옮긴다 — `transform` 은 여는 움직임(`cf-menu`)이 쓴다.
+        left,
+        transformOrigin: "top left",
+        transition: moved ? `left var(--m-quick) ${EASE_OUT}` : "none",
+        minWidth: 190,
+        background: "#fff",
+        border: "1px solid #ddd8cf",
+        borderRadius: 6,
+        boxShadow: "0 12px 28px rgba(35,33,30,.18)",
+        padding: 4,
+        zIndex: 60,
+      }}
+    >
+      {items.map((item) => (
+        <div key={item.label}>
+          {item.line && <div style={{ height: 1, background: "#f0ede7", margin: "3px 2px" }} />}
+          <Box
+            role="menuitem"
+            aria-disabled={item.off || undefined}
+            title={item.off ? "먼저 왼쪽 업무 리스트에서 업무를 선택하세요" : undefined}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              fontSize: 12.5,
+              color: item.off ? "#b5afa2" : "#3a3630",
+              padding: "5px 8px",
+              borderRadius: 4,
+              cursor: item.off ? "default" : "pointer",
+              whiteSpace: "nowrap",
+            }}
+            hover={item.off ? undefined : { background: "#f2efe9" }}
+            onClick={() => {
+              if (!item.off) onPick(item);
+            }}
+          >
+            <span style={{ flex: 1 }}>{item.label}</span>
+            {item.hint && (
+              <span
+                style={{
+                  fontFamily: "'Roboto Mono',monospace",
+                  fontSize: 11.5,
+                  color: "#6a665e",
+                }}
+              >
+                {item.hint}
+              </span>
+            )}
+          </Box>
+        </div>
+      ))}
     </div>
   );
 }

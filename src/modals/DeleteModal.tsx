@@ -1,7 +1,6 @@
-import { Input } from "../lib/ui";
+import { BusyLabel, Input } from "../lib/ui";
 import { useStore } from "../store/useStore";
-import { GhostButton, Modal, ModalFooter } from "./Modal";
-import { Box } from "../lib/ui";
+import { GhostButton, Modal, ModalFooter, PrimaryButton, useSubmit } from "./Modal";
 
 /**
  * Permanent delete, exactly as designed: no recycle bin, and the only guard is
@@ -9,14 +8,18 @@ import { Box } from "../lib/ui";
  */
 export default function DeleteModal() {
   const s = useStore();
+  // 지우는 동안 다시 누르지 못하게 — 두 번째 삭제는 이미 없는 경로를 지우려다 실패 토스트를 낸다.
+  const [busy, submit] = useSubmit();
   const del = s.del;
   if (!del) return null;
 
   const task = s.tasks.find((t) => t.folder === s.activeFolder);
   const ready = del.confirm.trim() === del.name;
+  const commit = () => ready && void submit(() => s.commitDelete());
+  const close = () => !busy && s.set({ del: null });
 
   return (
-    <Modal width={420} zIndex={82} onClose={() => s.set({ del: null })}>
+    <Modal width={420} zIndex={82} onClose={close}>
       <div style={{ padding: "14px 16px 12px 16px", borderBottom: "1px solid #f0ede7" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <div
@@ -70,9 +73,15 @@ export default function DeleteModal() {
           value={del.confirm}
           onChange={(e) => s.set({ del: { ...del, confirm: e.target.value } })}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && ready) void s.commitDelete();
-            else if (e.key === "Escape") s.set({ del: null });
+            // 한글 조합 중의 Enter 는 글자를 확정하는 키다 — 삭제로 넘기지 않는다.
+            if (e.key === "Enter" && !e.nativeEvent.isComposing) commit();
+            else if (e.key === "Escape") {
+              // 여기서 끝낸다 — App 의 Esc 까지 가면 그 아래 레이어도 닫힌다.
+              e.preventDefault();
+              close();
+            }
           }}
+          readOnly={busy}
           placeholder={del.name}
           style={{
             width: "100%",
@@ -89,25 +98,14 @@ export default function DeleteModal() {
       </div>
       <ModalFooter>
         <div style={{ flex: 1 }} />
-        <GhostButton onClick={() => s.set({ del: null })}>취소</GhostButton>
-        <Box
-          onClick={() => ready && void s.commitDelete()}
-          style={{
-            height: 28,
-            padding: "0 15px",
-            display: "flex",
-            alignItems: "center",
-            borderRadius: 5,
-            fontSize: 12.5,
-            fontWeight: 600,
-            background: ready ? "#c04a4a" : "#f0dcd9",
-            color: ready ? "#fff" : "#c9a7a2",
-            cursor: ready ? "pointer" : "not-allowed",
-          }}
-          hover={ready ? { background: "#a83c3c" } : undefined}
-        >
-          완전 삭제
-        </Box>
+        <GhostButton onClick={close} disabled={busy}>
+          취소
+        </GhostButton>
+        <PrimaryButton onClick={commit} disabled={!ready} busy={busy} bg="#c04a4a" hoverBg="#a83c3c" minWidth={96}>
+          <BusyLabel busy={busy} color="#fff" idle="완전 삭제">
+            지우는 중
+          </BusyLabel>
+        </PrimaryButton>
       </ModalFooter>
     </Modal>
   );

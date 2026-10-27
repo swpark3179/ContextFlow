@@ -31,6 +31,22 @@ function hoverClass(hover: CSSProperties | undefined, className: string | undefi
   return className ? `cf-hover ${className}` : "cf-hover";
 }
 
+/**
+ * 호버가 테두리 색(`borderColor`)만 바꾸는데 바탕이 줄여 쓰기(`border: "1px solid #…"`)면, React 가 다시
+ * 그릴 때 둘을 섞었다고 경고하고 떠난 뒤 테두리 색이 지워질 수 있다. 그런 바탕은 풀어 쓴다.
+ */
+function hoverStyle(style: CSSProperties | undefined, hover: CSSProperties | undefined, on: boolean) {
+  let base = style;
+  if (hover?.borderColor !== undefined && typeof style?.border === "string") {
+    const m = /^(\S+)\s+(\S+)\s+(.+)$/.exec(style.border.trim());
+    if (m) {
+      const { border: _drop, ...rest } = style;
+      base = { ...rest, borderWidth: m[1], borderStyle: m[2] as CSSProperties["borderStyle"], borderColor: m[3] };
+    }
+  }
+  return on && hover ? { ...base, ...hover } : base;
+}
+
 export const Box = forwardRef<HTMLDivElement, BoxProps>(function Box(
   { style, hover, onMouseEnter, onMouseLeave, className, ...rest },
   ref,
@@ -41,13 +57,14 @@ export const Box = forwardRef<HTMLDivElement, BoxProps>(function Box(
       ref={ref}
       {...rest}
       className={hoverClass(hover, className)}
-      style={on && hover ? { ...style, ...hover } : style}
+      style={hoverStyle(style, hover, on)}
       onMouseEnter={(e) => {
         if (hover) setOn(true);
         onMouseEnter?.(e);
       }}
       onMouseLeave={(e) => {
-        if (hover) setOn(false);
+        // `hover` 가 사라졌다 다시 생기는 요소(고른 칸 · 켜진 항목)도 떠날 때는 꼭 내린다 — 남으면 호버가 붙어 있다.
+        if (on) setOn(false);
         onMouseLeave?.(e);
       }}
     />
@@ -65,13 +82,13 @@ export function Span({ style, hover, onMouseEnter, onMouseLeave, className, ...r
     <span
       {...rest}
       className={hoverClass(hover, className)}
-      style={on && hover ? { ...style, ...hover } : style}
+      style={hoverStyle(style, hover, on)}
       onMouseEnter={(e) => {
         if (hover) setOn(true);
         onMouseEnter?.(e);
       }}
       onMouseLeave={(e) => {
-        if (hover) setOn(false);
+        if (on) setOn(false);
         onMouseLeave?.(e);
       }}
     />
@@ -848,4 +865,64 @@ export function useExitSnapshot(
       });
     };
   }, [ref, kind]);
+}
+
+/**
+ * 메뉴 · 팝오버 판 — 붙은 자리(`origin`)에서 자라나고(`cf-menu`) 닫힐 때 잔상이 짧게 나간다
+ * (`useExitSnapshot`). 바깥을 누르면 닫힌다. `esc` 면 Esc 를 capture 단계에서 먼저 받아
+ * `preventDefault()` 한다 — App 의 Esc 사슬이 메뉴 밑의 대화상자까지 닫지 않게. 안에서 Esc 를 스스로
+ * 다루는 입력(카테고리 고르기 — 목록 먼저 닫는다)은 `esc={false}` 로 맡긴다.
+ */
+export function Popover({
+  onClose,
+  origin = "top left",
+  esc = true,
+  role = "menu",
+  style,
+  children,
+}: {
+  onClose: () => void;
+  origin?: string;
+  esc?: boolean;
+  role?: string;
+  style?: CSSProperties;
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  useExitSnapshot(ref, "menu");
+  const close = useRef(onClose);
+  close.current = onClose;
+  useEffect(() => {
+    if (!esc) return;
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      e.preventDefault();
+      close.current();
+    };
+    window.addEventListener("keydown", key, true);
+    return () => window.removeEventListener("keydown", key, true);
+  }, [esc]);
+  return (
+    <>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 25 }} />
+      <div
+        ref={ref}
+        role={role}
+        className="cf-menu"
+        style={{
+          position: "absolute",
+          zIndex: 30,
+          background: "#fff",
+          border: "1px solid #d9d4ca",
+          borderRadius: 6,
+          boxShadow: "0 10px 26px rgba(35,33,30,.16)",
+          padding: 4,
+          transformOrigin: origin,
+          ...style,
+        }}
+      >
+        {children}
+      </div>
+    </>
+  );
 }

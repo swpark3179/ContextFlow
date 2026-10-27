@@ -9,7 +9,7 @@
  * 여기서 보여 줄 것은 텍스트가 아니라 **상태가 붙은 생각의 트리**다.
  */
 import { Box } from "../lib/ui";
-import { BS_EVIDENCE, BS_STATUS } from "../lib/design";
+import { BS_EVIDENCE, BS_STATUS, TEXT } from "../lib/design";
 import { StatusBadge } from "./BrainstormBits";
 import { ancestorTitles, STATUS_MARK, walkNodes, type BsNode, type BsStatus } from "../lib/bstorm";
 
@@ -75,11 +75,14 @@ export function Outline({
   sel,
   onSelect,
   onAddChild,
+  onJump,
 }: {
   roots: BsNode[];
   sel: string;
   onSelect: (path: string) => void;
   onAddChild: (path: string) => void;
+  /** 캔버스로 가서 이 생각을 보여 준다(접힌 조상을 펴고 카메라가 그리로 간다). */
+  onJump: (path: string) => void;
 }) {
   const rows = walkNodes(roots);
 
@@ -102,6 +105,7 @@ export function Outline({
           <Box
             key={r.path}
             onClick={() => onSelect(r.path)}
+            onDoubleClick={() => onJump(r.path)}
             style={{
               display: "flex",
               flexDirection: "column",
@@ -149,6 +153,28 @@ export function Outline({
                 >
                   🖼 {r.node.images.length}
                 </span>
+              )}
+              {/* 고른 줄에만 둔다 — 줄마다 달면 개요가 단추로 뒤덮인다. 더블클릭도 같은 일을 한다. */}
+              {on && (
+                <Box
+                  className="cf-fade"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onJump(r.path);
+                  }}
+                  title="캔버스에서 보기 (더블클릭)"
+                  style={{
+                    flex: "0 0 auto",
+                    fontSize: 11,
+                    color: "#2f5cbb",
+                    padding: "1px 5px",
+                    borderRadius: 3,
+                    cursor: "pointer",
+                  }}
+                  hover={{ background: "#eef3fd" }}
+                >
+                  캔버스에서 보기
+                </Box>
               )}
               <Box
                 onClick={(e) => {
@@ -257,23 +283,26 @@ export function DecisionLog({
                       border: `1px ${st.dash ? "dashed" : "solid"} ${st.line}`,
                       borderLeft: `4px solid ${st.dot}`,
                     }}
-                    hover={{ borderColor: "#3a6fd8" }}
+                    // 호버는 바깥 고리로 말한다. 예전에는 테두리 색을 바꿔서 왼쪽 상태 띠까지
+                    // 파랗게 물들었다 — 누르려는 순간 그 카드의 상태가 사라졌다.
+                    hover={{ boxShadow: "0 0 0 2px #dce7fb, 0 2px 8px rgba(35,33,30,.08)" }}
                   >
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       <StatusBadge status={g.key} />
-                      {!!trail.length && (
-                        <div
-                          style={{
-                            flex: 1,
-                            minWidth: 0,
-                            fontSize: 11,
-                            color: "#6a665e",
-                            overflowWrap: "anywhere",
-                          }}
-                        >
-                          {trail.join("  ›  ")}
-                        </div>
-                      )}
+                      <div
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          fontSize: 11,
+                          color: TEXT.sub,
+                          overflowWrap: "anywhere",
+                        }}
+                      >
+                        {trail.join("  ›  ")}
+                      </div>
+                      <span style={{ flex: "0 0 auto", fontSize: 11, color: "#2f5cbb", whiteSpace: "nowrap" }}>
+                        캔버스에서 보기 →
+                      </span>
                     </div>
                     <div
                       style={{

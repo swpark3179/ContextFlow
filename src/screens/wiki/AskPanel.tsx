@@ -1,5 +1,21 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { AiRail, AiSignal, AiStep, Box, Caret, ELAPSED_AFTER_MS, Select, TextArea, fmtSec, useElapsed } from "../../lib/ui";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
+import {
+  AiRail,
+  AiSignal,
+  AiStep,
+  Box,
+  Caret,
+  CheckMark,
+  Collapse,
+  EASE_OUT,
+  ELAPSED_AFTER_MS,
+  Select,
+  Spinner,
+  TextArea,
+  fmtSec,
+  reducedMotion,
+  useElapsed,
+} from "../../lib/ui";
 import { AI, TEXT, VIOLET } from "../../lib/design";
 import { mdParse } from "../../lib/markdown";
 import * as api from "../../lib/api";
@@ -37,6 +53,11 @@ interface Turn {
   question: string;
   /** 받는 중이면 지금까지의 글, 끝났으면 답 전체. */
   text: string;
+  /**
+   * 웹을 찾으러 가며 비운 글 — 파이프라인은 검색을 시작하면 받던 글을 `""` 로 비운다. 다시 쓰기
+   * 시작할 때까지 흐리게 남겨 두어, 쓰던 답이 통째로 사라진 것처럼 보이지 않게 한다.
+   */
+  stale?: string;
   state: "running" | "done" | "failed" | "canceled";
   /** 지나온 단계와 지금 단계. 끝난 단계는 ✓ 와 걸린 시간으로 남는다. */
   steps: Step[];
@@ -50,6 +71,8 @@ interface Turn {
   out?: AskOutcome;
   /** [위키에 저장] 한 페이지 경로. */
   saved?: string;
+  /** [위키에 저장] 이 쓰는 중 — 두 번 눌러 두 장이 생기지 않게 막는다. */
+  saving?: boolean;
   /** 이 질문을 한정한 카테고리의 표시 이름(`a › b`). 전체에서 물었으면 `null`. */
   scope: string | null;
 }
@@ -111,6 +134,10 @@ export function AskPanel({ onOpen, cats }: { onOpen: (path: string) => void; cat
   const scroller = useRef<HTMLDivElement | null>(null);
   /** 사용자가 맨 아래를 보고 있는가 — 위로 올려 읽는 중에는 새 글이 와도 끌어내리지 않는다. */
   const stick = useRef(true);
+  /** 앞 스크롤 위치 — 위로 굴렸는지(사용자) 아래로 흘렀는지(따라가기)를 가른다. */
+  const lastTop = useRef(0);
+  /** 저장 중인 턴 — 상태가 다시 그려지기 전의 두 번째 클릭도 막는다. */
+  const savingIds = useRef(new Set<number>());
   const input = useRef<HTMLTextAreaElement | null>(null);
   useEffect(
     () => () => {
@@ -132,9 +159,14 @@ export function AskPanel({ onOpen, cats }: { onOpen: (path: string) => void; cat
   const busy = turns.some((t) => t.state === "running");
   const canAsk = !!info.run && !!question.trim() && !busy;
 
+  // 맨 아래에 붙어 있으면 새 글을 부드럽게 따라간다(동작 줄이기면 곧바로).
   useEffect(() => {
     const el = scroller.current;
-    if (el && stick.current) el.scrollTop = el.scrollHeight;
+    if (!el || !stick.current) return;
+    const top = el.scrollHeight - el.clientHeight;
+    if (top - el.scrollTop < 1) return;
+    if (reducedMotion()) el.scrollTop = top;
+    else el.scrollTo({ top, behavior: "smooth" });
   }, [turns]);
 
   const patch = (id: number, p: Partial<Turn>) =>
@@ -148,7 +180,7 @@ export function AskPanel({ onOpen, cats }: { onOpen: (path: string) => void; cat
   const finish = (id: number, p: Partial<Turn>) =>
     live(id, (t) => {
       const now = Date.now();
-      return { ...t, ...p, steps: closeSteps(t.steps, now), endedAt: now, think: null };
+      return { ...t, ...p, steps: closeSteps(t.steps, now), endedAt: now, think: null, stale: undefined };
     });
 
   const cancel = () => {
@@ -157,7 +189,7 @@ export function AskPanel({ onOpen, cats }: { onOpen: (path: string) => void; cat
     setTurns((ts) =>
       ts.map((t) =>
         t.state === "running"
-          ? { ...t, state: "canceled", steps: closeSteps(t.steps, now), endedAt: now, think: null }
+          ? { ...t, state: "canceled", steps: closeSteps(t.steps, now), endedAt: now, think: null, stale: undefined }
           : t,
       ),
     );
@@ -228,7 +260,9 @@ export function AskPanel({ onOpen, cats }: { onOpen: (path: string) => void; cat
           const cur = t.steps[t.steps.length - 1];
           // 글이 오기 시작하면 생각 단계를 닫고 "답 쓰는 중" 으로.
           const next = text && cur && !isWriting(cur.label) ? stepTo(t, "답 쓰는 중", now) : t;
-          return { ...next, text, lastAt: now };
+          // 비우는 신호(웹 검색 시작)면 쓰던 글을 흐린 자리로 옮기고, 다시 쓰기 시작하면 걷는다.
+          const stale = text ? undefined : t.text || t.stale;
+          return { ...next, text, stale, lastAt: now };
         }),
       onThinking: (chars, tail) =>
         live(id, (t) => {
@@ -264,7 +298,9 @@ export function AskPanel({ onOpen, cats }: { onOpen: (path: string) => void; cat
   };
 
   const save = (turn: Turn) => {
-    if (!turn.out) return;
+    if (!turn.out || turn.saved || savingIds.current.has(turn.id)) return;
+    savingIds.current.add(turn.id);
+    patch(turn.id, { saving: true });
     const before = turns
       .filter((t) => t.id < turn.id && t.state === "done")
       .map((t) => t.question);
@@ -278,10 +314,14 @@ export function AskPanel({ onOpen, cats }: { onOpen: (path: string) => void; cat
     })
       .then(async (r) => {
         const w = r.written[0];
-        if (w) patch(turn.id, { saved: w.path });
+        patch(turn.id, w ? { saving: false, saved: w.path } : { saving: false });
         await refresh();
       })
-      .catch((e) => s.fail(e, "위키에 저장하지 못했습니다"));
+      .catch((e) => {
+        patch(turn.id, { saving: false });
+        s.fail(e, "위키에 저장하지 못했습니다");
+      })
+      .finally(() => savingIds.current.delete(turn.id));
   };
 
   const follow = (target: string) => {
@@ -301,7 +341,11 @@ export function AskPanel({ onOpen, cats }: { onOpen: (path: string) => void; cat
         ref={scroller}
         onScroll={(e) => {
           const el = e.currentTarget;
-          stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+          // 부드럽게 따라가는 동안의 스크롤은 아래로만 간다 — 위로 간 것만 사용자가 읽으러 올라간 것이다.
+          // 접히는 단계 목록이 높이를 줄여 위치가 당겨져도 바닥에 붙어 있으면 그대로 따라간다.
+          if (el.scrollHeight - el.scrollTop - el.clientHeight < 60) stick.current = true;
+          else if (el.scrollTop < lastTop.current - 1) stick.current = false;
+          lastTop.current = el.scrollTop;
         }}
         style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "14px 20px 20px" }}
       >
@@ -522,6 +566,54 @@ export function AskPanel({ onOpen, cats }: { onOpen: (path: string) => void; cat
   );
 }
 
+/** 웹을 찾으러 가며 흐려 둔 글 밑의 한 줄. */
+const STALE_NOTE = "위키만으로는 부족해 웹을 찾는 중입니다 — 위 글은 검색 결과를 보고 다시 씁니다";
+
+/** 글 안의 마지막 텍스트 노드 — 공백만 있는 노드는 건너뛴다. */
+function lastText(root: Node): Text | null {
+  const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode: (n) => (n.nodeValue && n.nodeValue.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP),
+  });
+  let last: Text | null = null;
+  for (let n = walk.nextNode(); n; n = walk.nextNode()) last = n as Text;
+  return last;
+}
+
+/**
+ * 받는 글의 끝자리(상자 기준). 커서를 글 밑 줄이 아니라 마지막 글자 바로 뒤에 둔다. 마크다운 뷰어의
+ * DOM 은 건드리지 않고 마지막 글자의 위치만 재어 그 위에 띄운다.
+ */
+function useTextEnd(box: RefObject<HTMLDivElement | null>, on: boolean, text: string) {
+  const [pos, setPos] = useState<{ x: number; y: number; h: number } | null>(null);
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!on || !el) {
+      setPos(null);
+      return;
+    }
+    const place = () => {
+      const node = lastText(el);
+      const end = node ? node.data.replace(/\s+$/, "").length : 0;
+      if (!node || !end) return setPos(null);
+      const r = document.createRange();
+      r.setStart(node, end - 1);
+      r.setEnd(node, end);
+      const rects = r.getClientRects();
+      const last = rects[rects.length - 1];
+      if (!last) return setPos(null);
+      const b = el.getBoundingClientRect();
+      const next = { x: last.right - b.left, y: last.top - b.top, h: last.height };
+      setPos((p) => (p && p.x === next.x && p.y === next.y && p.h === next.h ? p : next));
+    };
+    place();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(place);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [box, on, text]);
+  return pos;
+}
+
 function TurnView({
   turn,
   first,
@@ -539,8 +631,13 @@ function TurnView({
   onRetry: () => void;
   onCancel: () => void;
 }) {
-  const blocks = useMemo(() => mdParse(turn.text), [turn.text]);
   const running = turn.state === "running";
+  /** 웹을 찾는 동안 흐리게 남긴 앞 글. 새 글이 오면 걷힌다. */
+  const stale = running && !turn.text && !!turn.stale;
+  const body = turn.text || (stale ? turn.stale! : "");
+  const blocks = useMemo(() => mdParse(body), [body]);
+  const textBox = useRef<HTMLDivElement | null>(null);
+  const caret = useTextEnd(textBox, running && !!turn.text, turn.text);
   // 도는 동안 1초마다 다시 그려 단계 · 전체 경과를 올린다.
   const elapsed = useElapsed(running ? turn.startedAt : null);
   const now = turn.startedAt + elapsed;
@@ -554,9 +651,14 @@ function TurnView({
   // 실패 · 취소한 턴은 ✓ 요약을 달지 않는다 — 끝나지 않은 일을 끝난 것처럼 보이게 한다.
   const folded = turn.state === "done" || (running && !!turn.text);
   const showTrail = running && !turn.text ? true : folded && unfold;
+  /** 단계 줄 — 끝난 단계와(접혔으면 근거 찾기만) 지금 단계. 줄은 한 번 들어오고, 끝나면 체크가 튄다. */
+  const rows = (folded ? trail : turn.steps).filter((x) => x.end || (x === cur && !turn.text));
   const idle = running ? now - turn.lastAt : 0;
   const out = turn.out;
   const shown = out ? (out.cited.length ? out.cited : out.used) : [];
+  const web = out ? (out.webCited.length ? out.webCited : out.webUsed) : [];
+  /** 결과 칩이 차례로 들어오는 간격. */
+  const delay = (i: number) => ({ animationDelay: `${60 + i * 40}ms` });
   return (
     <div style={{ marginTop: first ? 0 : 22 }}>
       <div
@@ -571,6 +673,8 @@ function TurnView({
           marginBottom: 10,
           maxWidth: 860,
           boxSizing: "border-box",
+          // 보낸 질문이 입력칸 쪽(아래)에서 올라와 자리 잡는다.
+          animation: `cfPanelIn var(--m-screen) ${EASE_OUT} backwards`,
         }}
       >
         <span style={{ flex: "0 0 auto", fontSize: 11, fontWeight: 600, color: VIOLET }}>질문</span>
@@ -596,6 +700,7 @@ function TurnView({
       {/* 접힌 요약 — 답이 오기 시작했거나 끝난 턴. */}
       {folded && trail.length > 0 && (
         <Box
+          className="cf-enter"
           onClick={() => setUnfold((u) => !u)}
           style={{
             display: "flex",
@@ -609,7 +714,7 @@ function TurnView({
             userSelect: "none",
           }}
         >
-          <span style={{ color: "#2f7f57", fontWeight: 700 }}>✓</span>
+          <CheckMark size={11} color="#2f7f57" />
           <span>
             근거 찾기 {trail.filter((x) => x.label !== THINKING).length}단계
             {thinkMs > 0 && ` · 생각 ${fmtSec(thinkMs, true)}`}
@@ -618,84 +723,104 @@ function TurnView({
         </Box>
       )}
 
-      {showTrail && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8, maxWidth: 860 }}>
-          {(folded ? trail : turn.steps)
-            .filter((x) => x.end)
-            .map((x, i) => (
-              <div
-                key={`${x.at}-${i}`}
-                className="cf-up"
-                style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: TEXT.body }}
-              >
-                <span style={{ width: 16, textAlign: "center", color: "#2f7f57", fontSize: 12, fontWeight: 700 }}>✓</span>
-                <span style={{ flex: 1, minWidth: 0 }}>{x.label}</span>
-                <span style={{ flex: "0 0 auto", fontFamily: "'Roboto Mono',monospace", fontSize: 11.5, color: TEXT.sub }}>
-                  {fmtSec(x.end! - x.at, true)}
-                </span>
-              </div>
-            ))}
-          {cur && !turn.text && (
-            <>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 500 }}>
-                <span style={{ width: 16, display: "flex", justifyContent: "center" }}>
-                  <AiSignal />
-                </span>
-                <span style={{ flex: 1, minWidth: 0 }}>
-                  <AiStep>{cur.label}</AiStep>
-                </span>
-                <span style={{ flex: "0 0 auto", fontFamily: "'Roboto Mono',monospace", fontSize: 11.5, color: AI.fg }}>
-                  {fmtSec(now - cur.at)}
-                </span>
-              </div>
-              {cur.label === THINKING && turn.think && (
-                <div className="cf-up" style={{ marginLeft: 24, display: "flex", flexDirection: "column", gap: 5 }}>
-                  {turn.think.tail && (
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "flex-end",
-                        overflow: "hidden",
-                        whiteSpace: "nowrap",
-                        fontSize: 12,
-                        color: TEXT.sub,
-                        background: "#faf9f6",
-                        border: "1px solid #efece5",
-                        borderRadius: 5,
-                        padding: "4px 9px",
-                        WebkitMaskImage: "linear-gradient(90deg, transparent, #000 22%)",
-                        maskImage: "linear-gradient(90deg, transparent, #000 22%)",
-                      }}
-                    >
-                      {turn.think.tail}
+      {/* 단계 목록은 높이째 접히고 펼쳐진다 — 요약 줄로 접혀 들어가는 것이 보이게. */}
+      <Collapse open={showTrail}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, paddingBottom: 8, maxWidth: 860 }}>
+          {rows.map((x) => (
+            <div key={`${x.at}-${x.label}`} className="cf-enter">
+              {x.end ? (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: TEXT.body }}>
+                  <span style={{ width: 16, display: "flex", justifyContent: "center" }}>
+                    <CheckMark size={11} color="#2f7f57" />
+                  </span>
+                  <span style={{ flex: 1, minWidth: 0 }}>{x.label}</span>
+                  <span style={{ flex: "0 0 auto", fontFamily: "'Roboto Mono',monospace", fontSize: 11.5, color: TEXT.sub }}>
+                    {fmtSec(x.end - x.at, true)}
+                  </span>
+                </div>
+              ) : (
+                <>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 500 }}>
+                    <span style={{ width: 16, display: "flex", justifyContent: "center" }}>
+                      <AiSignal />
+                    </span>
+                    <span style={{ flex: 1, minWidth: 0 }}>
+                      <AiStep>{x.label}</AiStep>
+                    </span>
+                    <span style={{ flex: "0 0 auto", fontFamily: "'Roboto Mono',monospace", fontSize: 11.5, color: AI.fg }}>
+                      {fmtSec(now - x.at)}
+                    </span>
+                  </div>
+                  {x.label === THINKING && turn.think && (
+                    <div className="cf-up" style={{ marginLeft: 24, marginTop: 5, display: "flex", flexDirection: "column", gap: 5 }}>
+                      {turn.think.tail && (
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "flex-end",
+                            overflow: "hidden",
+                            whiteSpace: "nowrap",
+                            fontSize: 12,
+                            color: TEXT.sub,
+                            background: "#faf9f6",
+                            border: "1px solid #efece5",
+                            borderRadius: 5,
+                            padding: "4px 9px",
+                            WebkitMaskImage: "linear-gradient(90deg, transparent, #000 22%)",
+                            maskImage: "linear-gradient(90deg, transparent, #000 22%)",
+                          }}
+                        >
+                          {turn.think.tail}
+                        </div>
+                      )}
+                      <div style={{ fontSize: 12, color: TEXT.body }}>
+                        생각{" "}
+                        <span style={{ fontFamily: "'Roboto Mono',monospace", color: AI.fg }}>
+                          {turn.think.chars.toLocaleString()}자
+                        </span>{" "}
+                        받음
+                        {now - x.at >= ELAPSED_AFTER_MS && (
+                          <span style={{ color: TEXT.sub }}> · 추론 모델은 답하기 전에 먼저 생각합니다</span>
+                        )}
+                      </div>
                     </div>
                   )}
-                  <div style={{ fontSize: 12, color: TEXT.body }}>
-                    생각{" "}
-                    <span style={{ fontFamily: "'Roboto Mono',monospace", color: AI.fg }}>
-                      {turn.think.chars.toLocaleString()}자
-                    </span>{" "}
-                    받음
-                    {now - cur.at >= ELAPSED_AFTER_MS && (
-                      <span style={{ color: TEXT.sub }}> · 추론 모델은 답하기 전에 먼저 생각합니다</span>
-                    )}
-                  </div>
-                </div>
+                </>
               )}
-            </>
+            </div>
+          ))}
+        </div>
+      </Collapse>
+
+      {body && (
+        <div
+          ref={textBox}
+          style={{ position: "relative", opacity: stale ? 0.4 : 1, transition: "opacity 200ms linear" }}
+        >
+          <MarkdownView blocks={blocks} inline />
+          {/* 커서는 마지막 글자 바로 뒤에 — 글 밑에 따로 한 줄을 차지하지 않는다. */}
+          {caret && (
+            <span
+              style={{
+                position: "absolute",
+                left: caret.x,
+                top: caret.y,
+                height: caret.h,
+                display: "flex",
+                alignItems: "center",
+                fontSize: 13,
+                pointerEvents: "none",
+              }}
+            >
+              <Caret />
+            </span>
           )}
         </div>
       )}
-
-      {turn.text && (
-        <>
-          <MarkdownView blocks={blocks} inline />
-          {running && (
-            <div style={{ lineHeight: 1.75, fontSize: 13 }}>
-              <Caret />
-            </div>
-          )}
-        </>
+      {stale && (
+        <div className="cf-enter" style={{ ...hint, marginTop: 4 }}>
+          {STALE_NOTE}
+        </div>
       )}
 
       {running && idle >= IDLE_WARN_MS && (
@@ -755,17 +880,18 @@ function TurnView({
           }}
         >
           {turn.endedAt && (
-            <span className="cf-up" style={{ fontSize: 12, color: "#256b47", fontWeight: 600, marginRight: 6 }}>
+            <span className="cf-enter" style={{ fontSize: 12, color: "#256b47", fontWeight: 600, marginRight: 6 }}>
               ✓ 답변 완료 · {fmtSec(turn.endedAt - turn.startedAt, true)}
             </span>
           )}
-          <span style={{ ...hint, marginRight: 4 }}>
+          <span className="cf-enter" style={{ ...hint, marginRight: 4, ...delay(0) }}>
             {out.cited.length ? `인용 ${out.cited.length}` : `읽은 페이지 ${out.used.length}`}
           </span>
-          {shown.map((p) => {
+          {/* 인용 칩이 답 끝에서 차례로 붙는다. */}
+          {shown.map((p, i) => {
             const task = p.taskId ? byId.get(p.taskId) : undefined;
             return (
-              <span key={p.path} style={{ display: "inline-flex", gap: 2 }}>
+              <span key={p.path} className="cf-enter" style={{ display: "inline-flex", gap: 2, ...delay(i + 1) }}>
                 <Box
                   title={p.path}
                   onClick={() => onOpen(p.path)}
@@ -802,14 +928,24 @@ function TurnView({
               </span>
             );
           })}
-          {(out.webCited.length ? out.webCited : out.webUsed).length > 0 && (
-            <WebChips sources={out.webCited.length ? out.webCited : out.webUsed} cited={out.webCited.length > 0} />
+          {web.length > 0 && (
+            <WebChips sources={web} cited={out.webCited.length > 0} from={shown.length + 1} delay={delay} />
           )}
-          <span style={{ marginLeft: "auto" }}>
+          <span className="cf-enter" style={{ marginLeft: "auto", ...delay(shown.length + web.length + 2) }}>
             {turn.saved ? (
-              <Box style={{ ...smallBtn, color: "#256b47" }} onClick={() => onOpen(turn.saved!)}>
+              <Box
+                style={{ ...smallBtn, gap: 5, color: "#256b47", border: "1px solid #c9e4d5" }}
+                hover={{ background: "#f3f9f5" }}
+                onClick={() => onOpen(turn.saved!)}
+              >
+                <CheckMark size={10} color="#2f7f57" />
                 저장됨 · 열기
               </Box>
+            ) : turn.saving ? (
+              <span role="status" style={{ ...smallBtn, gap: 6, color: TEXT.sub, cursor: "default" }}>
+                <Spinner />
+                저장하는 중
+              </span>
             ) : (
               <Box style={smallBtn} hover={{ background: "#f2efe9" }} onClick={onSave}>
                 위키에 저장
@@ -846,15 +982,27 @@ function WarnIcon() {
 }
 
 /** 웹 출처 칩 — `[웹n]` 번호 + 사이트. 누르면 사용자의 기본 브라우저로 연다. */
-function WebChips({ sources, cited }: { sources: WebSource[]; cited: boolean }) {
+function WebChips({
+  sources,
+  cited,
+  from,
+  delay,
+}: {
+  sources: WebSource[];
+  cited: boolean;
+  /** 앞 칩들 다음 차례 — 결과 칩이 한 줄로 차례차례 들어온다. */
+  from: number;
+  delay: (i: number) => React.CSSProperties;
+}) {
   return (
     <>
-      <span style={{ ...hint, margin: "0 4px 0 8px" }}>
+      <span className="cf-enter" style={{ ...hint, margin: "0 4px 0 8px", ...delay(from) }}>
         {cited ? `웹 ${sources.length}` : `참고한 웹 ${sources.length}`}
       </span>
-      {sources.map((w) => (
+      {sources.map((w, i) => (
         <Box
           key={w.n}
+          className="cf-enter"
           title={`${w.title}\n${w.url}`}
           onClick={() =>
             void api
@@ -873,6 +1021,7 @@ function WebChips({ sources, cited }: { sources: WebSource[]; cited: boolean }) 
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
+            ...delay(from + 1 + i),
           }}
           hover={{ borderColor: "#b9d6c2" }}
         >

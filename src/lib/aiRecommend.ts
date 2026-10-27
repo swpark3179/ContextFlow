@@ -34,6 +34,8 @@ export interface AiRecommendInput {
   query: string;
   candidates: RecCandidate[];
   threshold: number;
+  /** 새 업무 창의 [취소] — 도는 실행을 끊는다. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -93,17 +95,20 @@ export async function aiRecommend(input: AiRecommendInput): Promise<AiRecommendO
       maxTokens: RECOMMEND_MAX_TOKENS,
     };
 
-    let run = await runWithRetry({ ...base, prompt });
+    let run = await runWithRetry({ ...base, prompt }, { signal: input.signal });
     if (!run.ok && !run.text.trim()) return { reason: run.error ?? "응답이 비어 있습니다" };
 
     let parsed = parseRecommend(run.text, candidates, MAX_ITEMS);
 
     // 재질의 **1회만**. 서술은 이미 받았으니 펜스만 다시 달라고 한다.
     if (!parsed.parsed && run.text.trim()) {
-      const repair = await runWithRetry({
-        ...base,
-        prompt: buildRepairPrompt(run.text, candidates.map((c) => c.id)),
-      });
+      const repair = await runWithRetry(
+        {
+          ...base,
+          prompt: buildRepairPrompt(run.text, candidates.map((c) => c.id)),
+        },
+        { signal: input.signal },
+      );
       if (repair.text.trim()) {
         const retried = parseRecommend(repair.text, candidates, MAX_ITEMS);
         if (retried.parsed) {

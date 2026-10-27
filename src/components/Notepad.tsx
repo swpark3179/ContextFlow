@@ -1,6 +1,12 @@
-import { useRef } from "react";
-import { Box } from "../lib/ui";
+import { useLayoutEffect, useRef, useState } from "react";
+import { Box, reducedMotion } from "../lib/ui";
 import { useStore } from "../store/useStore";
+
+/**
+ * 메모장을 접고 펴는 시간(m-base). 높이는 편집기 쪽이 흘린다(`EditorPane` 의 높이 전환) — 메모장은 남는
+ * 자리를 채우는 쪽이라 제 높이를 모른다. 여기서는 접히는 동안 본문을 남겨 두는 데만 쓴다.
+ */
+export const NOTE_MS = 200;
 
 /**
  * Scratch memo. It is not a file in the vault — it lives in
@@ -16,6 +22,20 @@ export default function Notepad() {
    * 목록에 업무를 올리지 않게 하려는 것이다.
    */
   const entry = useRef("");
+  /**
+   * 본문을 그리는가. 접을 때는 편집기가 내려오는 동안(`NOTE_MS`) 남겨 둔다 — 곧바로 빼면 아직 넓은
+   * 자리가 빈 칸으로 비친다. 펼 때는 곧바로 그린다.
+   */
+  const [show, setShow] = useState(!s.noteMin);
+  useLayoutEffect(() => {
+    if (!s.noteMin || reducedMotion()) {
+      setShow(!s.noteMin);
+      return;
+    }
+    const t = window.setTimeout(() => setShow(false), NOTE_MS);
+    return () => window.clearTimeout(t);
+  }, [s.noteMin]);
+  const toggle = () => s.set({ noteMin: !s.noteMin });
 
   return (
     <div
@@ -23,11 +43,20 @@ export default function Notepad() {
         minHeight: 0,
         display: "flex",
         flexDirection: "column",
-        flex: s.noteMin ? "0 0 26px" : "1 1 auto",
+        // 높이는 편집기가 정하고 메모장은 남는 자리를 채운다 — 접힌 동안에는 머리띠(26px)만 남는다.
+        flex: "1 1 auto",
       }}
     >
       <div
-        onClick={() => s.set({ noteMin: !s.noteMin })}
+        onClick={toggle}
+        role="button"
+        tabIndex={0}
+        aria-expanded={!s.noteMin}
+        onKeyDown={(e) => {
+          if (e.key !== "Enter" && e.key !== " ") return;
+          e.preventDefault();
+          toggle();
+        }}
         style={{
           flex: "0 0 26px",
           display: "flex",
@@ -51,21 +80,23 @@ export default function Notepad() {
         >
           간단 메모장
         </span>
-        {s.noteMin && (
-          <span
-            style={{
-              fontSize: 11,
-              color: "#6a665e",
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              flex: "1 1 auto",
-              minWidth: 0,
-            }}
-          >
-            {peek}
-          </span>
-        )}
+        {/* 접혔을 때만 첫 줄을 엿보인다. 자리는 늘 두고 투명도로만 드나든다. */}
+        <span
+          aria-hidden={!s.noteMin}
+          style={{
+            fontSize: 11,
+            color: "#6a665e",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            flex: "1 1 auto",
+            minWidth: 0,
+            opacity: s.noteMin ? 1 : 0,
+            transition: "opacity 140ms",
+          }}
+        >
+          {peek}
+        </span>
         <div style={{ flex: 1, minWidth: 0 }} />
         <span
           style={{
@@ -97,7 +128,7 @@ export default function Notepad() {
           {s.noteMin ? "▲" : "–"}
         </Box>
       </div>
-      {!s.noteMin && (
+      {show && (
         <textarea
           value={ui.notepad}
           onChange={(e) => s.setUi({ notepad: e.target.value })}

@@ -1,4 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
+import { TEXT } from "../lib/design";
 import type { RouteInfo } from "../store/aiStore";
 
 /** 업무 AI 도우미 팝업(위키 가이드 · 간략 입력 정리 · 이슈 추가)이 함께 쓰는 조각. */
@@ -108,3 +109,29 @@ export const selectStyle: CSSProperties = {
   outline: "none",
   color: "#23211e",
 };
+
+/**
+ * 꼬리의 빈 자리 — 입력 칸에 친 것이 있어 첫 Esc 를 막았으면(`useEscGuard`) 거기에 경고를 적는다. 평소에는
+ * 빈 칸으로 단추들을 오른쪽으로 민다.
+ */
+export function EscNote({ armed }: { armed: boolean }) {
+  return (
+    <span
+      key={armed ? "armed" : "idle"}
+      role={armed ? "alert" : undefined}
+      className={armed ? "cf-enter" : undefined}
+      style={{
+        flex: 1,
+        minWidth: 0,
+        fontSize: 11.5,
+        fontWeight: 600,
+        color: TEXT.warn,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {armed ? "작성 중인 내용이 있습니다 — Esc 를 한 번 더 누르면 버리고 닫습니다" : ""}
+    </span>
+  );
+}

@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
-import { Box, Input, Select } from "../lib/ui";
-import { GREEN } from "../lib/design";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Box, EASE_OUT, Input, Select, Spinner, reducedMotion } from "../lib/ui";
+import { GREEN, TEXT } from "../lib/design";
 import { daysSince } from "../lib/format";
 import * as api from "../lib/api";
 import type { TaskMeta } from "../lib/api";
@@ -11,6 +11,175 @@ import { CategoryChip } from "../components/CategoryPicker";
 import { isWithin, keyOf, knownCategories, label as categoryLabel } from "../lib/category";
 import { archiveDataview, groupArchived } from "../lib/archiveGroups";
 
+/** 목록 ↔ 상세 전환의 길이(m-screen 근처). 카드가 상세 자리까지 펼쳐지고 되접힌다. */
+const TRAVEL_MS = 300;
+/** 펼친 카드가 걷히며 상세가 드러나는 시간. */
+const REVEAL_MS = 160;
+
+/** 검색 범위 — 미끄러지는 표시의 자리를 셈하려고 폭을 고정한다. */
+const SCOPES: ["title" | "full", string, number][] = [
+  ["title", "제목 · 태그", 78],
+  ["full", "본문 전문", 70],
+];
+
+interface Rect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** 카드 ↔ 상세 전환 중의 잔상. `stage` 0 → 1 이 이동, 열 때만 2 가 걷히기다. */
+interface Travel {
+  kind: "open" | "close";
+  folder: string;
+  title: string;
+  card: Rect;
+  full: Rect;
+  stage: 0 | 1 | 2;
+}
+
+/**
+ * 값이 바뀐 횟수. 처음 그릴 때는 0 이라 움직이지 않는다 — 그 수를 `key` 로 써서 한 번 재생하는
+ * 모션 클래스를 다시 돌린다.
+ */
+function useChanges(value: unknown): number {
+  const r = useRef({ v: value, n: 0 });
+  if (!Object.is(r.current.v, value)) r.current = { v: value, n: r.current.n + 1 };
+  return r.current.n;
+}
+
+/** 바뀐 숫자만 아래에서 굴러 올라온다. */
+function Roll({ value }: { value: number }) {
+  const n = useChanges(value);
+  return (
+    <span key={n} className={n ? "cf-enter" : undefined} style={{ display: "inline-block" }}>
+      {value}
+    </span>
+  );
+}
+
+/** 작업공간을 여는 동안의 자리 — AI 가 채우는 칸이 아니라 회색(보라 빛 없이)이다. */
+function Skel({ width, height = 11 }: { width: number | string; height?: number }) {
+  return (
+    <span
+      aria-hidden
+      className="cf-skel"
+      style={{
+        display: "block",
+        width,
+        height,
+        borderRadius: 3,
+        backgroundImage: "linear-gradient(90deg, #efebe4 0%, #efebe4 35%, #f8f6f1 50%, #efebe4 65%, #efebe4 100%)",
+        backgroundSize: "200% 100%",
+      }}
+    />
+  );
+}
+
+/**
+ * 상세를 연 업무의 작업공간을 아직 읽는 중. 이미 아는 것(제목 · 태그 · 카테고리 · 폴더)은 그대로
+ * 그리고, 탭 · 탐색기 자리만 비워 둔다 — 그 사이 앞 업무의 작업공간이나 빈 화면이 비치지 않게.
+ * 머리 줄은 `Workspace` 의 머리와 같은 치수다.
+ */
+function DetailSkeleton({ task }: { task: TaskMeta }) {
+  return (
+    <div aria-busy style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+      <div
+        style={{
+          flex: "0 0 auto",
+          borderBottom: "1px solid #e6e2da",
+          padding: "8px 12px 7px 12px",
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          background: "#fdfcfa",
+        }}
+      >
+        <div style={{ minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span
+              style={{
+                fontSize: 15.5,
+                fontWeight: 600,
+                letterSpacing: "-.2px",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {task.title}
+            </span>
+            {task.tags.map((tag) => (
+              <span
+                key={tag}
+                style={{
+                  fontFamily: "'Roboto Mono',monospace",
+                  fontSize: 11.5,
+                  color: "#6a665e",
+                  background: "#f0ede7",
+                  border: "1px solid #e4e0d8",
+                  borderRadius: 3,
+                  padding: "1px 5px",
+                }}
+              >
+                #{tag}
+              </span>
+            ))}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 3, minWidth: 0 }}>
+            <CategoryChip category={task.category} caret={false} />
+            <span
+              style={{
+                fontFamily: "'Roboto Mono',monospace",
+                fontSize: 11,
+                color: "#6a665e",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {task.relFolder}
+            </span>
+          </div>
+        </div>
+        <div style={{ flex: 1 }} />
+        <span role="status" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: TEXT.sub }}>
+          <Spinner />
+          작업공간을 여는 중
+        </span>
+      </div>
+      <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+          <div style={{ flex: "0 0 32px", borderBottom: "1px solid #e6e2da", background: "#f7f5f1" }} />
+          <div style={{ padding: "14px 18px", display: "flex", flexDirection: "column", gap: 11 }}>
+            <Skel width="40%" />
+            <Skel width="76%" />
+            <Skel width="62%" />
+            <Skel width="70%" />
+          </div>
+        </div>
+        <div
+          style={{
+            flex: "0 0 240px",
+            borderLeft: "1px solid #e6e2da",
+            background: "#faf9f6",
+            padding: "9px 12px",
+            display: "flex",
+            flexDirection: "column",
+            gap: 11,
+          }}
+        >
+          <span style={{ fontSize: 11.5, fontWeight: 600, letterSpacing: ".4px", color: TEXT.sub }}>탐색기</span>
+          <Skel width="70%" />
+          <Skel width="55%" />
+          <Skel width="62%" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /**
  * 보관함 안에서 연 업무의 작업공간.
  *
@@ -19,8 +188,23 @@ import { archiveDataview, groupArchived } from "../lib/archiveGroups";
  * 같은 항목을 다시 열 수 없었다. 화면(모드)은 보관함에 두고, 목록으로 돌아가는 길을
  * 이 바가 제공한다.
  */
-function ArchiveDetail({ task }: { task: TaskMeta }) {
+function ArchiveDetail({
+  task,
+  resuming,
+  onResume,
+  onBack,
+}: {
+  task: TaskMeta;
+  /** 재개 중인 업무 — 이 업무면 단추가 돌고, 다른 업무여도 누르지 못한다. */
+  resuming: string | null;
+  onResume: () => void;
+  onBack: () => void;
+}) {
   const s = useStore();
+  // 작업공간은 `selectTask` 가 이 업무로 바꿔 놓은 뒤에야 맞는 내용을 그린다. 그 전에는 앞 업무의
+  // 작업공간이 비치므로 자리만 그린다.
+  const loading = s.activeFolder !== task.folder || s.pendingFolder === task.folder;
+  const busy = resuming === task.folder;
   const btn: React.CSSProperties = {
     flex: "0 0 auto",
     height: 24,
@@ -48,7 +232,7 @@ function ArchiveDetail({ task }: { task: TaskMeta }) {
         }}
       >
         <Box
-          onClick={() => s.closeArchived()}
+          onClick={onBack}
           style={{
             flex: "0 0 auto",
             display: "flex",
@@ -74,27 +258,40 @@ function ArchiveDetail({ task }: { task: TaskMeta }) {
         <Box
           onClick={() => void s.openTaskInObsidian(task.folder)}
           style={btn}
-          hover={{ borderColor: "#a78bfa", color: "#5a44b4" }}
+          hover={{ borderColor: "#c9dbf7", color: "#2f5cbb" }}
         >
           Obsidian
         </Box>
         <Box
-          onClick={() => void s.restoreTask(task.folder)}
+          role="button"
+          aria-disabled={!!resuming}
+          onClick={() => {
+            if (!resuming) onResume();
+          }}
           style={{
             ...btn,
+            gap: 6,
             padding: "0 11px",
-            border: "1px solid #e0d6f8",
-            background: "#f4f0fd",
-            color: "#5a44b4",
+            border: "1px solid #cddcf8",
+            background: "#eef3fd",
+            color: "#2f5cbb",
             fontSize: 12,
             fontWeight: 600,
+            cursor: resuming ? "default" : "pointer",
           }}
-          hover={{ background: "#ece5fb" }}
+          hover={resuming ? undefined : { background: "#e2ebfc" }}
         >
-          여기서 재개
+          {busy && <Spinner track="#cddcf8" />}
+          {busy ? "재개하는 중" : "여기서 재개"}
         </Box>
       </div>
-      <Workspace />
+      {loading ? (
+        <DetailSkeleton task={task} />
+      ) : (
+        <div className="cf-fade" style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+          <Workspace />
+        </div>
+      )}
     </div>
   );
 }
@@ -103,6 +300,18 @@ export default function Archive() {
   const s = useStore();
   const { tasks, settings, archQuery, archScope, archYear, archMonth, archCat, archGroup } = s;
   const [hits, setHits] = useState<Record<string, string>>({});
+  /** `hits` 가 답한 검색어. `null` 이면 본문 검색 결과가 아직 없다(처음 · 실패). */
+  const [hitsFor, setHitsFor] = useState<string | null>(null);
+  /** 본문 검색이 도는 중 — 앞 결과를 흐리게 두고 입력칸에 돌기를 띄운다. */
+  const [searching, setSearching] = useState(false);
+  const [searchErr, setSearchErr] = useState<string | null>(null);
+  /** 재개 중인 업무. 끝나면 작업공간으로 넘어가므로 실패했을 때만 되돌아온다. */
+  const [resuming, setResuming] = useState<string | null>(null);
+  const resume = (folder: string) => {
+    if (resuming) return;
+    setResuming(folder);
+    void s.restoreTask(folder).finally(() => setResuming((r) => (r === folder ? null : r)));
+  };
 
   const archived = useMemo(
     () => tasks.filter((t) => isArchived(t, settings.archDays)),
@@ -130,21 +339,37 @@ export default function Archive() {
   const effGroup = nodes.length > 0 ? archGroup : "quarter";
 
   // Full-text scope needs the backend to read the notes, so run it on demand.
+  // 기다리는 동안 앞 결과를 지우지 않는다 — 비웠다가 채우면 그 사이 "맞는 업무가 없습니다" 가 거짓으로
+  // 뜬다. 실패도 빈 결과로 삼키지 않고 따로 알린다.
   useEffect(() => {
     const q = archQuery.trim();
     if (archScope !== "full" || !q) {
       setHits({});
+      setHitsFor(null);
+      setSearching(false);
+      setSearchErr(null);
       return;
     }
     let cancelled = false;
+    setSearching(true);
     const timer = window.setTimeout(() => {
       void api
         .searchFullText(settings.vault, q)
         .then((res) => {
           if (cancelled) return;
           setHits(Object.fromEntries(res.map((h) => [h.folder, h.snippet])));
+          setHitsFor(q);
+          setSearchErr(null);
         })
-        .catch(() => setHits({}));
+        .catch((e) => {
+          if (cancelled) return;
+          setHits({});
+          setHitsFor(null);
+          setSearchErr(api.errMessage(e));
+        })
+        .finally(() => {
+          if (!cancelled) setSearching(false);
+        });
     }, 250);
     return () => {
       cancelled = true;
@@ -184,14 +409,15 @@ export default function Archive() {
         if (archMonth !== "all" && done.slice(5, 7) !== archMonth) return false;
         if (effCat !== null && !isWithin(t.category, effCat)) return false;
         if (!q) return true;
-        if (archScope === "full") return !!hits[t.folder];
+        // 본문 결과가 있으면 그것으로. 아직 없으면(처음 받는 중 · 실패) 제목 · 태그로 찾은 것을 둔다.
+        if (archScope === "full" && hitsFor !== null) return !!hits[t.folder];
         // 카테고리는 저장 형태(`a/b`)와 화면 형태(`a › b`) 둘 다로 찾는다(업무 리스트와 같다).
         const cat = t.category ? `${t.category} ${categoryLabel(t.category)}` : "";
         return `${t.title} ${t.tags.join(" ")} ${cat} ${t.relFolder}`.toLowerCase().includes(q);
       })
       .sort((a, b) => (b.completedAt ?? "").localeCompare(a.completedAt ?? ""));
     return groupArchived(hit, effGroup, nodes);
-  }, [archived, archQuery, archScope, archYear, archMonth, hits, effCat, effGroup, nodes]);
+  }, [archived, archQuery, archScope, archYear, archMonth, hits, hitsFor, effCat, effGroup, nodes]);
 
   /**
    * 가상 스크롤은 한 줄짜리 목록만 다룰 수 있으므로, 묶음 헤더와 카드를 한 배열로 편다.
@@ -208,6 +434,22 @@ export default function Archive() {
     });
     return out;
   }, [groups]);
+
+  /**
+   * 걸러서 새로 나타난 카드 — 이것만 `cf-enter` 로 들어온다. 남아 있던 카드는 가만히 두고, 스크롤로
+   * 그려지는 카드도 움직이지 않는다(이미 목록에 있던 것이다). 처음 화면을 열 때는 아무것도 없다.
+   */
+  const fresh = useRef<{ of: typeof rows | null; seen: Set<string>; fresh: Set<string> }>({
+    of: null,
+    seen: new Set(),
+    fresh: new Set(),
+  });
+  if (fresh.current.of !== rows) {
+    const now = new Set(rows.filter((r) => r.kind === "card").map((r) => r.key));
+    const first = fresh.current.of === null;
+    const was = fresh.current.seen;
+    fresh.current = { of: rows, seen: now, fresh: first ? new Set() : new Set([...now].filter((k) => !was.has(k))) };
+  }
 
   const v = useVirtual({
     count: rows.length,
@@ -235,32 +477,93 @@ export default function Archive() {
       : "파일은 이동하지 않고 frontmatter에 archived 표시만 남기므로 Obsidian 링크와 그래프는 그대로 유지됩니다."
   }`;
 
+  /**
+   * 상세로 들어간 업무. 사라진 업무(외부에서 삭제 · 재개)를 가리키고 있으면 목록을
+   * 그린다 — 빈 상세보다 목록이 낫다.
+   */
+  const opened = s.archOpen ? tasks.find((t) => t.folder === s.archOpen) : undefined;
+  // 카드 ↔ 상세 전환 ------------------------------------------------------------------------
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const listScroll = useRef<HTMLDivElement | null>(null);
+  const cards = useRef(new Map<string, HTMLElement>());
+  const [travel, setTravel] = useState<Travel | null>(null);
+  /** 상세가 보이는가 — 카드가 펼쳐지는 동안은 아직 아니다. */
+  const detailOn = !!opened && !(travel?.kind === "open" && travel.stage < 2);
+  const timers = useRef<number[]>([]);
+  useEffect(() => () => timers.current.forEach((t) => window.clearTimeout(t)), []);
+  const later = (ms: number, f: () => void) => timers.current.push(window.setTimeout(f, ms));
+  /** 두 프레임 뒤 — 첫 자리가 그려진 다음에 옮겨야 전환이 돈다. */
+  const nextFrame = (f: () => void) => requestAnimationFrame(() => requestAnimationFrame(f));
+  /** 방금 목록으로 돌아온 카드 — 한 번 파랗게 빛나 어디로 돌아왔는지 보인다. */
+  const [flash, setFlash] = useState<{ folder: string; n: number } | null>(null);
+  const flashN = useRef(0);
+  const flashCard = (folder: string) => {
+    const n = ++flashN.current;
+    setFlash({ folder, n });
+    // 빛난 뒤에는 지운다 — 남겨 두면 스크롤로 다시 그려질 때 또 빛난다.
+    later(1000, () => setFlash((f) => (f?.n === n ? null : f)));
+  };
+  const scrollRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      v.scrollRef(el);
+      listScroll.current = el;
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [v.scrollRef],
+  );
+
+  /** 목록에서 보이는 카드의 자리(이 화면 기준). 스크롤 밖에 있으면 `null` — 그때는 날지 않는다. */
+  const cardRect = (folder: string): { card: Rect; full: Rect } | null => {
+    const el = cards.current.get(folder);
+    const root = rootRef.current;
+    const box = listScroll.current;
+    if (!el?.isConnected || !root || !box || reducedMotion()) return null;
+    const R = root.getBoundingClientRect();
+    const C = el.getBoundingClientRect();
+    const B = box.getBoundingClientRect();
+    if (C.bottom <= B.top || C.top >= B.bottom) return null;
+    return {
+      card: { x: C.left - R.left, y: C.top - R.top, w: C.width, h: C.height },
+      full: { x: 0, y: 0, w: R.width, h: R.height },
+    };
+  };
+
+  /** 카드를 눌렀다 — 카드 모양이 상세 자리까지 펼쳐진 뒤 걷히며 상세가 드러난다. 그동안 업무를 연다. */
+  const openCard = (t: TaskMeta) => {
+    if (travel || resuming) return;
+    const at = cardRect(t.folder);
+    void s.peekArchived(t.folder);
+    if (!at) return;
+    setTravel({ kind: "open", folder: t.folder, title: t.title, ...at, stage: 0 });
+    nextFrame(() => setTravel((x) => (x?.kind === "open" ? { ...x, stage: 1 } : x)));
+    later(TRAVEL_MS, () => setTravel((x) => (x?.kind === "open" ? { ...x, stage: 2 } : x)));
+    later(TRAVEL_MS + REVEAL_MS, () => setTravel((x) => (x?.kind === "open" ? null : x)));
+  };
+
+  /** [← 보관함 목록] — 상세가 같은 카드로 되접히고, 그 카드가 한 번 빛난다. 목록은 스크롤 그대로다. */
+  const backToList = () => {
+    const folder = s.archOpen;
+    const title = opened?.title ?? "";
+    const at = cardRect(folder);
+    s.closeArchived();
+    if (!at) {
+      flashCard(folder);
+      return;
+    }
+    setTravel({ kind: "close", folder, title, ...at, stage: 0 });
+    nextFrame(() => setTravel((x) => (x?.kind === "close" ? { ...x, stage: 1 } : x)));
+    later(TRAVEL_MS, () => {
+      setTravel((x) => (x?.kind === "close" ? null : x));
+      flashCard(folder);
+    });
+  };
+
   const stats = [
     { key: "n", value: archived.length, label: "보관된 업무", color: "#3a3630" },
     { key: "r", value: archived.reduce((n, t) => n + t.runs, 0), label: "누적 회차", color: "#2f6f80" },
     { key: "v", value: live, label: "목록에 남은 업무", color: GREEN },
   ];
 
-  /**
-   * 상세로 들어간 업무. 사라진 업무(외부에서 삭제 · 재개)를 가리키고 있으면 목록을
-   * 그린다 — 빈 상세보다 목록이 낫다.
-   */
-  const opened = s.archOpen ? tasks.find((t) => t.folder === s.archOpen) : undefined;
-
-  const chip = (on: boolean) => ({
-    height: 30,
-    padding: "0 11px",
-    display: "flex",
-    alignItems: "center",
-    borderRadius: 5,
-    fontSize: 12,
-    cursor: "pointer",
-    whiteSpace: "nowrap" as const,
-    border: `1px solid ${on ? "#cddcf8" : "#ddd8cf"}`,
-    background: on ? "#eef3fd" : "#fff",
-    color: on ? "#2f5cbb" : "#6a665e",
-    fontWeight: on ? 600 : 400,
-  });
 
   /** 연도 줄의 작은 칩 — 연도와 `묶기` 가 같은 모양이다. */
   const smallChip = (on: boolean): React.CSSProperties => ({
@@ -276,6 +579,10 @@ export default function Archive() {
     color: on ? "#23211e" : "#6a665e",
     fontWeight: on ? 600 : 400,
   });
+  /** 고르지 않은 칩의 호버 — 고른 칩은 그대로다. */
+  const chipHover = (on: boolean): React.CSSProperties | undefined =>
+    on ? undefined : { background: "#f2efe9", color: TEXT.ink };
+  const scopeAt = SCOPES.findIndex(([k]) => k === archScope);
 
   /** 연도 줄 끝의 카테고리 관리 링크 — 지금 거르는 카테고리에서, 보관 업무까지 함께 보며 연다. */
   const manageLink = (text: string) => (
@@ -288,10 +595,32 @@ export default function Archive() {
     </Box>
   );
 
-  if (opened) return <ArchiveDetail task={opened} />;
+  /** 펼치거나 되접는 카드의 지금 자리. */
+  const ghost = travel
+    ? (travel.kind === "open" ? travel.stage === 0 : travel.stage === 1)
+      ? { ...travel.card, r: 6 }
+      : { ...travel.full, r: 0 }
+    : null;
 
   return (
-    <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", background: "#fdfcfa" }}>
+    <div ref={rootRef} style={{ position: "relative", flex: 1, minHeight: 0, minWidth: 0, display: "flex", overflow: "hidden" }}>
+    {/*
+      목록은 상세를 여는 동안에도 내리지 않는다 — 다시 그리면 스크롤이 맨 위로 돌아가 방금 보던 카드를
+      다시 찾아야 했다. 숨기는 것은 `visibility` 라 스크롤 자리가 그대로 남는다.
+    */}
+    <div
+      aria-hidden={detailOn}
+      style={{
+        position: "absolute",
+        inset: 0,
+        display: "flex",
+        flexDirection: "column",
+        background: "#fdfcfa",
+        visibility: detailOn ? "hidden" : "visible",
+        opacity: opened ? 0 : 1,
+        transition: `opacity ${REVEAL_MS}ms linear`,
+      }}
+    >
       <div
         style={{ flex: "0 0 auto", padding: "16px 22px 12px 22px", borderBottom: "1px solid #eae6de" }}
       >
@@ -329,9 +658,11 @@ export default function Archive() {
                     fontWeight: 600,
                     color: st.color,
                     lineHeight: 1.1,
+                    // 바뀐 숫자가 아래에서 올라올 때 칸 밖이 비치지 않게.
+                    overflow: "hidden",
                   }}
                 >
-                  {st.value}
+                  <Roll value={st.value} />
                 </div>
                 <div
                   style={{ fontSize: 11, color: "#6a665e", marginTop: 2, whiteSpace: "nowrap" }}
@@ -344,49 +675,123 @@ export default function Archive() {
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 13 }}>
-          <Input
-            value={archQuery}
-            onChange={(e) => s.set({ archQuery: e.target.value })}
-            placeholder="보관된 업무 검색 — 제목, 태그, 본문 내용"
+          <div style={{ position: "relative", flex: 1, minWidth: 0, display: "flex" }}>
+            <Input
+              value={archQuery}
+              onChange={(e) => s.set({ archQuery: e.target.value })}
+              placeholder="보관된 업무 검색 — 제목, 태그, 본문 내용"
+              aria-label="보관된 업무 검색"
+              style={{
+                flex: 1,
+                minWidth: 0,
+                height: 30,
+                border: "1px solid #ddd8cf",
+                borderRadius: 5,
+                background: "#fff",
+                padding: "0 28px 0 10px",
+                fontSize: 13,
+                color: "#23211e",
+                outline: "none",
+              }}
+              focusStyle={{ borderColor: "#3a6fd8", boxShadow: "0 0 0 2px #e6eefc" }}
+            />
+            {searching && (
+              <span
+                role="status"
+                aria-label="본문에서 찾는 중"
+                title="본문에서 찾는 중"
+                style={{ position: "absolute", right: 10, top: 10, display: "flex" }}
+              >
+                <Spinner />
+              </span>
+            )}
+          </div>
+          {/* 검색 범위 — 고른 쪽 뒤로 표시가 미끄러진다. */}
+          <div
+            role="radiogroup"
+            aria-label="검색 범위"
             style={{
-              flex: 1,
-              minWidth: 0,
+              position: "relative",
+              flex: "0 0 auto",
+              display: "flex",
               height: 30,
+              boxSizing: "border-box",
+              padding: 2,
               border: "1px solid #ddd8cf",
               borderRadius: 5,
               background: "#fff",
-              padding: "0 10px",
-              fontSize: 13,
-              color: "#23211e",
-              outline: "none",
             }}
-            focusStyle={{ borderColor: "#3a6fd8", boxShadow: "0 0 0 2px #e6eefc" }}
-          />
-          <div style={{ display: "flex", gap: 4, flex: "0 0 auto" }}>
-            {(
-              [
-                ["title", "제목 · 태그"],
-                ["full", "본문 전문"],
-              ] as const
-            ).map(([k, label]) => (
-              <div key={k} onClick={() => s.set({ archScope: k })} style={chip(archScope === k)}>
-                {label}
-              </div>
-            ))}
+          >
+            <span
+              aria-hidden
+              className="cf-mv"
+              style={{
+                position: "absolute",
+                top: 2,
+                left: 2,
+                height: 24,
+                width: SCOPES[scopeAt]![2],
+                borderRadius: 3,
+                background: "#eef3fd",
+                boxShadow: "inset 0 0 0 1px #cddcf8",
+                transform: `translateX(${scopeAt ? SCOPES[0]![2] : 0}px)`,
+                transition: `transform 180ms ${EASE_OUT}, width 180ms ${EASE_OUT}`,
+              }}
+            />
+            {SCOPES.map(([k, label, w]) => {
+              const on = archScope === k;
+              return (
+                <Box
+                  key={k}
+                  role="radio"
+                  aria-checked={on}
+                  onClick={() => s.set({ archScope: k })}
+                  style={{
+                    position: "relative",
+                    width: w,
+                    height: 24,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    borderRadius: 3,
+                    fontSize: 12,
+                    whiteSpace: "nowrap",
+                    cursor: "pointer",
+                    color: on ? "#2f5cbb" : TEXT.sub,
+                    fontWeight: on ? 600 : 400,
+                  }}
+                  hover={on ? undefined : { color: TEXT.ink }}
+                >
+                  {label}
+                </Box>
+              );
+            })}
           </div>
         </div>
+        {searchErr && archScope === "full" && archQuery.trim() && (
+          <div
+            role="status"
+            style={{ display: "flex", gap: 6, marginTop: 6, fontSize: 11.5, lineHeight: 1.6, color: TEXT.warn }}
+          >
+            <span style={{ flex: "0 0 auto" }}>●</span>
+            <span style={{ minWidth: 0, wordBreak: "break-word" }}>
+              본문을 검색하지 못해 제목 · 태그로 찾은 결과만 보입니다 — {searchErr}
+            </span>
+          </div>
+        )}
 
         <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 8 }}>
           {years.map((y) => (
-            <div
+            <Box
               key={y}
               // 연도를 바꾸면 월은 무조건 처음으로 — 새 연도에 없는 달이 남아 있으면
               // 목록이 비어 버리고, 사용자는 왜 비었는지 알 길이 없다.
               onClick={() => s.set({ archYear: y, archMonth: "all" })}
               style={smallChip(archYear === y)}
+              hover={chipHover(archYear === y)}
             >
               {y === "all" ? "전체" : `${y}년`}
-            </div>
+            </Box>
           ))}
           {/* 카테고리를 쓰지 않는 Vault 에는 거를 것도 묶을 것도 없다 — 지금 화면 그대로. */}
           {nodes.length > 0 && (
@@ -427,9 +832,14 @@ export default function Archive() {
                   ["category", "카테고리"],
                 ] as const
               ).map(([k, label]) => (
-                <div key={k} onClick={() => s.set({ archGroup: k })} style={smallChip(archGroup === k)}>
+                <Box
+                  key={k}
+                  onClick={() => s.set({ archGroup: k })}
+                  style={smallChip(archGroup === k)}
+                  hover={chipHover(archGroup === k)}
+                >
                   {label}
-                </div>
+                </Box>
               ))}
               {manageLink("관리…")}
             </div>
@@ -452,9 +862,10 @@ export default function Archive() {
             {["all", ...months].map((m) => {
               const on = archMonth === m;
               return (
-                <div
+                <Box
                   key={m}
                   onClick={() => s.set({ archMonth: m })}
+                  hover={chipHover(on)}
                   style={{
                     height: 20,
                     padding: "0 9px",
@@ -470,7 +881,7 @@ export default function Archive() {
                   }}
                 >
                   {m === "all" ? "12개월" : `${parseInt(m, 10)}월`}
-                </div>
+                </Box>
               );
             })}
           </div>
@@ -484,10 +895,18 @@ export default function Archive() {
           그려진 것만 실제로 재어(`v.measure`) 다음 배치에 반영한다.
         */}
         <div
-          ref={v.scrollRef}
+          ref={scrollRef}
           style={{ flex: 1, minWidth: 0, overflow: "auto", padding: "12px 22px 20px 22px" }}
         >
-          <div style={{ position: "relative", height: v.total }}>
+          {/* 본문을 찾는 동안은 앞 결과를 흐리게 둔다 — 비웠다 채우면 그 사이가 "없음" 으로 보인다. */}
+          <div
+            style={{
+              position: "relative",
+              height: v.total,
+              opacity: searching ? 0.5 : 1,
+              transition: "opacity 140ms linear",
+            }}
+          >
             {rows.slice(v.start, v.end).map((row, n) => {
               const i = v.start + n;
               if (row.kind === "header") {
@@ -549,7 +968,7 @@ export default function Archive() {
                           color: "#6a665e",
                           cursor: "pointer",
                         }}
-                        hover={{ borderColor: "#a78bfa", color: "#5a44b4" }}
+                        hover={{ borderColor: "#c9dbf7", color: "#2f5cbb" }}
                       >
                         Obsidian
                       </Box>
@@ -558,10 +977,13 @@ export default function Archive() {
                 );
               }
               const t = row.task;
+              const lit = flash?.folder === t.folder;
+              const busy = resuming === t.folder;
               return (
                 <div
                   key={row.key}
                   ref={v.measure(i)}
+                  className={fresh.current.fresh.has(row.key) ? "cf-enter" : undefined}
                   // 카드 사이 간격은 래퍼의 padding 이다 — margin 이면 재는 높이에
                   // 잡히지 않아 카드가 서로 붙는다.
                   style={{
@@ -570,10 +992,16 @@ export default function Archive() {
                     left: 0,
                     right: 0,
                     paddingBottom: 4,
+                    animationDelay: `${Math.min(n, 8) * 18}ms`,
                   }}
                 >
                 <Box
-                  onClick={() => void s.peekArchived(t.folder)}
+                  key={lit ? `lit${flash!.n}` : "card"}
+                  ref={(el) => {
+                    if (el) cards.current.set(t.folder, el);
+                  }}
+                  className={lit ? "cf-flash" : undefined}
+                  onClick={() => openCard(t)}
                   style={{
                     display: "flex",
                     alignItems: "center",
@@ -715,31 +1143,36 @@ export default function Archive() {
                         fontSize: 11.5,
                         cursor: "pointer",
                       }}
-                      hover={{ borderColor: "#a78bfa", color: "#5a44b4" }}
+                      hover={{ borderColor: "#c9dbf7", color: "#2f5cbb" }}
                     >
                       Obsidian
                     </Box>
                     <Box
+                      role="button"
+                      aria-disabled={!!resuming}
                       onClick={(e) => {
                         e.stopPropagation();
-                        void s.restoreTask(t.folder);
+                        resume(t.folder);
                       }}
                       style={{
                         height: 24,
                         padding: "0 10px",
                         display: "flex",
                         alignItems: "center",
+                        gap: 5,
                         borderRadius: 4,
-                        border: "1px solid #e0d6f8",
-                        background: "#f4f0fd",
-                        color: "#5a44b4",
+                        border: "1px solid #cddcf8",
+                        background: "#eef3fd",
+                        color: "#2f5cbb",
                         fontSize: 11.5,
                         fontWeight: 600,
-                        cursor: "pointer",
+                        cursor: resuming ? "default" : "pointer",
+                        opacity: resuming && !busy ? 0.55 : 1,
                       }}
-                      hover={{ background: "#ece5fb" }}
+                      hover={resuming ? undefined : { background: "#e2ebfc" }}
                     >
-                      재개
+                      {busy && <Spinner size={9} track="#cddcf8" />}
+                      {busy ? "재개하는 중" : "재개"}
                     </Box>
                   </div>
                 </Box>
@@ -748,8 +1181,14 @@ export default function Archive() {
             })}
           </div>
 
-          {archived.length > 0 && groups.length === 0 && (
-            <div style={{ padding: "8px 2px", fontSize: 12, color: "#8a857c", lineHeight: 1.7 }}>
+          {searching && groups.length === 0 && (
+            <div style={{ padding: "8px 2px", fontSize: 12, color: TEXT.sub, display: "flex", alignItems: "center", gap: 7 }}>
+              <Spinner />
+              본문에서 찾는 중입니다
+            </div>
+          )}
+          {archived.length > 0 && groups.length === 0 && !searching && (
+            <div className="cf-fade" style={{ padding: "8px 2px", fontSize: 12, color: "#8a857c", lineHeight: 1.7 }}>
               <div style={{ color: "#8a857c" }}>이 조건에 맞는 보관 업무가 없습니다.</div>
               {/* 카테고리는 카드 칩 한 번으로도 걸려 눈에 덜 띄는 조건이다 — 푸는 길을 먼저 둔다. */}
               {effCat !== null && (
@@ -793,7 +1232,7 @@ export default function Archive() {
             >
               아직 보관된 업무가 없습니다.
               <br />
-              완료 후 설정한 기간이 지나면 여기로 접힙니다.
+              업무를 [완료]하면 그 즉시 여기로 옵니다.
             </div>
           )}
         </div>
@@ -916,16 +1355,16 @@ export default function Archive() {
               height: 29,
               padding: "0 10px",
               borderRadius: 5,
-              border: "1px solid #e0d6f8",
-              background: "#f4f0fd",
+              border: "1px solid #cddcf8",
+              background: "#eef3fd",
               cursor: "pointer",
             }}
-            hover={{ background: "#ece5fb" }}
+            hover={{ background: "#e2ebfc" }}
           >
-            <span style={{ fontSize: 12, fontWeight: 600, color: "#5a44b4", flex: 1, minWidth: 0 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: "#2f5cbb", flex: 1, minWidth: 0 }}>
               Archive MOC 노트 열기
             </span>
-            <span style={{ fontSize: 11, color: "#8a7fc0" }}>↗</span>
+            <span style={{ fontSize: 11, color: "#6f8fcf" }}>↗</span>
           </Box>
           <div
             style={{
@@ -958,6 +1397,75 @@ export default function Archive() {
           )}
         </div>
       </div>
+    </div>
+
+    {opened && (
+      <div
+        className="cf-fade"
+        style={{
+          position: "absolute",
+          inset: 0,
+          display: "flex",
+          flexDirection: "column",
+          background: "#fff",
+          // 카드가 펼쳐지는 동안에는 밑에서 업무를 읽어 두기만 한다.
+          visibility: detailOn ? "visible" : "hidden",
+        }}
+      >
+        <ArchiveDetail
+          task={opened}
+          resuming={resuming}
+          onResume={() => resume(opened.folder)}
+          onBack={backToList}
+        />
+      </div>
+    )}
+
+    {/* 카드 ↔ 상세 사이를 잇는 카드 모양. 눌리지 않고 화면 읽기에도 잡히지 않는다. */}
+    {travel && ghost && (
+      <div
+        aria-hidden
+        className="cf-mv"
+        style={{
+          position: "absolute",
+          left: ghost.x,
+          top: ghost.y,
+          width: ghost.w,
+          height: ghost.h,
+          zIndex: 20,
+          boxSizing: "border-box",
+          borderRadius: ghost.r,
+          border: "1px solid #d9d4ca",
+          background: "#fff",
+          boxShadow: "0 12px 30px rgba(35,33,30,.16)",
+          overflow: "hidden",
+          pointerEvents: "none",
+          opacity: travel.kind === "open" && travel.stage === 2 ? 0 : 1,
+          transition: [
+            `left ${TRAVEL_MS}ms ${EASE_OUT}`,
+            `top ${TRAVEL_MS}ms ${EASE_OUT}`,
+            `width ${TRAVEL_MS}ms ${EASE_OUT}`,
+            `height ${TRAVEL_MS}ms ${EASE_OUT}`,
+            `border-radius ${TRAVEL_MS}ms ${EASE_OUT}`,
+            `opacity ${REVEAL_MS}ms linear`,
+          ].join(", "),
+        }}
+      >
+        <div
+          style={{
+            padding: "9px 11px",
+            fontSize: 13,
+            fontWeight: 500,
+            color: "#3a3630",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
+          {travel.title}
+        </div>
+      </div>
+    )}
     </div>
   );
 }

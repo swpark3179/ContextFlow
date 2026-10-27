@@ -3,7 +3,7 @@ import * as api from "../lib/api";
 import { nowStamp } from "../lib/format";
 import { mdParse } from "../lib/markdown";
 import { CANCELED } from "../lib/runOnce";
-import { AiRail, AiWaitBar, BusyLabel, Caret } from "../lib/ui";
+import { AiRail, AiWaitBar, BusyLabel, Caret, CheckMark, Skeleton, fmtSec } from "../lib/ui";
 import { TEXT } from "../lib/design";
 import { KIND_LABEL } from "../lib/wiki/prompts";
 import { resolveLink } from "../lib/wiki/links";
@@ -53,6 +53,8 @@ function GuideView({ folder }: { folder: string }) {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<GuideResult | null>(null);
   const [used, setUsed] = useState<api.WikiPageMeta[]>([]);
+  /** 만드는 데 걸린 시간 — 끝나면 대기 띠 자리에 완료 줄로 남는다(다른 AI 도우미와 같다). */
+  const [tookMs, setTookMs] = useState<number | null>(null);
   const abort = useRef<AbortController | null>(null);
 
   const run = async () => {
@@ -61,7 +63,9 @@ function GuideView({ folder }: { folder: string }) {
     abort.current = ctl;
     const mine = () => abort.current === ctl;
     setPhase("running");
-    setStartedAt(Date.now());
+    const t0 = Date.now();
+    setStartedAt(t0);
+    setTookMs(null);
     setThought(0);
     setText("");
     setStep("");
@@ -101,6 +105,7 @@ function GuideView({ folder }: { folder: string }) {
       } else {
         setText(res.text);
         setUsed(res.used);
+        setTookMs(Date.now() - t0);
         setPhase("done");
       }
     } catch (e) {
@@ -163,31 +168,47 @@ function GuideView({ folder }: { folder: string }) {
       {/* 진행선 — 가이드를 만드는 동안. */}
       <div style={{ flex: "0 0 2px", height: 2 }}>{phase === "running" && <AiRail />}</div>
 
-      {used.length > 0 && (
-        <div
-          style={{
-            flex: "0 0 auto",
-            display: "flex",
-            flexWrap: "wrap",
-            alignItems: "center",
-            gap: 5,
-            padding: "8px 14px",
-            borderBottom: "1px solid #efebe4",
-          }}
-        >
-          <span style={{ fontSize: 11, fontWeight: 600, color: TEXT.sub, marginRight: 3 }}>근거 위키</span>
-          {used.map((p) => (
-            <span
-              key={p.path}
-              title={`${p.path}${p.summary ? `\n${p.summary}` : ""}`}
-              style={{ ...chipStyle(cited.has(p.path)), cursor: "default" }}
-            >
-              <span style={{ fontSize: 11, color: TEXT.sub }}>{KIND_LABEL[p.kind] ?? p.kind}</span>
-              {p.title}
-            </span>
-          ))}
-        </div>
-      )}
+      {/* 근거 위키 — 찾는 동안에도 줄 높이를 잡아 두어, 칩이 들어올 때 본문이 밀려 내려가지 않는다. */}
+      <div
+        style={{
+          flex: "0 0 auto",
+          minHeight: 39,
+          display: "flex",
+          flexWrap: "wrap",
+          alignItems: "center",
+          gap: 5,
+          padding: "8px 14px",
+          borderBottom: "1px solid #efebe4",
+        }}
+      >
+        <span style={{ fontSize: 11, fontWeight: 600, color: TEXT.sub, marginRight: 3 }}>근거 위키</span>
+        {used.map((p, i) => (
+          <span
+            key={p.path}
+            className="cf-enter"
+            title={`${p.path}${p.summary ? `\n${p.summary}` : ""}`}
+            style={{ ...chipStyle(cited.has(p.path)), cursor: "default", animationDelay: `${Math.min(i, 6) * 30}ms` }}
+          >
+            <span style={{ fontSize: 11, color: TEXT.sub }}>{KIND_LABEL[p.kind] ?? p.kind}</span>
+            {p.title}
+          </span>
+        ))}
+        {!used.length && phase === "running" && (
+          // 위키를 찾는 동안 — 칩이 설 자리.
+          <span aria-hidden style={{ display: "inline-flex", gap: 5 }}>
+            {[88, 120, 72].map((w) => (
+              <span key={w} style={{ width: w, display: "inline-block" }}>
+                <Skeleton width={w} height={20} />
+              </span>
+            ))}
+          </span>
+        )}
+        {!used.length && phase !== "running" && (
+          <span className="cf-fade" style={{ fontSize: 11.5, color: TEXT.sub }}>
+            찾은 위키가 없습니다
+          </span>
+        )}
+      </div>
 
       <div style={{ flex: "1 1 auto", minHeight: 0, overflowY: "auto", paddingBottom: 14 }}>
         {error && (
@@ -208,6 +229,34 @@ function GuideView({ folder }: { folder: string }) {
             thinking={thought}
             onCancel={() => abort.current?.abort()}
           />
+        )}
+        {/* 대기 띠가 있던 자리에 완료 줄 — 무엇을 근거로 몇 초 걸렸는지. */}
+        {(phase === "done" || phase === "saving") && tookMs !== null && (
+          <div
+            role="status"
+            className="cf-enter"
+            style={{
+              margin: "9px 14px 2px",
+              display: "flex",
+              alignItems: "center",
+              gap: 9,
+              fontSize: 12.5,
+              padding: "6px 9px",
+              borderRadius: 6,
+              background: "#f1faf5",
+              border: "1px solid #c9e4d5",
+              color: "#256b47",
+            }}
+          >
+            <span style={{ width: 14, display: "flex", justifyContent: "center" }}>
+              <CheckMark size={11} />
+            </span>
+            <span style={{ flex: 1, minWidth: 0 }}>
+              가이드 완료
+              {result?.kind === "done" && result.cited.length > 0 ? ` · 근거 위키 ${result.cited.length}건` : ""}
+            </span>
+            <span style={{ fontFamily: "'Roboto Mono',monospace", fontSize: 11.5 }}>{fmtSec(tookMs, true)}</span>
+          </div>
         )}
         {text && (
           <div style={{ padding: "10px 18px 0 18px" }}>

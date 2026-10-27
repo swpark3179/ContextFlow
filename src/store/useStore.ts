@@ -611,6 +611,11 @@ interface State {
    * 보관함 도크와의 사이를 날아간다(`Sidebar`). 날아간 뒤 비운다.
    */
   fly: { folder: string; dir: "out" | "in" } | null;
+  /**
+   * 방금 완료 · 보관하며 창을 닫은 업무(보관된 뒤의 경로). 빈 작업공간이 "무엇이 어디로 갔는지" 와
+   * 이어서 할 업무를 보인다. 다른 업무를 열면 비운다.
+   */
+  justArchived: string;
 
   /**
    * **오늘** 손댄 업무들. 저장소는 Vault 밖 SQLite 이고(`src-tauri/src/daylog.rs`), 이것은
@@ -847,6 +852,8 @@ interface Actions {
   exportToDesktop: (rel: string, mode: "copy" | "link") => Promise<void>;
 
   runRecommend: () => Promise<void>;
+  /** 도는 AI 재정렬을 끊고 로컬 순서를 그대로 쓴다(새 업무 창의 [취소]). */
+  cancelRecommend: () => void;
   /** 새 업무 대화상자에서 템플릿을 골랐다 — 카테고리 칸을 그 템플릿의 기본값으로 맞춘다(`templatePrefill`). */
   setNtTemplate: (id: string) => void;
   createTask: () => Promise<void>;
@@ -874,6 +881,11 @@ interface Actions {
    * 지운다. 앱이 스스로 지우는 줄(병합으로 접힌 업무)은 곧바로 지운다.
    */
   dropEntry: (id: number, opts?: { undo?: boolean }) => void;
+  /**
+   * 업무가 아닌 일(회의 · 전화 · 지원)을 도크에서 곧바로 적어 넣는다 — 예전에는 팝업을 열어야 했다.
+   * 넣었으면 참.
+   */
+  addTodayNote: (title: string) => Promise<boolean>;
   /** 오늘 목록에서 이 업무의 줄을 지운다. 병합으로 접힌 업무에 쓴다. */
   dropToday: (folder: string) => void;
   /** 업무 폴더 경로가 바뀐 것을 오늘의 한일에도 반영한다(과거 날짜까지). */
@@ -1293,6 +1305,8 @@ function warnReload(what: string, e: unknown): void {
 
 /** `runRecommend` 의 실행 번호. 마지막으로 시작한 실행의 결과만 화면에 남긴다. */
 let recommendSeq = 0;
+/** 도는 AI 재정렬 — 새 실행이 시작되거나 [취소] 하면 끊는다. */
+let recommendCtl: AbortController | null = null;
 
 export const useStore = create<State & Actions>((set, get) => ({
   ready: false,
@@ -1327,6 +1341,7 @@ export const useStore = create<State & Actions>((set, get) => ({
   restored: null,
   completing: "",
   fly: null,
+  justArchived: "",
 
   dayLog: EMPTY_LOG,
   dayLogOpen: null,
@@ -1563,6 +1578,7 @@ export const useStore = create<State & Actions>((set, get) => ({
       ui,
       docSave: {},
       restored,
+      justArchived: "",
       statusMenuOpen: false,
       ctx: null,
       mk: null,
@@ -1705,6 +1721,7 @@ export const useStore = create<State & Actions>((set, get) => ({
       // 행이 보관함 도크에서 목록으로 날아 돌아온다(`Sidebar`).
       set((s) => ({
         fly: { folder: updated.folder, dir: "in" },
+        justArchived: "",
         tasks: s.tasks.map((t) => (t.folder === folder ? updated : t)),
       }));
       await get().resyncIndexDocs([updated.folder]);
@@ -1745,7 +1762,7 @@ export const useStore = create<State & Actions>((set, get) => ({
       await get().relocateToday(folder, updated.folder, updated.title);
       get().noteToday(updated.folder, updated.title);
       // 행이 목록에서 빠지는 순간 보관함 도크로 날아간다(`Sidebar`) — 어디로 갔는지가 보인다.
-      if (close) set({ fly: { folder, dir: "out" } });
+      if (close) set({ fly: { folder, dir: "out" }, justArchived: updated.folder });
       set((s) => {
         const { [folder]: moved, ...rest } = s.uiCache;
         return {
@@ -1822,21 +1839,26 @@ export const useStore = create<State & Actions>((set, get) => ({
     // 보관된 업무는 지우지 않는다 — 'move' 방식이면 `Archive/` 에 있어 백엔드가 받지 않고,
     // 메뉴도 살아 있는 업무에서만 이 항목을 연다.
     if (!task || isArchived(task, get().settings.archDays)) return;
-    // 무엇이 함께 사라지는지 보여 주려고 센다. 못 읽어도 대화상자는 연다 — 수는 덤이다.
-    const list = await api.listTaskFiles(folder).catch(() => null);
+    // 대화상자는 곧바로 연다 — 예전에는 파일을 다 셀 때까지 메뉴를 누른 뒤 아무 일도 없었다.
     set({
       statusMenuOpen: false,
       ren: null,
-      taskDel: {
-        folder,
-        title: task.title,
-        files: list ? list.filter((f) => !f.dir).length : null,
-        dirs: list ? list.filter((f) => f.dir).length : null,
-        confirm: "",
-        busy: false,
-        error: "",
-      },
+      taskDel: { folder, title: task.title, files: null, dirs: null, confirm: "", busy: false, error: "" },
     });
+    // 무엇이 함께 사라지는지 보여 주려고 센다. 못 읽어도 대화상자는 그대로다 — 수는 덤이다.
+    const list = await api.listTaskFiles(folder).catch(() => null);
+    if (!list) return;
+    set((s) =>
+      s.taskDel?.folder === folder
+        ? {
+            taskDel: {
+              ...s.taskDel,
+              files: list.filter((f) => !f.dir).length,
+              dirs: list.filter((f) => f.dir).length,
+            },
+          }
+        : {},
+    );
   },
 
   /**
@@ -1874,8 +1896,8 @@ export const useStore = create<State & Actions>((set, get) => ({
       // 대개 다른 프로그램이 파일을 쥐고 있어서다. 대화상자를 열어 둔 채 사유를 붙여 두면
       // 그 파일을 닫고 그 자리에서 다시 누를 수 있다 — 편입과 같다.
       const error = api.errMessage(e);
+      // 사유는 대화상자에 붙는다 — 토스트까지 띄우면 같은 실패를 두 번 알린다.
       set((s) => ({ taskDel: s.taskDel ? { ...s.taskDel, busy: false, error } : null }));
-      get().fail(e, "업무를 삭제하지 못했습니다");
     }
   },
 
@@ -2800,11 +2822,31 @@ export const useStore = create<State & Actions>((set, get) => ({
 
   // -------------------------------------------------------------------------
 
+  cancelRecommend: () => {
+    recommendCtl?.abort();
+    recommendCtl = null;
+    // 늦게 돌아온 결과가 로컬 순서를 덮지 않게 순번도 올린다.
+    recommendSeq++;
+    set({
+      ntLoading: false,
+      ntAiAt: null,
+      ntAiMs: null,
+      ntLocal: null,
+      ntReordered: false,
+      ntEngine: "local",
+      ntNote: "AI 확인을 취소했습니다 · 로컬 순서 그대로입니다",
+    });
+  },
+
   runRecommend: async () => {
     // 늦게 끝난 이전 실행이 새 결과를 덮어쓰지 않게 한다 — AI 경로는 몇 초씩 걸리고, 그
     // 사이에 사용자가 제목을 더 쳐서 새 실행이 시작될 수 있다.
     const seq = ++recommendSeq;
     const stale = () => seq !== recommendSeq;
+    // 앞 실행은 결과를 버릴 뿐 아니라 끊는다 — 에이전트가 끝까지 돌며 자리를 차지하지 않게.
+    recommendCtl?.abort();
+    const ctl = new AbortController();
+    recommendCtl = ctl;
     const { nt, settings, tasks } = get();
     const query = `${nt.title} ${nt.summary}`.trim();
     if (nt.title.trim().length < 2) {
@@ -2860,7 +2902,7 @@ export const useStore = create<State & Actions>((set, get) => ({
       ntReordered: false,
     });
 
-    const ai = await aiRecommend({ active, query, candidates, threshold: settings.threshold });
+    const ai = await aiRecommend({ active, query, candidates, threshold: settings.threshold, signal: ctl.signal });
     if (stale()) return;
     if ("result" in ai) {
       const r = ai.result;
@@ -2998,7 +3040,7 @@ export const useStore = create<State & Actions>((set, get) => ({
       get().toast(
         `${picked.length - 1}개 노드를 대표 노드로 병합`,
         `검색 노이즈 ${picked.length - 1}건 감소 · Run Log로 접힘`,
-        TOAST.violet,
+        TOAST.ok,
       );
     } catch (e) {
       set({ merge: null });
@@ -3077,7 +3119,7 @@ export const useStore = create<State & Actions>((set, get) => ({
       get().toast(
         "업무를 편입했습니다",
         `${res.title} → ${res.task.title}/${res.rel}`,
-        TOAST.violet,
+        TOAST.ok,
       );
     } catch (e) {
       // 실패는 이 기능의 일상적인 결과다(파일 락). 대화상자를 열어 둔 채 사유를 붙여
@@ -3159,7 +3201,7 @@ export const useStore = create<State & Actions>((set, get) => ({
       get().toast(
         "업무를 분할했습니다",
         `${res.moved.length}개 항목을 '${res.task.title}' 로 옮겼습니다`,
-        TOAST.violet,
+        TOAST.ok,
       );
     } catch (e) {
       const error = api.errMessage(e);
@@ -3293,6 +3335,21 @@ export const useStore = create<State & Actions>((set, get) => ({
     });
   },
 
+  addTodayNote: async (title) => {
+    const name = title.trim();
+    if (!name) return false;
+    const day = today();
+    try {
+      // `folder` 는 `null` — 자유 항목이다(`DayLogModal` 의 손으로 넣기와 같다).
+      const row = await api.noteDayEntry(get().settings.vault, day, hhmm(), null, name, null);
+      set({ dayLog: upsertEntry(get().dayLog, day, row) });
+      return true;
+    } catch (e) {
+      get().fail(e, "기록을 남기지 못했습니다");
+      return false;
+    }
+  },
+
   /**
    * 오늘 목록에서 이 업무의 줄을 지운다. 병합으로 접힌 업무에 쓴다(`doMerge`) — 접힌
    * 쪽을 같은 날 목록에 남겨 두면 한 일을 여러 줄로 세는 것이 된다.
@@ -3348,7 +3405,8 @@ export const useStore = create<State & Actions>((set, get) => ({
   rescopeToday: async () => {
     const day = today();
     try {
-      const entries = await api.dayEntries(get().settings.vault, day);
+      // [되돌리기] 를 기다리는 줄은 DB 에 아직 있다 — 다시 읽어도 돌아오지 않게 거른다.
+      const entries = (await api.dayEntries(get().settings.vault, day)).filter((e) => !pendingDrops.has(e.id));
       set({ dayLog: { day, entries } });
     } catch {
       // 저장소를 못 읽으면 목록이 비어 보일 뿐이다.

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { AiSignal, AiStep, Select } from "../../lib/ui";
+import { AiSignal, AiStep, Collapse, Select } from "../../lib/ui";
 import { AI } from "../../lib/design";
 import { AI_FEATURES, type ActiveChoice, type AiFeature, type ModelOption } from "../../lib/ai";
 import * as api from "../../lib/api";
@@ -34,6 +34,8 @@ interface TestState {
   running: boolean;
   text: string;
   startedAt: number;
+  /** 끝난 시각 — 끝난 뒤 다시 그려도 걸린 시간이 늘지 않게 잡아 둔다. */
+  endedAt?: number;
   result: RunResult | null;
 }
 
@@ -76,6 +78,12 @@ export default function AiRoutesCard() {
 
   const [error, setError] = useState<string | null>(null);
   const [test, setTest] = useState<TestState | null>(null);
+  /**
+   * 행마다 마지막 테스트 — 다른 행을 테스트하면 앞 행의 패널이 접히는 동안에도 내용이 남아 있어야
+   * 높이째 접힌다(비우면 한 프레임에 사라진다).
+   */
+  const lastTest = useRef<Partial<Record<Row, TestState>>>({});
+  if (test) lastTest.current[test.row] = test;
   const abort = useRef<AbortController | null>(null);
 
   // 화면을 떠나면 돌던 테스트도 끊는다 — 결과를 보여 줄 자리가 없다.
@@ -133,7 +141,7 @@ export default function AiRoutesCard() {
     ).then((result) =>
       setTest((t) =>
         t && t.startedAt === startedAt
-          ? { ...t, running: false, text: result.text, result }
+          ? { ...t, running: false, text: result.text, result, endedAt: Date.now() }
           : t,
       ),
     );
@@ -195,13 +203,25 @@ export default function AiRoutesCard() {
               </option>
             ))}
           </Select>
+          {/* 누른 행만 바쁘게 보인다 — 다른 행은 그동안 흐린 단추다. */}
           <Btn
             label="테스트"
+            busy={test?.running === true && test.row === opts.row}
+            busyLabel="대기 중"
+            ai
             disabled={!opts.target || (test?.running ?? false)}
             onClick={() => opts.target && runTest(opts.row, opts.label, opts.target)}
           />
         </div>
         <div style={hintStyle}>{opts.status}</div>
+        {/* 테스트 대화는 누른 행 바로 밑에서 열린다 — 카드 맨 아래까지 눈을 옮기지 않게. */}
+        <Collapse open={test?.row === opts.row}>
+          {lastTest.current[opts.row] && (
+            <div style={{ paddingTop: 2 }}>
+              <TestPanel test={lastTest.current[opts.row]!} onCancel={() => abort.current?.abort()} />
+            </div>
+          )}
+        </Collapse>
       </div>
     );
   };
@@ -263,9 +283,7 @@ export default function AiRoutesCard() {
             저장하세요.
           </div>
         )}
-        {test ? (
-          <TestPanel test={test} onCancel={() => abort.current?.abort()} />
-        ) : (
+        {!test && (
           <div style={hintStyle}>
             [테스트] 는 그 기능이 실제로 쓸 연결로 짧은 질문을 보내 답과 걸린 시간 · 토큰
             사용량을 보여 줍니다. 모델 목록이 뜨는 것과 모델이 실제로 답하는 것은 다른
@@ -279,6 +297,13 @@ export default function AiRoutesCard() {
 
 function TestPanel({ test, onCancel }: { test: TestState; onCancel: () => void }) {
   const [now, setNow] = useState(Date.now());
+  /** 받는 글은 상자 바닥을 따라간다 — 위로 올려 읽는 중이면 두고. */
+  const textBox = useRef<HTMLDivElement | null>(null);
+  const stick = useRef(true);
+  useEffect(() => {
+    const el = textBox.current;
+    if (el && stick.current) el.scrollTop = el.scrollHeight;
+  }, [test.text]);
   useEffect(() => {
     if (!test.running) return;
     const t = setInterval(() => setNow(Date.now()), 250);
@@ -286,7 +311,7 @@ function TestPanel({ test, onCancel }: { test: TestState; onCancel: () => void }
   }, [test.running]);
 
   const r = test.result;
-  const elapsed = ((r ? Date.now() : now) - test.startedAt) / 1000;
+  const elapsed = ((test.endedAt ?? now) - test.startedAt) / 1000;
   const failed = r && !r.ok;
   const canceled = r?.error === CANCELED;
   const facts: string[] = [];
@@ -333,6 +358,11 @@ function TestPanel({ test, onCancel }: { test: TestState; onCancel: () => void }
       </div>
       {test.text && (
         <div
+          ref={textBox}
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+          }}
           style={{
             fontSize: 12.5,
             lineHeight: 1.65,
@@ -356,7 +386,27 @@ function TestPanel({ test, onCancel }: { test: TestState; onCancel: () => void }
             : "답이 비어 있습니다."}
         </div>
       )}
-      {facts.length > 0 && <div style={{ ...hintStyle, fontSize: 11 }}>{facts.join(" · ")}</div>}
+      {facts.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+          {facts.map((f, i) => (
+            <span
+              key={i}
+              className="cf-enter"
+              style={{
+                animationDelay: `${i * 40}ms`,
+                fontFamily: "'Roboto Mono',monospace",
+                fontSize: 11,
+                color: "#4e4a43",
+                background: "#f2efe9",
+                borderRadius: 3,
+                padding: "1px 6px",
+              }}
+            >
+              {f}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
