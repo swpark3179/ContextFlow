@@ -103,22 +103,42 @@ beforeEach(() => {
   useWiki.setState({ enqueue });
 });
 
+/** 완료 토스트를 [되돌리기] 없이 닫는다 — 카운트다운이 끝난 것과 같다(`Toasts`). */
+function expire() {
+  for (const t of useStore.getState().toasts) useStore.getState().dropToast(t.id);
+}
+
 describe("완료 → 위키 자동 반영", () => {
-  it("설정이 켜져 있고 반영 연결이 있으면 보관한 업무를 큐에 넣는다", async () => {
+  it("설정이 켜져 있고 반영 연결이 있으면, 되돌리기 토스트가 닫힌 뒤 보관한 업무를 큐에 넣는다", async () => {
     open();
     await useStore.getState().setStatus("completed");
+    // 되돌릴 수 있는 동안은 보내지 않는다.
+    expect(enqueue).not.toHaveBeenCalled();
+    expire();
     expect(enqueue).toHaveBeenCalledWith("task-1", "배포 정리");
+  });
+
+  it("[되돌리기] 를 누르면 넣지 않는다", async () => {
+    open();
+    await useStore.getState().setStatus("completed");
+    const t = useStore.getState().toasts.find((x) => x.action);
+    expect(t?.action?.label).toBe("되돌리기");
+    t!.action!.run();
+    expire();
+    expect(enqueue).not.toHaveBeenCalled();
   });
 
   it("설정을 끄면 넣지 않는다", async () => {
     open({ wikiAuto: false });
     await useStore.getState().setStatus("completed");
+    expire();
     expect(enqueue).not.toHaveBeenCalled();
   });
 
   it("반영 연결이 없으면 넣지 않는다", async () => {
     open({ route: false });
     await useStore.getState().setStatus("completed");
+    expire();
     expect(enqueue).not.toHaveBeenCalled();
   });
 
@@ -126,12 +146,14 @@ describe("완료 → 위키 자동 반영", () => {
     files = [{ p: "index.md" }];
     open({ notepad: "전화로 끝냈다" });
     await useStore.getState().setStatus("completed");
+    expire();
     expect(enqueue).not.toHaveBeenCalled();
   });
 
   it("완료 없이 보관한 것(지금 보관함으로)은 넣지 않는다", async () => {
     open();
     await useStore.getState().archiveNow(FOLDER);
+    expire();
     expect(enqueue).not.toHaveBeenCalled();
   });
 });

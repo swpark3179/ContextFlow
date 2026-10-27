@@ -32,7 +32,8 @@ import MarkdownView from "../components/MarkdownView";
 import { applyIssue, taskIssueFiles, taskOverview, useAssist, type IssuePlan } from "../store/assistStore";
 import { routeInfo, routeRun, useAi } from "../store/aiStore";
 import { useStore } from "../store/useStore";
-import { AssistHead, Notice, RouteLabel, chipStyle, selectStyle } from "./AssistParts";
+import { AssistHead, EscNote, Notice, RouteLabel, chipStyle, selectStyle } from "./AssistParts";
+import { SlidePane, useEscGuard, useStepDir } from "./motion";
 import {
   GhostButton,
   Modal,
@@ -94,6 +95,13 @@ function IssueView({ folder }: { folder: string }) {
   const [thought, setThought] = useState(0);
   const [savingAt, setSavingAt] = useState<number | null>(null);
   const abort = useRef<AbortController | null>(null);
+  const panel = useRef<HTMLDivElement | null>(null);
+
+  /** 보이는 칸 — 입력(0) · 정리본(1). 바뀔 때 가는 쪽으로 넘어간다. */
+  const view = phase === "input" || phase === "thinking" ? 0 : 1;
+  const dir = useStepDir(view);
+  /** 입력 칸에 친 것이 있으면 첫 Esc 는 경고만 한다 — 붙여 넣은 회신을 한 번의 헛손질로 잃지 않게. */
+  const guard = useEscGuard(panel, phase === "input" && !!input.trim());
 
   useEffect(() => {
     let alive = true;
@@ -250,300 +258,314 @@ function IssueView({ folder }: { folder: string }) {
   const aiHere = suggested?.mode === "existing" && suggested.path === path;
 
   return (
-    <Modal width={1000} zIndex={77} onClose={dismiss} panelStyle={{ height: 620, maxHeight: "90vh" }}>
+    <Modal
+      width={1000}
+      zIndex={77}
+      onClose={dismiss}
+      panelStyle={{ height: 620, maxHeight: "90vh" }}
+      panelRef={panel}
+    >
       <AssistHead title="이슈 추가" task={task?.title ?? ""}>
         <RouteLabel info={info} />
       </AssistHead>
       {/* 진행선 — AI 가 정리하는 동안. */}
       <div style={{ flex: "0 0 2px", height: 2 }}>{phase === "thinking" && <AiRail />}</div>
 
-      {(phase === "input" || phase === "thinking") && (
-        <div style={{ flex: "1 1 auto", minHeight: 0, overflowY: "auto", padding: "12px 16px" }}>
-          {!info.run && <Notice tone="error">{"AI 연결이 없습니다 — 설정 → AI 연결 → 기능별 연결에서 '이슈 추가' 연결을 고르세요"}</Notice>}
-          {error && <Notice tone={error === "취소했습니다" ? "muted" : "error"}>{error}</Notice>}
-          <div style={{ ...labelStyle, marginTop: 10 }}>지금 업무</div>
-          <div
-            style={{
-              border: "1px dashed #ddd8cf",
-              borderRadius: 6,
-              padding: "8px 10px",
-              background: "#faf9f6",
-              fontSize: 12,
-              lineHeight: 1.7,
-              color: "#4a463f",
-            }}
-          >
-            <div style={{ fontWeight: 600 }}>
-              {task?.title}
-              {task?.category && (
-                <span style={{ fontWeight: 400, color: TEXT.sub }}> · {catLabel(task.category)}</span>
-              )}
-            </div>
-            {loading ? (
-              // 개요 · 파일은 디스크에서 읽는다(AI 가 아니다) — 회색 스켈레톤으로 자리만.
-              <span style={{ display: "flex", flexDirection: "column", gap: 6, padding: "4px 0" }} title="업무 파일을 읽는 중">
-                <Skeleton width="92%" height={9} />
-                <Skeleton width="64%" height={9} />
-              </span>
-            ) : (
-              <div style={{ color: TEXT.sub }}>
-                글 파일 {files.length}개 — {files.slice(0, 6).map((f) => f.path).join(" · ")}
-                {files.length > 6 ? " …" : ""}
-              </div>
-            )}
-          </div>
-
-          <div style={{ ...labelStyle, marginTop: 14 }}>새 이슈 — 새로 생긴 일 · 테스트 회신 · 문제를 적거나 붙여 넣으세요</div>
-          <TextArea
-            autoFocus
-            value={input}
-            disabled={phase !== "input"}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && canStart) {
-                e.preventDefault();
-                void run();
-              }
-            }}
-            placeholder="예: QA 회신 — B카드사 결제가 3DS 인증 뒤 실패함. 다른 카드사는 정상. 금요일 재테스트 예정"
-            rows={7}
-            style={{
-              ...inputStyle,
-              height: "auto",
-              padding: "8px 9px",
-              lineHeight: 1.6,
-              resize: "vertical",
-              fontFamily: "inherit",
-            }}
-            focusStyle={inputFocus}
-          />
-          <div style={{ fontSize: 11, color: "#6a665e", lineHeight: 1.7, marginTop: 6 }}>
-            적은 것과 업무 제목 · 카테고리 · 태그 · 개요, 업무 폴더 글 파일의 이름 · 제목 · 앞부분이 AI 연결로
-            나갑니다. 적힌 사실만 정리하고 빠진 것은 "확인 필요" 로 남깁니다. 쓸 곳은 AI 가 제안하고, 쓰기 전에 고를 수
-            있습니다. {input.length > INPUT_CAP ? `앞 ${INPUT_CAP.toLocaleString()}자만 보냅니다. ` : ""}Ctrl+Enter 로
-            시작합니다.
-          </div>
-          {phase === "thinking" && (
-            <AiWaitBar
-              since={thinkAt}
-              label={`${info.name ?? "AI"} 가 ${!partial && thought ? "생각하는 중" : "정리하는 중"}`}
-              chars={partial}
-              thinking={thought}
-              onCancel={() => abort.current?.abort()}
-              style={{ margin: "9px 0 0" }}
-            />
-          )}
-        </div>
-      )}
-
-      {(phase === "review" || phase === "saving") && edited && (
-        <div style={{ flex: "1 1 auto", minHeight: 0, display: "flex" }}>
-          {/* 왼쪽 — 제목 · 종류 · 쓸 곳 */}
-          <div
-            style={{
-              flex: "0 0 420px",
-              minWidth: 0,
-              overflowY: "auto",
-              borderRight: "1px solid #efebe4",
-              padding: "10px 14px 14px 14px",
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", marginBottom: 5 }}>
-              <span style={{ ...labelStyle, marginBottom: 0 }}>적은 것</span>
-              <div style={{ flex: 1 }} />
-              {phase === "review" && (
-                <Box
-                  onClick={() => setPhase("input")}
-                  style={{ fontSize: 11.5, color: "#3a6fd8", cursor: "pointer" }}
-                  hover={{ textDecoration: "underline" }}
-                >
-                  입력 고치기
-                </Box>
-              )}
-            </div>
-            <div
-              style={{
-                fontSize: 12.5,
-                lineHeight: 1.6,
-                whiteSpace: "pre-wrap",
-                wordBreak: "break-word",
-                background: "#f7f5f1",
-                border: "1px solid #ece8e0",
-                borderRadius: 6,
-                padding: "7px 9px",
-                maxHeight: 110,
-                overflowY: "auto",
-              }}
-            >
-              {input}
-            </div>
-
-            <div style={{ ...labelStyle, marginTop: 12 }}>제목</div>
-            <Input
-              value={title}
-              disabled={phase !== "review"}
-              onChange={(e) => onTitle(e.target.value)}
-              style={inputStyle}
-              focusStyle={inputFocus}
-            />
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 7 }}>
-              {ISSUE_KINDS.map((k) => (
-                <Box key={k} onClick={() => phase === "review" && setKind(k)} style={chipStyle(kind === k)}>
-                  {ISSUE_KIND_LABEL[k]}
-                </Box>
-              ))}
-            </div>
-
-            <div style={{ ...labelStyle, marginTop: 14 }}>쓸 곳</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <OptionCard
-                on={mode === "new"}
-                label={`새 파일${aiNew ? " · AI 제안" : ""}`}
-                desc={`${ISSUE_DIR}/ 폴더에 이 이슈를 처리할 파일을 만듭니다`}
-                onClick={() => phase === "review" && setMode("new")}
-              />
-              {mode === "new" && (
-                <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "0 2px 2px 24px" }}>
-                  <span style={{ fontSize: 12, color: TEXT.sub, whiteSpace: "nowrap" }}>{ISSUE_DIR}/</span>
-                  <Input
-                    value={stem}
-                    disabled={phase !== "review"}
-                    onChange={(e) => {
-                      setStem(e.target.value);
-                      setStemTouched(true);
-                    }}
-                    style={{ ...inputStyle, flex: 1 }}
-                    focusStyle={inputFocus}
-                  />
-                  <span style={{ fontSize: 12, color: TEXT.sub }}>.md</span>
-                </div>
-              )}
-              <OptionCard
-                on={mode === "existing"}
-                label={`기존 파일에 넣기${suggested?.mode === "existing" ? " · AI 제안" : ""}`}
-                desc="고른 섹션 끝에 날짜 머리와 함께 한 건으로 덧붙입니다"
-                onClick={() => phase === "review" && files?.length && setMode("existing")}
-              />
-              {mode === "existing" && files && (
-                <div style={{ display: "flex", flexDirection: "column", gap: 5, padding: "0 2px 2px 24px" }}>
-                  <select
-                    value={path}
-                    disabled={phase !== "review"}
-                    onChange={(e) => {
-                      setPath(e.target.value);
-                      setHeading("");
-                    }}
-                    style={selectStyle}
-                  >
-                    {files.map((f) => (
-                      <option key={f.path} value={f.path}>
-                        {f.path}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    value={heading}
-                    disabled={phase !== "review"}
-                    onChange={(e) => setHeading(e.target.value)}
-                    style={selectStyle}
-                  >
-                    <option value="">(파일 끝)</option>
-                    {file?.headings.map((h) => (
-                      <option key={h.id} value={h.raw}>
-                        {`${"  ".repeat(h.level - 1)}${h.text}`}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-            </div>
-            {suggested?.why && (
-              <div style={{ fontSize: 11.5, color: "#6a665e", lineHeight: 1.6, marginTop: 7 }}>
-                <span style={{ color: "#6a54c6", fontWeight: 600 }}>AI 제안</span>{" "}
-                {suggested.mode === "new" ? "새 파일" : `${suggested.path}${suggested.heading ? ` › ${suggested.heading}` : ""}`}
-                {" — "}
-                {suggested.why}
-                {mode === "existing" && suggested.mode === "existing" && !aiHere ? " (다른 곳을 골랐습니다)" : ""}
-              </div>
-            )}
-
-            {!(mode === "existing" && path === "index.md") && (
-              <label
+      {/* 입력 ↔ 정리본 — 정리하면 오른쪽에서 들어오고, [입력 고치기] 는 왼쪽에서 돌아온다. */}
+      <div style={{ flex: "1 1 auto", minHeight: 0, position: "relative", overflow: "hidden", display: "flex" }}>
+        <SlidePane key={view} dir={dir} style={{ flex: "1 1 auto", minWidth: 0, minHeight: 0, display: "flex" }}>
+          {view === 0 && (
+            <div style={{ flex: "1 1 auto", minWidth: 0, minHeight: 0, overflowY: "auto", padding: "12px 16px" }}>
+              {!info.run && <Notice tone="error">{"AI 연결이 없습니다 — 설정 → AI 연결 → 기능별 연결에서 '이슈 추가' 연결을 고르세요"}</Notice>}
+              {error && <Notice tone={error === "취소했습니다" ? "muted" : "error"}>{error}</Notice>}
+              <div style={{ ...labelStyle, marginTop: 10 }}>지금 업무</div>
+              <div
                 style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  marginTop: 12,
+                  border: "1px dashed #ddd8cf",
+                  borderRadius: 6,
+                  padding: "8px 10px",
+                  background: "#faf9f6",
                   fontSize: 12,
-                  color: "#3a3630",
-                  cursor: "pointer",
+                  lineHeight: 1.7,
+                  color: "#4a463f",
                 }}
               >
-                <input
-                  type="checkbox"
-                  checked={withIndex}
-                  disabled={phase !== "review"}
-                  onChange={(e) => setWithIndex(e.target.checked)}
-                />
-                index.md 의 “## {ISSUE_INDEX_HEADING}” 에 한 줄 남기기
-              </label>
-            )}
-          </div>
-
-          {/* 오른쪽 — 쓸 내용 미리보기 */}
-          <div style={{ flex: "1 1 auto", minWidth: 0, overflowY: "auto", paddingBottom: 14 }}>
-            {error && <Notice tone="error">{error}</Notice>}
-            {retargeted && (
-              <Notice tone="warn">AI 가 고른 파일이 이 업무 폴더에 없어 새 파일로 바꿨습니다</Notice>
-            )}
-            {dropped > 0 && (
-              <Notice tone="warn">
-                근거(적은 것 · 업무 · 파일)를 댈 수 없는 항목 {dropped}개를 뺐습니다 — 필요하면 입력을 고쳐 다시 정리하세요
-              </Notice>
-            )}
-            {!hasIssueContent(edited) && (
-              <Notice tone="muted">정리할 사실이 아직 없습니다 — 입력을 고쳐 다시 정리해 보세요</Notice>
-            )}
-            {plan && hasIssueContent(edited) && (
-              <div style={{ padding: "10px 18px 0 18px" }}>
-                <div style={{ ...labelStyle, marginBottom: 8 }}>
-                  {plan.mode === "new"
-                    ? `새 파일 ${plan.rel}`
-                    : `${plan.rel}${plan.heading ? ` › ${plan.heading}` : ""} ${plan.heading ? "섹션 끝" : "끝"}에 덧붙임 — 이미 적힌 줄은 지우거나 바꾸지 않습니다`}
+                <div style={{ fontWeight: 600 }}>
+                  {task?.title}
+                  {task?.category && (
+                    <span style={{ fontWeight: 400, color: TEXT.sub }}> · {catLabel(task.category)}</span>
+                  )}
                 </div>
-                <MarkdownView blocks={preview} inline />
-                {plan.indexLine && (
-                  <div style={{ marginTop: 14 }}>
-                    <div style={labelStyle}>
-                      index.md › ## {ISSUE_INDEX_HEADING} 에 덧붙일 줄
-                    </div>
-                    <div
-                      style={{
-                        fontFamily: "'Roboto Mono',monospace",
-                        fontSize: 11.5,
-                        lineHeight: 1.6,
-                        color: "#4a463f",
-                        background: "#f7f5f1",
-                        border: "1px solid #ece8e0",
-                        borderRadius: 5,
-                        padding: "6px 8px",
-                        wordBreak: "break-all",
-                      }}
-                    >
-                      {plan.indexLine}
-                    </div>
+                {loading ? (
+                  // 개요 · 파일은 디스크에서 읽는다(AI 가 아니다) — 회색 스켈레톤으로 자리만.
+                  <span style={{ display: "flex", flexDirection: "column", gap: 6, padding: "4px 0" }} title="업무 파일을 읽는 중">
+                    <Skeleton width="92%" height={9} />
+                    <Skeleton width="64%" height={9} />
+                  </span>
+                ) : (
+                  <div style={{ color: TEXT.sub }}>
+                    글 파일 {files.length}개 — {files.slice(0, 6).map((f) => f.path).join(" · ")}
+                    {files.length > 6 ? " …" : ""}
                   </div>
                 )}
               </div>
-            )}
-          </div>
-        </div>
-      )}
+
+              <div style={{ ...labelStyle, marginTop: 14 }}>새 이슈 — 새로 생긴 일 · 테스트 회신 · 문제를 적거나 붙여 넣으세요</div>
+              <TextArea
+                autoFocus
+                value={input}
+                disabled={phase !== "input"}
+                onChange={(e) => {
+                  guard.disarm();
+                  setInput(e.target.value);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && canStart) {
+                    e.preventDefault();
+                    void run();
+                  }
+                }}
+                placeholder="예: QA 회신 — B카드사 결제가 3DS 인증 뒤 실패함. 다른 카드사는 정상. 금요일 재테스트 예정"
+                rows={7}
+                style={{
+                  ...inputStyle,
+                  height: "auto",
+                  padding: "8px 9px",
+                  lineHeight: 1.6,
+                  resize: "vertical",
+                  fontFamily: "inherit",
+                }}
+                focusStyle={inputFocus}
+              />
+              <div style={{ fontSize: 11, color: "#6a665e", lineHeight: 1.7, marginTop: 6 }}>
+                적은 것과 업무 제목 · 카테고리 · 태그 · 개요, 업무 폴더 글 파일의 이름 · 제목 · 앞부분이 AI 연결로
+                나갑니다. 적힌 사실만 정리하고 빠진 것은 "확인 필요" 로 남깁니다. 쓸 곳은 AI 가 제안하고, 쓰기 전에 고를 수
+                있습니다. {input.length > INPUT_CAP ? `앞 ${INPUT_CAP.toLocaleString()}자만 보냅니다. ` : ""}Ctrl+Enter 로
+                시작합니다.
+              </div>
+              {phase === "thinking" && (
+                <AiWaitBar
+                  since={thinkAt}
+                  label={`${info.name ?? "AI"} 가 ${!partial && thought ? "생각하는 중" : "정리하는 중"}`}
+                  chars={partial}
+                  thinking={thought}
+                  onCancel={() => abort.current?.abort()}
+                  style={{ margin: "9px 0 0" }}
+                />
+              )}
+            </div>
+          )}
+
+          {view === 1 && edited && (
+            <div style={{ flex: "1 1 auto", minWidth: 0, minHeight: 0, display: "flex" }}>
+              {/* 왼쪽 — 제목 · 종류 · 쓸 곳 */}
+              <div
+                style={{
+                  flex: "0 0 420px",
+                  minWidth: 0,
+                  overflowY: "auto",
+                  borderRight: "1px solid #efebe4",
+                  padding: "10px 14px 14px 14px",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", marginBottom: 5 }}>
+                  <span style={{ ...labelStyle, marginBottom: 0 }}>적은 것</span>
+                  <div style={{ flex: 1 }} />
+                  {phase === "review" && (
+                    <Box
+                      onClick={() => setPhase("input")}
+                      style={{ fontSize: 11.5, color: "#3a6fd8", cursor: "pointer" }}
+                      hover={{ textDecoration: "underline" }}
+                    >
+                      입력 고치기
+                    </Box>
+                  )}
+                </div>
+                <div
+                  style={{
+                    fontSize: 12.5,
+                    lineHeight: 1.6,
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                    background: "#f7f5f1",
+                    border: "1px solid #ece8e0",
+                    borderRadius: 6,
+                    padding: "7px 9px",
+                    maxHeight: 110,
+                    overflowY: "auto",
+                  }}
+                >
+                  {input}
+                </div>
+
+                <div style={{ ...labelStyle, marginTop: 12 }}>제목</div>
+                <Input
+                  value={title}
+                  disabled={phase !== "review"}
+                  onChange={(e) => onTitle(e.target.value)}
+                  style={inputStyle}
+                  focusStyle={inputFocus}
+                />
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 7 }}>
+                  {ISSUE_KINDS.map((k) => (
+                    <Box key={k} onClick={() => phase === "review" && setKind(k)} style={chipStyle(kind === k)}>
+                      {ISSUE_KIND_LABEL[k]}
+                    </Box>
+                  ))}
+                </div>
+
+                <div style={{ ...labelStyle, marginTop: 14 }}>쓸 곳</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <OptionCard
+                    on={mode === "new"}
+                    label={`새 파일${aiNew ? " · AI 제안" : ""}`}
+                    desc={`${ISSUE_DIR}/ 폴더에 이 이슈를 처리할 파일을 만듭니다`}
+                    onClick={() => phase === "review" && setMode("new")}
+                  />
+                  {mode === "new" && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "0 2px 2px 24px" }}>
+                      <span style={{ fontSize: 12, color: TEXT.sub, whiteSpace: "nowrap" }}>{ISSUE_DIR}/</span>
+                      <Input
+                        value={stem}
+                        disabled={phase !== "review"}
+                        onChange={(e) => {
+                          setStem(e.target.value);
+                          setStemTouched(true);
+                        }}
+                        style={{ ...inputStyle, flex: 1 }}
+                        focusStyle={inputFocus}
+                      />
+                      <span style={{ fontSize: 12, color: TEXT.sub }}>.md</span>
+                    </div>
+                  )}
+                  <OptionCard
+                    on={mode === "existing"}
+                    label={`기존 파일에 넣기${suggested?.mode === "existing" ? " · AI 제안" : ""}`}
+                    desc="고른 섹션 끝에 날짜 머리와 함께 한 건으로 덧붙입니다"
+                    onClick={() => phase === "review" && files?.length && setMode("existing")}
+                  />
+                  {mode === "existing" && files && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 5, padding: "0 2px 2px 24px" }}>
+                      <select
+                        value={path}
+                        disabled={phase !== "review"}
+                        onChange={(e) => {
+                          setPath(e.target.value);
+                          setHeading("");
+                        }}
+                        style={selectStyle}
+                      >
+                        {files.map((f) => (
+                          <option key={f.path} value={f.path}>
+                            {f.path}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        value={heading}
+                        disabled={phase !== "review"}
+                        onChange={(e) => setHeading(e.target.value)}
+                        style={selectStyle}
+                      >
+                        <option value="">(파일 끝)</option>
+                        {file?.headings.map((h) => (
+                          <option key={h.id} value={h.raw}>
+                            {`${"  ".repeat(h.level - 1)}${h.text}`}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+                {suggested?.why && (
+                  <div style={{ fontSize: 11.5, color: "#6a665e", lineHeight: 1.6, marginTop: 7 }}>
+                    <span style={{ color: "#6a54c6", fontWeight: 600 }}>AI 제안</span>{" "}
+                    {suggested.mode === "new" ? "새 파일" : `${suggested.path}${suggested.heading ? ` › ${suggested.heading}` : ""}`}
+                    {" — "}
+                    {suggested.why}
+                    {mode === "existing" && suggested.mode === "existing" && !aiHere ? " (다른 곳을 골랐습니다)" : ""}
+                  </div>
+                )}
+
+                {!(mode === "existing" && path === "index.md") && (
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      marginTop: 12,
+                      fontSize: 12,
+                      color: "#3a3630",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={withIndex}
+                      disabled={phase !== "review"}
+                      onChange={(e) => setWithIndex(e.target.checked)}
+                    />
+                    index.md 의 “## {ISSUE_INDEX_HEADING}” 에 한 줄 남기기
+                  </label>
+                )}
+              </div>
+
+              {/* 오른쪽 — 쓸 내용 미리보기 */}
+              <div style={{ flex: "1 1 auto", minWidth: 0, overflowY: "auto", paddingBottom: 14 }}>
+                {error && <Notice tone="error">{error}</Notice>}
+                {retargeted && (
+                  <Notice tone="warn">AI 가 고른 파일이 이 업무 폴더에 없어 새 파일로 바꿨습니다</Notice>
+                )}
+                {dropped > 0 && (
+                  <Notice tone="warn">
+                    근거(적은 것 · 업무 · 파일)를 댈 수 없는 항목 {dropped}개를 뺐습니다 — 필요하면 입력을 고쳐 다시 정리하세요
+                  </Notice>
+                )}
+                {!hasIssueContent(edited) && (
+                  <Notice tone="muted">정리할 사실이 아직 없습니다 — 입력을 고쳐 다시 정리해 보세요</Notice>
+                )}
+                {plan && hasIssueContent(edited) && (
+                  <div style={{ padding: "10px 18px 0 18px" }}>
+                    <div style={{ ...labelStyle, marginBottom: 8 }}>
+                      {plan.mode === "new"
+                        ? `새 파일 ${plan.rel}`
+                        : `${plan.rel}${plan.heading ? ` › ${plan.heading}` : ""} ${plan.heading ? "섹션 끝" : "끝"}에 덧붙임 — 이미 적힌 줄은 지우거나 바꾸지 않습니다`}
+                    </div>
+                    <MarkdownView blocks={preview} inline />
+                    {plan.indexLine && (
+                      <div style={{ marginTop: 14 }}>
+                        <div style={labelStyle}>
+                          index.md › ## {ISSUE_INDEX_HEADING} 에 덧붙일 줄
+                        </div>
+                        <div
+                          style={{
+                            fontFamily: "'Roboto Mono',monospace",
+                            fontSize: 11.5,
+                            lineHeight: 1.6,
+                            color: "#4a463f",
+                            background: "#f7f5f1",
+                            border: "1px solid #ece8e0",
+                            borderRadius: 5,
+                            padding: "6px 8px",
+                            wordBreak: "break-all",
+                          }}
+                        >
+                          {plan.indexLine}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </SlidePane>
+      </div>
 
       <ModalFooter>
         {phase === "input" && (
           <>
-            <div style={{ flex: 1 }} />
+            <EscNote armed={guard.armed} />
             {draft && <GhostButton onClick={() => setPhase("review")}>← 정리본으로</GhostButton>}
             <GhostButton onClick={dismiss}>닫기</GhostButton>
             <PrimaryButton onClick={() => void run()} disabled={!canStart}>

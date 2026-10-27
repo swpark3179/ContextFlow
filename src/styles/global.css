@@ -79,6 +79,14 @@ html,
 body {
   scrollbar-gutter: auto;
 }
+/*
+ * svg 도 기본이 `overflow: hidden` 이라 스크롤 상자로 쳐진다 — 위의 규칙이 작은 아이콘(9 ~ 14px) 안에
+ * 스크롤바 폭만큼 자리를 잡아 그림이 통째로 사라진다. 아이콘마다 `overflow: visible` 을 달던 것을
+ * 여기서 한 번에 푼다. svg 는 스크롤하지 않는다.
+ */
+svg {
+  scrollbar-gutter: auto;
+}
 ::-webkit-scrollbar {
   width: 11px;
   height: 11px;
@@ -128,6 +136,362 @@ body {
   to {
     transform: rotate(360deg);
   }
+}
+
+/*
+ * 모션 토큰 — 디자인 검토(ContextFlow 디자인 개선 · 모션, 00 모션 시스템)의 값 그대로다.
+ * 같은 뜻의 움직임은 어디서나 같은 시간 · 같은 곡선을 쓴다. 나가는 움직임은 들어오는 것의
+ * 0.7배 정도로 짧게 둔다 — 사라지는 것을 오래 볼 이유가 없다.
+ *
+ * * press 90  — 누름 · 호버 · 스위치 손잡이
+ * * quick 140 — 메뉴 · 칩 · 체크 · 툴팁 · 복사됨
+ * * base 200  — 행 넣기 · 빼기 · 탭 · 폴더 접기 · 패널
+ * * screen 280 — 업무 전환 · 목록 ↔ 상세 · 단계 넘기기
+ * * travel 460 — 날아가기 · 캔버스 이동 (한 동작에 하나)
+ * * hold 1000 — 롱프레스 링 (`LONG_PRESS_MS` 와 같다)
+ * * undo 6000 — [되돌리기] 카운트다운 (`UNDO_MS` 와 같다)
+ */
+:root {
+  --m-press: 90ms;
+  --m-quick: 140ms;
+  --m-base: 200ms;
+  --m-screen: 280ms;
+  --m-travel: 460ms;
+  --e-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --e-in: cubic-bezier(0.4, 0, 1, 1);
+  --e-pop: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@keyframes cfEnter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes cfEnterDown {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes cfFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes cfFadeOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+/* 메뉴 · 팝오버 — 붙은 자리(`transform-origin`)에서 자라난다. */
+@keyframes cfMenuIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes cfMenuOut {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-2px) scale(0.98);
+  }
+}
+@keyframes cfPanelIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes cfPanelOut {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(6px) scale(0.99);
+  }
+}
+@keyframes cfToastOut {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+}
+/* 확인 — 체크 · 숫자 증가 · 안착. 살짝 넘쳤다 돌아온다. */
+@keyframes cfPop {
+  0% {
+    transform: scale(0);
+  }
+  60% {
+    transform: scale(1.25);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@keyframes cfBump {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.4);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+/* 방금 바뀐 자리 — 옮겨 놓은 행 · 고친 분 · 되살아난 줄. */
+@keyframes cfFlash {
+  0% {
+    background-color: rgba(58, 111, 216, 0);
+  }
+  20% {
+    background-color: rgba(58, 111, 216, 0.16);
+  }
+  100% {
+    background-color: rgba(58, 111, 216, 0);
+  }
+}
+/* 거절 — 받지 않는 이름 · 실패한 저장. 좌우로 두 번. */
+@keyframes cfShake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-4px);
+  }
+  40% {
+    transform: translateX(4px);
+  }
+  60% {
+    transform: translateX(-3px);
+  }
+  80% {
+    transform: translateX(2px);
+  }
+}
+/* 롱프레스 링 — 처음 15% 는 비워 두어 그냥 누른 클릭에서는 보이지 않는다. */
+@keyframes cfHold {
+  0%,
+  15% {
+    stroke-dashoffset: var(--cf-ring, 44);
+  }
+  100% {
+    stroke-dashoffset: 0;
+  }
+}
+/* 머무르기 — 머리 위 0.3초 · 폴더 위 0.6초가 차오른다. 길이는 쓰는 쪽이 준다. */
+@keyframes cfSweep {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+/* [되돌리기] 남은 시간. 마우스를 올리면 멈춘다(`.cf-toast:hover`). */
+@keyframes cfCountdown {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+/* 맥락 복원 — 멈췄던 줄이 한 번 빛나고 옅게 남는다. */
+@keyframes cfRestoreLine {
+  0% {
+    background-color: rgba(58, 111, 216, 0);
+  }
+  12% {
+    background-color: rgba(58, 111, 216, 0.13);
+  }
+  100% {
+    background-color: rgba(58, 111, 216, 0);
+  }
+}
+@keyframes cfChip {
+  0% {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  8% {
+    opacity: 1;
+    transform: none;
+  }
+  82% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes cfPulseRing {
+  0% {
+    box-shadow: 0 0 0 0 rgba(58, 111, 216, 0.45);
+  }
+  70% {
+    box-shadow: 0 0 0 14px rgba(58, 111, 216, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(58, 111, 216, 0);
+  }
+}
+.cf-enter {
+  animation: cfEnter var(--m-base) var(--e-out) backwards;
+}
+.cf-enter-down {
+  animation: cfEnterDown var(--m-base) var(--e-out) backwards;
+}
+.cf-fade {
+  animation: cfFadeIn var(--m-quick) linear backwards;
+}
+.cf-menu {
+  animation: cfMenuIn var(--m-quick) var(--e-out) backwards;
+}
+.cf-pop {
+  animation: cfPop 220ms var(--e-pop) backwards;
+}
+.cf-bump {
+  animation: cfBump 320ms var(--e-pop);
+}
+.cf-flash {
+  animation: cfFlash 900ms ease-out;
+}
+.cf-shake {
+  animation: cfShake 260ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.cf-hold {
+  animation: cfHold 1000ms linear forwards;
+}
+.cf-sweep {
+  transform-origin: 0 50%;
+  animation: cfSweep 300ms linear forwards;
+}
+.cf-countdown {
+  transform-origin: 0 50%;
+  animation: cfCountdown 6000ms linear forwards;
+}
+.cf-toast:hover .cf-countdown,
+.cf-toast:focus-within .cf-countdown {
+  animation-play-state: paused;
+}
+.cf-restore {
+  animation: cfRestoreLine 1800ms var(--e-out) 180ms backwards;
+}
+.cf-chip {
+  animation: cfChip 2800ms linear 200ms both;
+}
+.cf-pulse-ring {
+  animation: cfPulseRing 900ms ease-out 2;
+}
+/* 키보드로 닿은 행 · 칸 — 마우스로 누를 때는 테두리를 그리지 않는다. */
+.cf-focus:focus {
+  outline: none;
+}
+.cf-focus:focus-visible {
+  outline: 2px solid #3a6fd8;
+  outline-offset: -2px;
+}
+/* 줄에 올렸을 때만 보이는 단추(오늘의 한일 ✕) — 평소에는 목록이 조용하고, 키보드로 들어와도 보인다. */
+.cf-reveal {
+  opacity: 0;
+  transition: opacity var(--m-quick);
+}
+.cf-reveal-host:hover .cf-reveal,
+.cf-reveal-host:focus-within .cf-reveal {
+  opacity: 1;
+}
+/* 앱 전역의 단추 · 행 호버(`Box` · `Span`)가 바뀌는 시간. */
+.cf-hover {
+  transition:
+    background-color var(--m-press),
+    border-color var(--m-press),
+    color var(--m-press),
+    box-shadow var(--m-press);
+}
+/*
+ * 동작 줄이기 — 이동 · 크기 변화는 120ms 페이드로 접는다. 롱프레스 링 · 머무르기 · 카운트다운 ·
+ * 진행선은 남긴다: 신호 자체가 사라지면 멈춘 것과 갈리지 않는다. 자리를 옮기는 요소는 `cf-mv` 를
+ * 달고, 그 요소의 전환은 투명도만 남는다(자리는 곧바로 바뀐다).
+ */
+@media (prefers-reduced-motion: reduce) {
+  .cf-enter,
+  .cf-enter-down,
+  .cf-menu {
+    animation: cfFadeIn 120ms linear backwards;
+  }
+  .cf-pop,
+  .cf-bump,
+  .cf-shake,
+  .cf-pulse-ring {
+    animation: none;
+  }
+  .cf-mv {
+    transition-property: opacity !important;
+    transition-duration: 120ms !important;
+  }
+  [style*="pIn"],
+  [style*="tIn"],
+  [style*="cfPanelIn"],
+  [style*="cfMenuIn"],
+  [style*="cfEnter"] {
+    animation-name: cfFadeIn !important;
+  }
+}
+:root[data-motion="reduce"] .cf-enter,
+:root[data-motion="reduce"] .cf-enter-down,
+:root[data-motion="reduce"] .cf-menu {
+  animation: cfFadeIn 120ms linear backwards;
+}
+:root[data-motion="reduce"] .cf-pop,
+:root[data-motion="reduce"] .cf-bump,
+:root[data-motion="reduce"] .cf-shake,
+:root[data-motion="reduce"] .cf-pulse-ring {
+  animation: none;
+}
+:root[data-motion="reduce"] .cf-mv {
+  transition-property: opacity !important;
+  transition-duration: 120ms !important;
+}
+:root[data-motion="reduce"] [style*="pIn"],
+:root[data-motion="reduce"] [style*="tIn"],
+:root[data-motion="reduce"] [style*="cfPanelIn"],
+:root[data-motion="reduce"] [style*="cfMenuIn"],
+:root[data-motion="reduce"] [style*="cfEnter"] {
+  animation-name: cfFadeIn !important;
 }
 
 /*

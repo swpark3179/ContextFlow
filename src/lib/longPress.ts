@@ -6,7 +6,7 @@
  * "1초 누르고 있어야 시작한다" 를 native drag 로는 표현할 수 없고, Tauri 에는 웹뷰 밖으로
  * 파일을 넘기는 API 가 없어 창 밖 드롭은 어차피 좌표로 판정해야 한다.
  */
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 /** 이만큼 누르고 있어야 드래그가 시작된다 — 그 전에는 평범한 클릭이다. */
 export const LONG_PRESS_MS = 1000;
@@ -27,6 +27,11 @@ export interface PressStart {
  */
 export function useLongPress<T>(onStart: (payload: T, at: PressStart) => void) {
   const press = useRef<{ timer: number; detach: () => void } | null>(null);
+  /**
+   * 누르고 있는 행 — 드래그가 시작되거나 손을 떼면 비운다. 행은 그동안 1초 링(`HoldRing`)을 그린다.
+   * 예전에는 1초 동안 아무것도 보이지 않아 길게 누르면 된다는 것을 알 길이 없었다.
+   */
+  const [holding, setHolding] = useState<T | null>(null);
   // 타이머 안에서 최신 콜백을 쓴다 — 매 렌더 새로 만들어지는 클로저를 붙잡고 있으면
   // 1초 뒤에 낡은 상태로 드래그가 시작된다.
   const cb = useRef(onStart);
@@ -37,6 +42,7 @@ export function useLongPress<T>(onStart: (payload: T, at: PressStart) => void) {
       window.clearTimeout(press.current.timer);
       press.current.detach();
       press.current = null;
+      setHolding(null);
     }
   }, []);
 
@@ -63,12 +69,14 @@ export function useLongPress<T>(onStart: (payload: T, at: PressStart) => void) {
       window.addEventListener("pointermove", onMove);
       window.addEventListener("pointerup", cancelPress);
       window.addEventListener("pointercancel", cancelPress);
+      setHolding(payload);
 
       press.current = {
         detach,
         timer: window.setTimeout(() => {
           detach();
           press.current = null;
+          setHolding(null);
           // 포인터를 잡아 둬야 커서가 행 밖으로 나가도 move/up 이 계속 온다.
           try {
             target.setPointerCapture(pointerId);
@@ -82,7 +90,7 @@ export function useLongPress<T>(onStart: (payload: T, at: PressStart) => void) {
     [cancelPress],
   );
 
-  return { startPress, cancelPress };
+  return { startPress, cancelPress, holding };
 }
 
 /**

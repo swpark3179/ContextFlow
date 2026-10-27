@@ -487,3 +487,195 @@ export function layout(roots: BsNode[], collapsed: Record<string, boolean> = {})
     height: cursor > 0 ? cursor - GAP : 0,
   };
 }
+
+/**
+ * 접힌 가지 안에 숨은 노드의 자리. 숨은 노드도 캔버스에 남겨 두고(투명) 접은 조상 자리로
+ * 모아 둔다 — 그래야 접을 때 그 조상 안으로 빨려 들어가고, 펼칠 때 거기서 다시 뻗어 나온다.
+ * `anchor` 는 이 노드를 품고 접힌, 캔버스에 보이는 조상의 경로다.
+ */
+export interface FoldedPlaced extends Placed {
+  anchor: string;
+}
+
+export function foldedPlaced(
+  roots: BsNode[],
+  collapsed: Record<string, boolean>,
+  placed: Placed[],
+): FoldedPlaced[] {
+  const by = new Map(placed.map((p) => [p.path, p]));
+  const out: FoldedPlaced[] = [];
+  const go = (list: BsNode[], depth: number, prefix: string, anchor: Placed | null) => {
+    list.forEach((node, i) => {
+      const path = prefix ? `${prefix}.${i}` : String(i);
+      if (anchor) {
+        const h = heightOf(node);
+        out.push({
+          path,
+          node,
+          depth,
+          x: anchor.x,
+          y: anchor.y + anchor.h / 2 - h / 2,
+          w: NODE_W,
+          h,
+          parent: prefix,
+          anchor: anchor.path,
+        });
+      }
+      const here = anchor ?? (collapsed[path] ? (by.get(path) ?? null) : null);
+      go(node.children, depth + 1, path, here);
+    });
+  };
+  go(roots, 0, "", null);
+  return out;
+}
+
+/** 이 경로의 조상들(뿌리부터). `"0.1.2"` → `["0", "0.1"]`. */
+export function ancestorPaths(path: string): string[] {
+  const parts = path ? path.split(".") : [];
+  return parts.slice(0, -1).map((_, i) => parts.slice(0, i + 1).join("."));
+}
+
+/** 이 노드가 캔버스에 보이도록 접힌 조상만 편다. 노드 자신의 접힘은 그대로 둔다. */
+export function unfoldTo(collapsed: Record<string, boolean>, path: string): Record<string, boolean> {
+  const up = ancestorPaths(path).filter((p) => collapsed[p]);
+  if (!up.length) return collapsed;
+  const next = { ...collapsed };
+  for (const p of up) delete next[p];
+  return next;
+}
+
+// ---- 같은 생각 짝짓기 ---------------------------------------------------------
+
+/**
+ * 고치기 전 트리와 고친 뒤 트리에서 같은 생각을 짝짓는다(새 경로 → 옛 경로).
+ *
+ * 노드에 id 가 없어서(위치가 곧 정체성) 가운데 형제 하나를 지우면 뒤의 형제들 경로가 하나씩
+ * 당겨진다. 경로로만 짝지으면 캔버스는 "글자가 바뀐 카드"로 그릴 뿐 그 카드가 위로 미끄러지지
+ * 않는다. 형제 목록마다 제목 · 상태로 가장 긴 공통 부분열을 잡고, 남은 것은 같은 틈 안에서
+ * 차례로 짝짓는다 — 제목이나 상태를 고친 노드가 거기 걸린다.
+ */
+export function matchPaths(prev: BsNode[], next: BsNode[]): Map<string, string> {
+  const out = new Map<string, string>();
+  const key = (n: BsNode) => `${n.status}\u0000${n.title}`;
+  const go = (a: BsNode[], b: BsNode[], pa: string, pb: string) => {
+    const at = (prefix: string, i: number) => (prefix ? `${prefix}.${i}` : String(i));
+    // L[i][j] = a[i:] 와 b[j:] 의 공통 부분열 길이.
+    const L = Array.from({ length: a.length + 1 }, () => new Array<number>(b.length + 1).fill(0));
+    for (let i = a.length - 1; i >= 0; i--) {
+      for (let j = b.length - 1; j >= 0; j--) {
+        L[i][j] = key(a[i]) === key(b[j]) ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+      }
+    }
+    const pairs: [number, number][] = [];
+    let i = 0;
+    let j = 0;
+    let gapA: number[] = [];
+    let gapB: number[] = [];
+    const flush = () => {
+      for (let k = 0; k < Math.min(gapA.length, gapB.length); k++) pairs.push([gapA[k], gapB[k]]);
+      gapA = [];
+      gapB = [];
+    };
+    while (i < a.length && j < b.length) {
+      if (key(a[i]) === key(b[j])) {
+        flush();
+        pairs.push([i++, j++]);
+      } else if (L[i + 1][j] >= L[i][j + 1]) gapA.push(i++);
+      else gapB.push(j++);
+    }
+    while (i < a.length) gapA.push(i++);
+    while (j < b.length) gapB.push(j++);
+    flush();
+    for (const [x, y] of pairs) {
+      const oa = at(pa, x);
+      const nb = at(pb, y);
+      out.set(nb, oa);
+      go(a[x].children, b[y].children, oa, nb);
+    }
+  };
+  go(prev, next, "", "");
+  return out;
+}
+
+/**
+ * 경로 → 그리는 동안 변하지 않는 id. 짝을 찾은 노드는 옛 id 를 물려받고, 못 찾은 노드는
+ * `fresh()` 로 새 id 를 받는다 — 새 id 가 곧 "방금 생긴 생각"이다.
+ */
+export function carryIds(
+  prev: BsNode[],
+  prevIds: Map<string, string>,
+  next: BsNode[],
+  fresh: () => string,
+): Map<string, string> {
+  const match = matchPaths(prev, next);
+  const out = new Map<string, string>();
+  for (const { path } of walkNodes(next)) {
+    const old = match.get(path);
+    const id = old !== undefined ? prevIds.get(old) : undefined;
+    out.set(path, id ?? fresh());
+  }
+  return out;
+}
+
+// ---- 카메라 -------------------------------------------------------------------
+
+/** 캔버스의 줌 · 팬. 화면 좌표 = 캔버스 좌표 × zoom + pan. */
+export interface Camera {
+  zoom: number;
+  panX: number;
+  panY: number;
+}
+
+export const ZOOM_MIN = 0.4;
+export const ZOOM_MAX = 1.6;
+
+export function clampZoom(z: number): number {
+  return Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z));
+}
+
+/**
+ * 화면의 한 점(ax, ay)을 붙박고 줌을 바꾼다 — 그 점 아래 있던 생각이 그 자리에 남는다.
+ * 예전 줌은 왼쪽 위를 붙박아서, 확대할 때마다 보던 노드가 오른쪽 아래로 달아났다.
+ */
+export function zoomAround(cam: Camera, zoom: number, ax: number, ay: number): Camera {
+  const z = clampZoom(zoom);
+  const k = z / cam.zoom;
+  return { zoom: z, panX: ax - (ax - cam.panX) * k, panY: ay - (ay - cam.panY) * k };
+}
+
+interface Rect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** 캔버스 좌표의 사각형을 화면(vw × vh) 가운데에 둔다. */
+export function centerOn(r: Rect, vw: number, vh: number, zoom: number): Camera {
+  return { zoom, panX: vw / 2 - (r.x + r.w / 2) * zoom, panY: vh / 2 - (r.y + r.h / 2) * zoom };
+}
+
+/**
+ * 사각형이 화면 안(가장자리 `m`, 아래는 도구 막대 몫 `mb`)에 들어오게 가장 적게 옮긴다.
+ * 이미 다 보이면 `null` — 카메라를 괜히 흔들지 않는다.
+ */
+export function revealRect(cam: Camera, r: Rect, vw: number, vh: number, m = 32, mb = 52): Camera | null {
+  const fit = (pos: number, size: number, view: number, lo: number, hi: number): number => {
+    if (size > view - lo - hi) return lo - pos; // 화면보다 크면 머리를 맞춘다
+    if (pos < lo) return lo - pos;
+    if (pos + size > view - hi) return view - hi - (pos + size);
+    return 0;
+  };
+  const sx = r.x * cam.zoom + cam.panX;
+  const sy = r.y * cam.zoom + cam.panY;
+  const dx = fit(sx, r.w * cam.zoom, vw, m, m);
+  const dy = fit(sy, r.h * cam.zoom, vh, m, mb);
+  if (!dx && !dy) return null;
+  return { zoom: cam.zoom, panX: cam.panX + dx, panY: cam.panY + dy };
+}
+
+/** [맞춤] — 가지 전체가 들어오는 줌(최대 100%). 왼쪽에 붙이고 위아래로는 가운데. */
+export function fitCamera(width: number, height: number, vw: number, vh: number, pad: number): Camera {
+  const z = Math.max(ZOOM_MIN, Math.min(1, (vw - pad * 2) / (width || 1), (vh - pad * 2) / (height || 1)));
+  return { zoom: z, panX: pad, panY: Math.max(pad, (vh - height * z) / 2) };
+}

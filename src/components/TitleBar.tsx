@@ -1,5 +1,7 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Box } from "../lib/ui";
+// 배포 워크플로가 빌드 전에 package.json 의 버전을 올린다 — 손으로 적은 "v0.3" 은 v1.6 이 되도록 그대로였다.
+import { version } from "../../package.json";
 
 /** Custom chrome — the Tauri window runs with `decorations: false`. */
 export default function TitleBar({ title }: { title: string }) {
@@ -48,7 +50,7 @@ export default function TitleBar({ title }: { title: string }) {
             lineHeight: "15px",
           }}
         >
-          v0.3
+          v{version}
         </span>
       </div>
       <div
@@ -68,11 +70,19 @@ export default function TitleBar({ title }: { title: string }) {
         {title}
       </div>
       <div style={{ display: "flex", alignItems: "stretch", height: 34 }}>
-        <Box style={btn} hover={{ background: "#e6e2da" }} onClick={() => void win.minimize()}>
+        <Box
+          style={btn}
+          title="최소화"
+          aria-label="최소화"
+          hover={{ background: "#e6e2da" }}
+          onClick={() => void win.minimize()}
+        >
           –
         </Box>
         <Box
           style={{ ...btn, fontSize: 11 }}
+          title="최대화"
+          aria-label="최대화"
           hover={{ background: "#e6e2da" }}
           onClick={() => void win.toggleMaximize()}
         >
@@ -80,6 +90,8 @@ export default function TitleBar({ title }: { title: string }) {
         </Box>
         <Box
           style={{ ...btn, width: 46 }}
+          title="닫기"
+          aria-label="닫기"
           hover={{ background: "#d64545", color: "#fff" }}
           onClick={() => void win.close()}
         >

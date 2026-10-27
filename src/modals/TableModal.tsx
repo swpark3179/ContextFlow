@@ -187,6 +187,12 @@ export default function TableModal({
   });
   const dragging = useRef(false);
   const escTimer = useRef<number | undefined>(undefined);
+  const gridEl = useRef<HTMLTableElement | null>(null);
+  /**
+   * 방금 넣은 행 · 열(포함 범위). 다음 그리기 뒤에 그 칸들이 한 번 빛난다 — 큰 표에서 단추를 누른 뒤
+   * 어디에 줄이 생겼는지 눈으로 찾지 않아도 된다.
+   */
+  const fresh = useRef<{ rows: [number, number] | null; cols: [number, number] | null } | null>(null);
 
   const { rows, cols } = tableSize(t);
   const cover = useMemo(() => coverMap(t), [t]);
@@ -239,6 +245,25 @@ export default function TableModal({
     el.scrollIntoView?.({ block: "nearest", inline: "nearest" });
   });
 
+  useLayoutEffect(() => {
+    const f = fresh.current;
+    if (!f) return;
+    fresh.current = null;
+    const box = gridEl.current;
+    if (!box || typeof Element.prototype.animate !== "function") return;
+    const inRange = (v: number, rg: [number, number] | null) => !!rg && v >= rg[0] && v <= rg[1];
+    box.querySelectorAll<HTMLElement>("td[data-cell]").forEach((td) => {
+      const [r, c] = (td.dataset.cell as string).split(":").map(Number);
+      if (!inRange(r, f.rows) && !inRange(c, f.cols)) return;
+      // 칸마다 바탕이 다르다(머리 · 고른 칸) — 제 바탕에서 파랗게 빛났다가 제 바탕으로 돌아온다.
+      const base = getComputedStyle(td).backgroundColor;
+      td.animate(
+        [{ backgroundColor: base }, { backgroundColor: "#dfe9fb", offset: 0.2 }, { backgroundColor: base }],
+        { duration: 900, easing: "ease-out" },
+      );
+    });
+  });
+
   useEffect(() => {
     const up = () => (dragging.current = false);
     window.addEventListener("mouseup", up);
@@ -278,6 +303,7 @@ export default function TableModal({
     if (j >= 0 && j < order.length) go(order[j]);
     else if (dir > 0) {
       setT((x) => insertRow(x, x.cells.length));
+      fresh.current = { rows: [rows, rows], cols: null };
       go({ r: rows, c: 0 });
     }
   };
@@ -289,6 +315,7 @@ export default function TableModal({
     if (r >= rows) {
       if (!grow) return false;
       setT((x) => insertRow(x, x.cells.length));
+      fresh.current = { rows: [rows, rows], cols: null };
       go({ r: rows, c: active.c });
       return true;
     }
@@ -389,6 +416,15 @@ export default function TableModal({
     else want.current = { p: active, caret: "keep" };
   };
 
+  /** 행 · 열 넣기. 넣은 줄(`row` 또는 `col` 번째)이 한 번 빛난다. */
+  const insert = (next: TableModel, p: Pos, at: { row?: number; col?: number }) => {
+    fresh.current = {
+      rows: at.row !== undefined ? [at.row, at.row] : null,
+      cols: at.col !== undefined ? [at.col, at.col] : null,
+    };
+    apply(next, p);
+  };
+
   const blocker = mergeBlocker(sel);
   const canUnmerge = hasMergeIn(t, sel);
   const allRows = sel.r0 === 0 && sel.r1 === rows - 1;
@@ -421,8 +457,14 @@ export default function TableModal({
     if (!grid || (grid.length === 1 && grid[0].length <= 1)) return;
     e.preventDefault();
     setT((x) => pasteCells(x, p.r, p.c, grid));
+    const r1 = p.r + grid.length - 1;
+    const c1 = p.c + Math.max(...grid.map((g) => g.length)) - 1;
+    // 모자라서 늘어난 행 · 열만 빛난다.
+    if (r1 >= rows || c1 >= cols) {
+      fresh.current = { rows: r1 >= rows ? [rows, r1] : null, cols: c1 >= cols ? [cols, c1] : null };
+    }
     setAnchor(p);
-    setEnd({ r: p.r + grid.length - 1, c: p.c + Math.max(...grid.map((g) => g.length)) - 1 });
+    setEnd({ r: r1, c: c1 });
   };
 
   // --- 그리기 ------------------------------------------------------------
@@ -488,11 +530,14 @@ export default function TableModal({
           }}
         >
           <Group label="행">
-            <Tool onClick={() => apply(insertRow(t, sel.r0), { r: sel.r0, c: active.c })} title="고른 행 위에 빈 행을 넣습니다">
+            <Tool
+              onClick={() => insert(insertRow(t, sel.r0), { r: sel.r0, c: active.c }, { row: sel.r0 })}
+              title="고른 행 위에 빈 행을 넣습니다"
+            >
               ↑ 위에 추가
             </Tool>
             <Tool
-              onClick={() => apply(insertRow(t, sel.r1 + 1), { r: sel.r1 + 1, c: active.c })}
+              onClick={() => insert(insertRow(t, sel.r1 + 1), { r: sel.r1 + 1, c: active.c }, { row: sel.r1 + 1 })}
               title="고른 행 아래에 빈 행을 넣습니다"
             >
               ↓ 아래에 추가
@@ -509,11 +554,14 @@ export default function TableModal({
             </Tool>
           </Group>
           <Group label="열">
-            <Tool onClick={() => apply(insertCol(t, sel.c0), { r: active.r, c: sel.c0 })} title="고른 열 왼쪽에 빈 열을 넣습니다">
+            <Tool
+              onClick={() => insert(insertCol(t, sel.c0), { r: active.r, c: sel.c0 }, { col: sel.c0 })}
+              title="고른 열 왼쪽에 빈 열을 넣습니다"
+            >
               ← 왼쪽에 추가
             </Tool>
             <Tool
-              onClick={() => apply(insertCol(t, sel.c1 + 1), { r: active.r, c: sel.c1 + 1 })}
+              onClick={() => insert(insertCol(t, sel.c1 + 1), { r: active.r, c: sel.c1 + 1 }, { col: sel.c1 + 1 })}
               title="고른 열 오른쪽에 빈 열을 넣습니다"
             >
               → 오른쪽에 추가
@@ -568,7 +616,7 @@ export default function TableModal({
         </div>
 
         <div style={{ flex: 1, minHeight: 170, overflow: "auto", padding: "12px 14px 10px", background: "#fdfcfa" }}>
-          <table style={{ borderCollapse: "collapse" }}>
+          <table ref={gridEl} style={{ borderCollapse: "collapse" }}>
             <thead>
               <tr>
                 <th
@@ -636,6 +684,7 @@ export default function TableModal({
                       return (
                         <td
                           key={c}
+                          data-cell={`${r}:${c}`}
                           colSpan={m && m.cs > 1 ? m.cs : undefined}
                           rowSpan={m && m.rs > 1 ? m.rs : undefined}
                           onMouseDown={(e) => onCellDown(e, p)}
@@ -733,15 +782,16 @@ export default function TableModal({
         )}
 
         <ModalFooter>
+          {/* 크기 줄은 늘 남는다 — Esc 경고가 떠도 지금 표가 몇 칸인지는 그대로 보여야 한다. */}
+          <span style={{ fontSize: 11.5, color: TEXT.sub, whiteSpace: "nowrap" }}>
+            {cols}열 × {rows}행 · 첫 줄은 머리 행
+          </span>
           {escArmed ? (
-            <span style={{ fontSize: 11.5, color: TEXT.warn }}>
+            <span className="cf-fade" role="status" style={{ fontSize: 11.5, color: TEXT.warn }}>
               바뀐 내용이 있습니다 — Esc 를 한 번 더 누르면 버리고 닫습니다
             </span>
           ) : (
             <>
-              <span style={{ fontSize: 11.5, color: TEXT.sub }}>
-                {cols}열 × {rows}행 · 첫 줄은 머리 행
-              </span>
               {html && (
                 <span
                   title="마크다운 표에는 칸을 합치는 문법이 없어 HTML <table> 로 적습니다. Obsidian · GitHub 와 이 뷰어에서 그대로 보입니다."

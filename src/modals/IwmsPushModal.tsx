@@ -1,6 +1,20 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { AiRail, AiSignal, AiWaitBar, Box, BusyLabel, Skeleton, TextArea, fmtSec } from "../lib/ui";
-import { AI, TEXT } from "../lib/design";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { flushSync } from "react-dom";
+import {
+  AiRail,
+  AiSignal,
+  AiWaitBar,
+  Box,
+  BusyLabel,
+  CheckMark,
+  EASE_OUT,
+  Skeleton,
+  Spinner,
+  TextArea,
+  fmtSec,
+  useTween,
+} from "../lib/ui";
+import { AI, BLUE, TEXT } from "../lib/design";
 import * as api from "../lib/api";
 import * as iwmsApi from "../lib/iwms/api";
 import { problemsOf, rowsOf } from "../lib/iwms/check";
@@ -22,16 +36,21 @@ import {
   type PreviewOut,
   type UndoOut,
 } from "../lib/iwms/types";
+import { minutesBar } from "../lib/minutesBar";
 import { injectionFor } from "../lib/promptPacks";
 import { routeInfo, routeRun, useAi } from "../store/aiStore";
-import { useIwms } from "../store/iwmsStore";
+import { liveHandoff, useIwms } from "../store/iwmsStore";
 import { useStore } from "../store/useStore";
 import { GhostButton, Modal, ModalFooter, PrimaryButton, inputFocus } from "./Modal";
+import { SlidePane, useReplay, useStepDir } from "./motion";
 
 const WEEKDAY = ["일", "월", "화", "수", "목", "금", "토"];
 
 /** 학습 — 최근에 확정한 행을 정제의 예시로 싣는다. */
 const EXAMPLES = 30;
+
+/** 이 판의 크기 — 오늘의 한일로 돌아가면 그쪽 판이 이 크기에서 줄어든다(`ModalHandoff`). */
+const SIZE = { width: 1040, height: 640 };
 
 /**
  * i-WMS 업무량 입력 — 오늘의 한일에서 대가 구분을 고른 줄을 AI 가 정제하고 사람이 검토한다.
@@ -57,10 +76,30 @@ type Phase = "loading" | "refining" | "review" | "previewing" | "preview" | "sav
 
 const BUSY: Phase[] = ["loading", "refining", "previewing", "saving", "undoing"];
 
+/** 머리의 단계(검토 · 미리보기 · 확정) — 본문 칸은 이 단위로 좌우로 넘어간다. */
+const STEP_OF: Record<Phase, number> = {
+  loading: 0,
+  refining: 0,
+  review: 0,
+  previewing: 0,
+  preview: 1,
+  saving: 2,
+  done: 2,
+  undoing: 2,
+};
+
 function PushView({ day }: { day: string }) {
   const vault = useStore((s) => s.settings.vault);
   const iw = useIwms();
   const settings = iw.settings;
+
+  /** 오늘의 한일에서 넘어왔다 — 바탕을 다시 흐리지 않고 그 판의 크기에서 자라며, 본문은 오른쪽에서 들어온다. */
+  const [handoff] = useState(() => liveHandoff(useIwms.getState().handoff));
+  useEffect(() => {
+    if (useIwms.getState().handoff) useIwms.setState({ handoff: null });
+  }, []);
+  /** 오늘의 한일로 넘기는 중 — 잔상 없이 사라지고 저쪽 판이 이어 받는다. */
+  const [passing, setPassing] = useState(false);
 
   const [phase, setPhase] = useState<Phase>("loading");
   const [error, setError] = useState("");
@@ -81,7 +120,14 @@ function PushView({ day }: { day: string }) {
   const [preview, setPreview] = useState<PreviewOut | null>(null);
   const [result, setResult] = useState<CommitOut | null>(null);
   const [undone, setUndone] = useState<UndoOut | null>(null);
+  /** [분 다시 나누기] 로 분이 바뀐 줄 — 줄마다 셈이 오를 때마다 그 칸이 한 번 빛난다. */
+  const [flash, setFlash] = useState<Record<number, number>>({});
+  /** 이번 정제로 처음 초안이 생긴 줄 — 스켈레톤 자리에 차례로 들어온다. */
+  const [fresh, setFresh] = useState<ReadonlySet<number>>(new Set());
   const abort = useRef<AbortController | null>(null);
+
+  const step = STEP_OF[phase];
+  const dir = useStepDir(step, handoff ? 1 : 0);
 
   const busy = BUSY.includes(phase);
   useEffect(() => {
@@ -89,8 +135,16 @@ function PushView({ day }: { day: string }) {
   }, [busy]);
   useEffect(() => () => abort.current?.abort(), []);
 
+  /**
+   * 정제 한 번. 앞선 정제가 아직 돌고 있으면 끊는다 — 두 답이 서로 덮어쓰고, 늦게 끝난 쪽이 새 정제를 도는
+   * 중인데도 화면을 `review` 로 돌려놓았다. 끊긴 실행은 화면을 건드리지 않는다(`mine`).
+   */
   const runRefine = useCallback(
     async (d: IwmsDay, s: IwmsSettings, picked: Target[], prev: Draft[]) => {
+      abort.current?.abort();
+      const ctl = new AbortController();
+      abort.current = ctl;
+      const mine = () => abort.current === ctl;
       setPhase("refining");
       setAiError("");
       setPartial(0);
@@ -98,13 +152,12 @@ function PushView({ day }: { day: string }) {
       setRefineMs(null);
       const startedAt = Date.now();
       setBusyAt(startedAt);
-      const ctl = new AbortController();
-      abort.current = ctl;
       try {
         const [items, examples] = await Promise.all([
           collectMaterial(picked, useStore.getState().tasks, s.categories, day, api.readTextFile),
           iwmsApi.iwmsRecentPushes(EXAMPLES).catch(() => []),
         ]);
+        if (!mine()) return;
         const ai = useAi.getState();
         const res = await refine(
           {
@@ -115,18 +168,26 @@ function PushView({ day }: { day: string }) {
             examples,
             inject: injectionFor("iwms.refine", ai.packs, ai.settings),
           },
-          { signal: ctl.signal, onPartial: (t) => setPartial(t.length), onThinking: (n) => setThought(n) },
+          {
+            signal: ctl.signal,
+            onPartial: (t) => mine() && setPartial(t.length),
+            onThinking: (n) => mine() && setThought(n),
+          },
         );
         if (ctl.signal.aborted) return;
+        const had = new Set(prev.map((x) => x.entryId));
         setTable(res.table);
         setDrafts(refit(mergeDrafts(prev, res.drafts), remainingOf(d), s));
+        setFresh(new Set(res.drafts.map((x) => x.entryId).filter((id) => !had.has(id))));
         setAiError(res.error ?? "");
         if (!res.error && res.drafts.length) setRefineMs(Date.now() - startedAt);
       } catch (e) {
-        setAiError(api.errMessage(e));
+        if (mine()) setAiError(api.errMessage(e));
       } finally {
-        if (abort.current === ctl) abort.current = null;
-        setPhase("review");
+        if (mine()) {
+          abort.current = null;
+          setPhase("review");
+        }
       }
     },
     [day],
@@ -169,12 +230,19 @@ function PushView({ day }: { day: string }) {
     };
   }, [vault, day, runRefine]);
 
-  if (!settings) return null;
-
+  /**
+   * 오늘의 한일로 — 같은 대화상자가 좁아지는 것처럼 넘긴다. 쓰는 중 · 되돌리는 중에는 가지 않는다(결과를
+   * 적을 자리가 사라진다). 방금 넣은 줄을 함께 넘겨 그 줄의 칩이 튀게 한다.
+   */
   const back = () => {
+    if (phase === "saving" || phase === "undoing") return;
     abort.current?.abort();
-    iw.closePush(true);
+    const pushed =
+      result && !undone ? result.pushes.map((p) => p.entryId).filter((x): x is number => x !== null) : [];
+    flushSync(() => setPassing(true));
+    iw.closePush(true, { ...SIZE, pushed });
   };
+  const closeNow = () => !busy && iw.closePush(false);
 
   const remaining = iday ? remainingOf(iday) : 0;
   const rows = targets.filter((t) => included.has(t.entry.id));
@@ -213,13 +281,34 @@ function PushView({ day }: { day: string }) {
     }
   };
 
+  const live = rows.map((t) => draftOf(t.entry.id)).filter((d): d is Draft => !!d);
+  const problems = problemsOf(live, iday);
+
   const reRefine = () => {
-    if (!iday) return;
+    if (!iday || !settings || busy) return;
     void runRefine(iday, settings, rows, drafts.filter((d) => included.has(d.entryId)));
   };
 
-  const live = rows.map((t) => draftOf(t.entry.id)).filter((d): d is Draft => !!d);
-  const problems = problemsOf(live, iday);
+  /**
+   * 넣을 줄의 분을 남은 시간에 다시 맞춘다(사람이 고친 분까지). 뺀 줄의 초안은 건드리지 않는다 — 셈에 넣으면
+   * 넣을 줄의 합이 남은 시간보다 모자라게 나뉜다. 바뀐 줄은 칸이 한 번 빛나고 숫자가 옛 값에서 흘러간다.
+   */
+  const redistribute = () => {
+    if (!iday || !settings || busy) return;
+    const inc = drafts.filter((d) => included.has(d.entryId));
+    if (!inc.length) return;
+    const fitted = refit(
+      inc.map((d) => ({ ...d, edited: { ...d.edited, minutes: false } })),
+      remainingOf(iday),
+      settings,
+    );
+    const byId = new Map(fitted.map((d) => [d.entryId, d]));
+    const changed = fitted.filter((d, i) => d.minutes !== inc[i].minutes).map((d) => d.entryId);
+    setDrafts((prev) => prev.map((d) => byId.get(d.entryId) ?? d));
+    if (changed.length) {
+      setFlash((f) => ({ ...f, ...Object.fromEntries(changed.map((id) => [id, (f[id] ?? 0) + 1])) }));
+    }
+  };
 
   const doPreview = async () => {
     setActAt(Date.now());
@@ -227,6 +316,8 @@ function PushView({ day }: { day: string }) {
     setError("");
     try {
       setPreview(await iw.call(() => iwmsApi.iwmsPreview(day, rowsOf(live))));
+      // 다시 검토로 돌아왔을 때 줄이 또 차례로 들어오지 않게.
+      setFresh(new Set());
       setPhase("preview");
     } catch (e) {
       setError(api.errMessage(e));
@@ -236,7 +327,7 @@ function PushView({ day }: { day: string }) {
 
   /** 토큰은 한 번만 쓰인다 — 실패하면 검토로 돌아가 다시 미리본다. */
   const doCommit = async () => {
-    if (!preview) return;
+    if (!preview || phase !== "preview") return;
     setActAt(Date.now());
     setPhase("saving");
     setError("");
@@ -252,7 +343,7 @@ function PushView({ day }: { day: string }) {
   };
 
   const doUndo = async () => {
-    if (!result) return;
+    if (!result || phase !== "done") return;
     setActAt(Date.now());
     setPhase("undoing");
     setError("");
@@ -271,9 +362,21 @@ function PushView({ day }: { day: string }) {
   const waiting = phase === "loading" || phase === "refining";
   const refinedRows = live.filter((d) => d.confidence !== null && !d.fixed);
   const lowRows = refinedRows.filter((d) => (d.confidence ?? 100) < 70).length;
+  const refinedLine = !waiting && refineMs !== null && refinedRows.length > 0;
+  /** 쓰는 중 · 되돌리는 중에는 돌아가지 않는다. */
+  const locked = phase === "saving" || phase === "undoing";
+  /** 확정이 끝났고 되돌리지 않았다 — 머리의 세 번째 단계에도 ✓. */
+  const committed = phase === "done" && !!result && !undone?.verified;
 
   return (
-    <Modal width={1040} zIndex={73} onClose={() => !busy && iw.closePush(false)} panelStyle={{ height: 640 }}>
+    <Modal
+      width={SIZE.width}
+      zIndex={73}
+      onClose={closeNow}
+      panelStyle={{ height: SIZE.height }}
+      exit={!passing}
+      handoff={handoff}
+    >
       {/* 머리 ------------------------------------------------------------- */}
       <div
         style={{
@@ -287,22 +390,31 @@ function PushView({ day }: { day: string }) {
         }}
       >
         <Box
-          onClick={back}
-          style={{ fontSize: 12, color: "#6a665e", cursor: "pointer", padding: "2px 6px", borderRadius: 4 }}
-          hover={{ background: "#ece8e0" }}
-          title="오늘의 한일로 돌아갑니다"
+          role="button"
+          aria-disabled={locked || undefined}
+          onClick={() => !locked && back()}
+          style={{
+            fontSize: 12,
+            color: locked ? TEXT.off : TEXT.sub,
+            cursor: locked ? "default" : "pointer",
+            padding: "2px 6px",
+            borderRadius: 4,
+          }}
+          hover={locked ? undefined : { background: "#ece8e0" }}
+          title={locked ? "i-WMS 에 쓰는 동안에는 돌아가지 않습니다" : "오늘의 한일로 돌아갑니다"}
         >
           ← 오늘의 한일
         </Box>
-        <span style={{ fontSize: 14, fontWeight: 600 }}>i-WMS 업무량 입력</span>
+        <span style={{ fontSize: 14, fontWeight: 600, whiteSpace: "nowrap" }}>i-WMS 업무량 입력</span>
         <span style={{ fontFamily: "'Roboto Mono',monospace", fontSize: 11.5, color: "#6a665e" }}>
           {day} ({wd})
         </span>
         <div style={{ flex: 1 }} />
-        {iw.status?.connected && iday && (
+        <Stepper step={step} committed={committed} />
+        {settings && iw.status?.connected && iday && (
           <Box
             onClick={() => void api.openWebUrl(registUrl(settings.baseUrl, iday.userId, day))}
-            style={{ fontSize: 11.5, color: "#3a6fd8", cursor: "pointer" }}
+            style={{ fontSize: 11.5, color: "#3a6fd8", cursor: "pointer", whiteSpace: "nowrap" }}
             hover={{ textDecoration: "underline" }}
           >
             i-WMS 에서 보기 ↗
@@ -314,6 +426,7 @@ function PushView({ day }: { day: string }) {
             alignItems: "center",
             gap: 6,
             fontSize: 11.5,
+            whiteSpace: "nowrap",
             color: iw.connecting ? TEXT.body : iw.status?.connected ? "#2f7f57" : TEXT.sub,
           }}
         >
@@ -325,112 +438,141 @@ function PushView({ day }: { day: string }) {
       <div style={{ flex: "0 0 2px", height: 2 }}>{waiting && <AiRail />}</div>
 
       {/* 그날 현황 --------------------------------------------------------- */}
-      {iday && <DayBar day={iday} thisRun={thisRun} remaining={remaining} settings={settings} table={table} />}
+      {settings && iday && (
+        <DayBar
+          day={iday}
+          thisRun={thisRun}
+          rows={rows.map((t) => draftOf(t.entry.id)?.minutes ?? 0)}
+          remaining={remaining}
+          settings={settings}
+          table={table}
+        />
+      )}
 
-      {/* 본문 ------------------------------------------------------------- */}
-      <div style={{ flex: "1 1 auto", minHeight: 0, overflowY: "auto" }}>
-        {error && <Notice tone="error">{error}</Notice>}
-        {aiError && <Notice tone="warn">{aiError}</Notice>}
-        {waiting && (
-          <AiWaitBar
-            since={busyAt}
-            label={
-              phase === "loading"
-                ? "기록과 i-WMS 현황을 읽는 중"
-                : !partial && thought
-                  ? `${ai.name ?? "AI"} 가 생각하는 중`
-                  : `${ai.name ?? "AI"} 가 ${rows.length}줄을 정제하는 중`
-            }
-            ai={phase === "refining"}
-            chars={phase === "refining" ? partial : null}
-            thinking={phase === "refining" ? thought : null}
-            onCancel={phase === "refining" ? () => abort.current?.abort() : null}
-          />
-        )}
-        {phase === "review" && refineMs !== null && refinedRows.length > 0 && (
-          <div
-            className="cf-up"
-            style={{
-              margin: "9px 14px 0",
-              display: "flex",
-              alignItems: "center",
-              gap: 9,
-              fontSize: 12.5,
-              padding: "6px 9px",
-              borderRadius: 6,
-              background: "#f1faf5",
-              border: "1px solid #c9e4d5",
-              color: "#256b47",
-            }}
-          >
-            <span style={{ width: 14, textAlign: "center", fontWeight: 700 }}>✓</span>
-            <span style={{ flex: 1, minWidth: 0 }}>
-              {refinedRows.length}줄 정제 완료
-              {lowRows > 0 ? ` · 확신도가 낮은 ${lowRows}줄부터 확인하세요` : " · 보라 테두리 칸이 AI 제안입니다"}
-            </span>
-            <span style={{ fontFamily: "'Roboto Mono',monospace", fontSize: 11.5 }}>{fmtSec(refineMs, true)}</span>
-          </div>
-        )}
-        {phase !== "loading" && !error && !targets.length && (
-          <Notice tone="muted">
-            이 날짜에는 대가 구분을 고른 줄이 없습니다. 오늘의 한일에서 줄마다 [포함] · [미포함] 을 고르세요.
-          </Notice>
-        )}
-
-        {(phase === "preview" || phase === "saving") && preview && <PreviewPane p={preview.preview} />}
-        {(phase === "done" || phase === "undoing") && result && <ResultPane r={result} undone={undone} />}
-
-        {["loading", "refining", "review", "previewing"].includes(phase) &&
-          targets.map((t) => {
-            const d = draftOf(t.entry.id);
-            const on = included.has(t.entry.id);
-            const dup = iday ? duplicateOf(t.entry.title, iday) : null;
-            // 초안이 오기 전의 넣을 줄 — 빠진 줄로 그리면 [넣기] 가 눌리고 뺀 것처럼 보인다.
-            if (on && !d && waiting) return <SkeletonRow key={t.entry.id} t={t} />;
-            if (!on || !d) {
-              return <ExcludedRow key={t.entry.id} t={t} dup={dup} onInclude={() => setIncluding(t, true)} />;
-            }
-            return (
-              <DraftRow
-                key={t.entry.id}
-                t={t}
-                d={d}
-                dup={dup}
-                options={table?.groups.find((g) => g.price === t.price)?.list ?? []}
-                disabled={busy}
-                onCategory={(c) => update(d.entryId, { category: c, edited: { category: true } })}
-                onMinutes={(m) => update(d.entryId, { minutes: m, edited: { minutes: true } })}
-                onNote={(n) => update(d.entryId, { note: n, edited: { note: true } })}
-                onExclude={() => setIncluding(t, false)}
-              />
-            );
-          })}
-        {phase === "review" && live.length > 0 && problems.length > 0 && (
-          <Notice tone="warn">
-            미리보기 전에 고칠 것
-            {problems.map((m) => (
-              <div key={m}>· {m}</div>
-            ))}
-          </Notice>
-        )}
+      {/* 본문 — 단계마다 한 칸. 앞으로 가면 오른쪽에서, 돌아가면 왼쪽에서 들어온다. -------- */}
+      <div style={{ flex: "1 1 auto", minHeight: 0, position: "relative", overflow: "hidden", display: "flex" }}>
+        <SlidePane key={step} dir={dir} style={{ flex: "1 1 auto", minWidth: 0, minHeight: 0, overflowY: "auto" }}>
+          {step === 0 && (
+            <>
+              {error && <Notice tone="error">{error}</Notice>}
+              {aiError && <Notice tone="warn">{aiError}</Notice>}
+              {/* 기다림 띠와 정제 완료 줄은 한 자리를 나눠 쓴다 — 바뀌어도 아래 줄이 밀리지 않는다. */}
+              {(waiting || refinedLine) && (
+                <div style={{ position: "relative", height: 34, margin: "9px 14px 0" }}>
+                  {waiting ? (
+                    <AiWaitBar
+                      since={busyAt}
+                      label={
+                        phase === "loading"
+                          ? settings
+                            ? "기록과 i-WMS 현황을 읽는 중"
+                            : "i-WMS 설정을 읽는 중"
+                          : !partial && thought
+                            ? `${ai.name ?? "AI"} 가 생각하는 중`
+                            : `${ai.name ?? "AI"} 가 ${rows.length}줄을 정제하는 중`
+                      }
+                      ai={phase === "refining"}
+                      chars={phase === "refining" ? partial : null}
+                      thinking={phase === "refining" ? thought : null}
+                      onCancel={phase === "refining" ? () => abort.current?.abort() : null}
+                      style={{ position: "absolute", inset: 0, margin: 0, flexWrap: "nowrap", overflow: "hidden" }}
+                    />
+                  ) : (
+                    <div
+                      role="status"
+                      className="cf-enter"
+                      style={{
+                        position: "absolute",
+                        inset: 0,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 9,
+                        fontSize: 12.5,
+                        padding: "0 9px",
+                        borderRadius: 6,
+                        background: "#f1faf5",
+                        border: "1px solid #c9e4d5",
+                        color: "#256b47",
+                      }}
+                    >
+                      <span style={{ width: 14, display: "flex", justifyContent: "center" }}>
+                        <CheckMark size={11} />
+                      </span>
+                      <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {refinedRows.length}줄 정제 완료
+                        {lowRows > 0 ? ` · 확신도가 낮은 ${lowRows}줄부터 확인하세요` : " · 보라 테두리 칸이 AI 제안입니다"}
+                      </span>
+                      <span style={{ fontFamily: "'Roboto Mono',monospace", fontSize: 11.5 }}>
+                        {fmtSec(refineMs ?? 0, true)}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+              {phase !== "loading" && !error && !targets.length && (
+                <Notice tone="muted">
+                  이 날짜에는 대가 구분을 고른 줄이 없습니다. 오늘의 한일에서 줄마다 [포함] · [미포함] 을 고르세요.
+                </Notice>
+              )}
+              {targets.map((t) => {
+                const d = draftOf(t.entry.id);
+                const on = included.has(t.entry.id);
+                const dup = iday ? duplicateOf(t.entry.title, iday) : null;
+                // 초안이 오기 전의 넣을 줄 — 빠진 줄로 그리면 [넣기] 가 눌리고 뺀 것처럼 보인다.
+                if (on && !d && waiting) return <SkeletonRow key={t.entry.id} t={t} />;
+                if (!on || !d) {
+                  return <ExcludedRow key={t.entry.id} t={t} dup={dup} onInclude={() => setIncluding(t, true)} />;
+                }
+                return (
+                  <DraftRow
+                    key={t.entry.id}
+                    t={t}
+                    d={d}
+                    dup={dup}
+                    enter={fresh.has(t.entry.id) ? rows.indexOf(t) : -1}
+                    flash={flash[t.entry.id] ?? 0}
+                    options={table?.groups.find((g) => g.price === t.price)?.list ?? []}
+                    disabled={busy}
+                    onCategory={(c) => update(d.entryId, { category: c, edited: { category: true } })}
+                    onMinutes={(m) => update(d.entryId, { minutes: m, edited: { minutes: true } })}
+                    onNote={(n) => update(d.entryId, { note: n, edited: { note: true } })}
+                    onExclude={() => setIncluding(t, false)}
+                  />
+                );
+              })}
+              {phase === "review" && live.length > 0 && problems.length > 0 && (
+                <Notice tone="warn">
+                  미리보기 전에 고칠 것
+                  {problems.map((m) => (
+                    <div key={m}>· {m}</div>
+                  ))}
+                </Notice>
+              )}
+            </>
+          )}
+          {step === 1 && (
+            <>
+              {error && <Notice tone="error">{error}</Notice>}
+              {preview && <PreviewPane p={preview.preview} />}
+            </>
+          )}
+          {step === 2 && (
+            <>
+              <SaveSteps result={result} />
+              {error && <Notice tone="error">{error}</Notice>}
+              {result && <ResultPane r={result} undone={undone} />}
+            </>
+          )}
+        </SlidePane>
       </div>
 
       <ModalFooter>
-        {["loading", "refining", "review", "previewing"].includes(phase) && (
+        {step === 0 && (
           <>
-            <GhostButton onClick={reRefine}>다시 정제</GhostButton>
-            <GhostButton
-              onClick={() =>
-                iday &&
-                setDrafts((prev) =>
-                  refit(
-                    prev.map((d) => ({ ...d, edited: { ...d.edited, minutes: false } })),
-                    remainingOf(iday),
-                    settings,
-                  ),
-                )
-              }
-            >
+            <GhostButton onClick={reRefine} disabled={busy || !iday || !settings}>
+              다시 정제
+            </GhostButton>
+            <GhostButton onClick={redistribute} disabled={busy || !live.length}>
               분 다시 나누기
             </GhostButton>
             <span style={{ fontSize: 11.5, color: TEXT.sub }}>
@@ -438,7 +580,9 @@ function PushView({ day }: { day: string }) {
               {ai.via === "default" ? " (기본 연결)" : ""}
             </span>
             <div style={{ flex: 1 }} />
-            <GhostButton onClick={() => !busy && iw.closePush(false)}>닫기</GhostButton>
+            <GhostButton onClick={closeNow} disabled={busy}>
+              닫기
+            </GhostButton>
             <PrimaryButton
               onClick={() => void doPreview()}
               disabled={busy || problems.length > 0}
@@ -453,7 +597,9 @@ function PushView({ day }: { day: string }) {
         )}
         {(phase === "preview" || phase === "saving") && (
           <>
-            <GhostButton onClick={() => phase === "preview" && setPhase("review")}>← 고치기</GhostButton>
+            <GhostButton onClick={() => setPhase("review")} disabled={phase === "saving"}>
+              ← 고치기
+            </GhostButton>
             <span style={{ fontSize: 11.5, color: TEXT.sub }}>
               아직 i-WMS 에 쓰지 않았습니다 · 확정하면 그날 그 카테고리에 덧붙입니다(이미 있는 행은 그대로)
             </span>
@@ -474,14 +620,17 @@ function PushView({ day }: { day: string }) {
         {(phase === "done" || phase === "undoing") && (
           <>
             {!undone?.verified && (
-              <GhostButton onClick={() => phase === "done" && void doUndo()}>
+              // 되돌리는 동안에도 흐리게 하지 않는다 — 안의 신호 점이 도는 중임을 보인다(누름은 `doUndo` 가 거른다).
+              <GhostButton onClick={() => void doUndo()}>
                 <BusyLabel busy={phase === "undoing"} since={actAt} idle="되돌리기">
                   되돌리는 중
                 </BusyLabel>
               </GhostButton>
             )}
             <div style={{ flex: 1 }} />
-            <GhostButton onClick={() => phase === "done" && iw.closePush(false)}>닫기</GhostButton>
+            <GhostButton onClick={closeNow} disabled={phase === "undoing"}>
+              닫기
+            </GhostButton>
             <PrimaryButton onClick={back} disabled={phase === "undoing"}>
               오늘의 한일로
             </PrimaryButton>
@@ -492,17 +641,173 @@ function PushView({ day }: { day: string }) {
   );
 }
 
+/**
+ * 머리의 단계 — 검토 · 미리보기 · 확정. 지금 단계 밑으로 파란 밑줄이 미끄러지고, 지난 단계는 초록 ✓ 이 된다.
+ * 밑줄의 자리는 그려진 글자 폭을 재서 맞춘다.
+ */
+const STEPS = ["검토", "미리보기", "확정"];
+
+function Stepper({ step, committed }: { step: number; committed: boolean }) {
+  const items = useRef<(HTMLLIElement | null)[]>([]);
+  const [bar, setBar] = useState<{ left: number; width: number } | null>(null);
+  useLayoutEffect(() => {
+    const el = items.current[step];
+    if (el) setBar({ left: el.offsetLeft + 8, width: el.offsetWidth - 16 });
+  }, [step]);
+  return (
+    <ol
+      aria-label="단계"
+      style={{
+        position: "relative",
+        alignSelf: "stretch",
+        display: "flex",
+        alignItems: "center",
+        margin: 0,
+        padding: 0,
+        listStyle: "none",
+      }}
+    >
+      {STEPS.map((label, i) => {
+        const done = i < step || (i === step && committed);
+        const cur = i === step;
+        return (
+          <li
+            key={label}
+            ref={(el) => {
+              items.current[i] = el;
+            }}
+            aria-current={cur ? "step" : undefined}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "0 8px",
+              fontSize: 12,
+              fontWeight: cur ? 600 : 400,
+              color: i <= step ? TEXT.ink : TEXT.sub,
+              transition: "color 200ms",
+              whiteSpace: "nowrap",
+            }}
+          >
+            <span
+              style={{
+                width: 18,
+                height: 18,
+                borderRadius: "50%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontFamily: "'Roboto Mono',monospace",
+                fontSize: 10.5,
+                background: done ? "#2f7f57" : cur ? "#eef3fd" : "#fff",
+                border: `1px solid ${done ? "#2f7f57" : cur ? "#cddcf8" : "#e0dcd4"}`,
+                color: done ? "#fff" : cur ? "#2f5cbb" : TEXT.sub,
+                transition: "background-color 200ms, border-color 200ms, color 200ms",
+              }}
+            >
+              {done ? <CheckMark size={9} /> : i + 1}
+            </span>
+            {label}
+          </li>
+        );
+      })}
+      {bar && (
+        <span
+          aria-hidden
+          className="cf-mv"
+          style={{
+            position: "absolute",
+            bottom: -1,
+            height: 2,
+            borderRadius: 1,
+            background: BLUE,
+            left: bar.left,
+            width: bar.width,
+            transition: `left 260ms ${EASE_OUT}, width 260ms ${EASE_OUT}`,
+          }}
+        />
+      )}
+    </ol>
+  );
+}
+
+/**
+ * 확정하는 동안의 두 단계 — i-WMS 에 쓰기, 다시 조회해 대조하기. 둘은 백엔드의 한 커맨드(`iwms_commit`) 안에서
+ * 이어 돌고 사이에 알림이 없다. 그래서 두 번째 줄은 결과가 올 때까지 "기다림" 으로만 둔다 — 지어낸 진행을
+ * 보이지 않는다. 결과가 오면 둘 다 체크(대조가 어긋났으면 두 번째는 주황 !)가 된다.
+ */
+function SaveSteps({ result }: { result: CommitOut | null }) {
+  const lines: { label: string; state: "run" | "wait" | "done" | "warn" }[] = result
+    ? [
+        { label: "i-WMS 에 썼습니다", state: "done" },
+        {
+          label: result.verified ? "다시 조회해 들어간 값을 대조했습니다" : "다시 조회한 값이 기대와 다릅니다",
+          state: result.verified ? "done" : "warn",
+        },
+      ]
+    : [
+        { label: "i-WMS 에 쓰는 중", state: "run" },
+        { label: "다시 조회해 들어간 값을 대조합니다", state: "wait" },
+      ];
+  return (
+    <div role="status" style={{ padding: "16px 18px 4px", display: "flex", flexDirection: "column", gap: 10 }}>
+      {lines.map((l, i) => (
+        <div
+          key={i}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            fontSize: 13,
+            color: l.state === "wait" ? TEXT.sub : TEXT.ink,
+          }}
+        >
+          <span
+            style={{
+              width: 20,
+              height: 20,
+              flex: "0 0 20px",
+              borderRadius: "50%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              border: `1px solid ${l.state === "done" ? "#2f7f57" : l.state === "warn" ? "#b07520" : "#e0dcd4"}`,
+              background: l.state === "done" ? "#2f7f57" : l.state === "warn" ? "#b07520" : "#fff",
+              color: "#fff",
+              fontSize: 11,
+              fontWeight: 700,
+              transition: "background-color 200ms, border-color 200ms",
+            }}
+          >
+            {l.state === "done" && <CheckMark size={10} color="#fff" />}
+            {l.state === "warn" && (
+              <span className="cf-pop" style={{ display: "inline-block" }}>
+                !
+              </span>
+            )}
+            {l.state === "run" && <Spinner size={11} color={BLUE} />}
+          </span>
+          {l.label}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 
 function DayBar({
   day,
   thisRun,
+  rows,
   remaining,
   settings,
   table,
 }: {
   day: IwmsDay;
   thisRun: number;
+  /** 넣을 줄마다의 분 — 막대의 몫. */
+  rows: number[];
   remaining: number;
   settings: IwmsSettings;
   table: CodeTable | null;
@@ -511,41 +816,96 @@ function DayBar({
   const diff = after - day.standardMinutes;
   const blockedTabs = day.tabs.filter((t) => t.blocked);
   const fallback = table?.groups.filter((g) => g.fallback).map((g) => PRICE_LABEL[g.price]) ?? [];
+  // 숫자는 흘러가고(분 다시 나누기), 기준과의 차이 문구는 바뀔 때 한 번 굴러 들어온다.
+  const runShown = Math.round(useTween(thisRun, 380));
+  const afterShown = Math.round(useTween(after, 380));
+  const status = diff === 0 ? " ✓" : diff > 0 ? ` (기준보다 ${diff}분 많음)` : ` (기준보다 ${-diff}분 적음)`;
+  const bar = minutesBar(day.standardMinutes, day.totalMinutes, rows);
   return (
-    <div
-      style={{
-        flex: "0 0 auto",
-        padding: "7px 14px",
-        borderBottom: "1px solid #efece5",
-        fontSize: 11.5,
-        color: "#6a665e",
-        display: "flex",
-        flexWrap: "wrap",
-        gap: "4px 14px",
-      }}
-    >
-      <span>기준 {day.standardMinutes}분</span>
-      <span>이미 입력 {day.totalMinutes}분</span>
-      <span>남은 시간 {remaining}분</span>
-      <span style={{ fontWeight: 600, color: "#3a3630" }}>이번 입력 {thisRun}분</span>
-      <span style={{ color: diff === 0 ? "#2f7f57" : "#8f5d17" }}>
-        합계 {after}분{diff === 0 ? " ✓" : diff > 0 ? ` (기준보다 ${diff}분 많음)` : ` (기준보다 ${-diff}분 적음)`}
-      </span>
-      {!settings.fillToStandard && <span style={{ color: "#6a665e" }}>남은 시간을 채우지 않는 설정</span>}
-      {day.approved && <span style={{ color: "#9b4b42" }}>결재가 끝난 날이라 입력할 수 없습니다</span>}
-      {blockedTabs.map((t) => (
-        <span key={t.ciKey} style={{ color: "#8f5d17" }}>
-          {t.ciName}: {t.blocked}
+    <div style={{ flex: "0 0 auto", padding: "7px 14px 8px", borderBottom: "1px solid #efece5" }}>
+      <div
+        style={{
+          fontSize: 11.5,
+          color: "#6a665e",
+          display: "flex",
+          flexWrap: "wrap",
+          gap: "4px 14px",
+        }}
+      >
+        <span>기준 {day.standardMinutes}분</span>
+        <span>이미 입력 {day.totalMinutes}분</span>
+        <span>남은 시간 {remaining}분</span>
+        <span style={{ fontWeight: 600, color: "#3a3630" }}>
+          이번 입력 <span style={{ fontFamily: "'Roboto Mono',monospace" }}>{runShown}</span>분
         </span>
-      ))}
-      {fallback.length > 0 && (
-        <span style={{ color: "#a09a8f" }}>
-          {fallback.join(" · ")}: 지정한 카테고리가 없어 그날 전체에서 고릅니다
+        <span style={{ color: diff === 0 ? "#2f7f57" : TEXT.warn, transition: "color 200ms" }}>
+          합계 <span style={{ fontFamily: "'Roboto Mono',monospace" }}>{afterShown}</span>분
+          <span key={status} className="cf-enter" style={{ display: "inline-block", fontWeight: diff === 0 ? 600 : 400 }}>
+            {status}
+          </span>
         </span>
-      )}
+        {!settings.fillToStandard && <span style={{ color: "#6a665e" }}>남은 시간을 채우지 않는 설정</span>}
+        {day.approved && <span style={{ color: "#9b4b42" }}>결재가 끝난 날이라 입력할 수 없습니다</span>}
+        {blockedTabs.map((t) => (
+          <span key={t.ciKey} style={{ color: "#8f5d17" }}>
+            {t.ciName}: {t.blocked}
+          </span>
+        ))}
+        {fallback.length > 0 && (
+          <span style={{ color: TEXT.sub }}>
+            {fallback.join(" · ")}: 지정한 카테고리가 없어 그날 전체에서 고릅니다
+          </span>
+        )}
+      </div>
+      {/* 기준 위에 쌓은 막대 — 이미 입력(회색) · 줄마다의 몫(파랑) · 기준을 넘친 몫(빗금 빨강). */}
+      <div
+        role="img"
+        aria-label={`기준 ${day.standardMinutes}분 중 이미 입력 ${day.totalMinutes}분, 이번 입력 ${thisRun}분${
+          diff > 0 ? `, ${diff}분 넘침` : ""
+        }`}
+        style={{
+          position: "relative",
+          height: 8,
+          marginTop: 7,
+          borderRadius: 4,
+          background: "#f2efe9",
+          overflow: "hidden",
+        }}
+      >
+        <span style={{ ...barPart, left: 0, width: `${bar.done}%`, background: "#cfcabf" }} />
+        {bar.parts.map((p, i) => (
+          <span
+            key={i}
+            className="cf-mv"
+            style={{
+              ...barPart,
+              left: `${p.left}%`,
+              width: `${p.width}%`,
+              background: i % 2 ? "#7fa3e6" : BLUE,
+              borderLeft: p.width > 0 ? "1px solid #fff" : "none",
+            }}
+          />
+        ))}
+        <span
+          className="cf-mv"
+          style={{
+            ...barPart,
+            left: `${bar.over.left}%`,
+            width: `${bar.over.width}%`,
+            background: "repeating-linear-gradient(135deg, #c04a4a 0 3px, #e8a6a0 3px 6px)",
+          }}
+        />
+      </div>
     </div>
   );
 }
+
+const barPart = {
+  position: "absolute",
+  top: 0,
+  bottom: 0,
+  transition: `left 260ms ${EASE_OUT}, width 260ms ${EASE_OUT}`,
+} as const;
 
 const rowLine = { display: "flex", gap: 8, fontSize: 12, lineHeight: 1.6, padding: "1px 0" } as const;
 
@@ -571,11 +931,20 @@ function PreviewPane({ p }: { p: IwmsPreview }) {
           {w}
         </div>
       ))}
-      {p.diffs.map((d) => {
+      {p.diffs.map((d, i) => {
         const kept = d.before;
         const added = d.after.slice(d.before.length);
         return (
-          <div key={`${d.ciKey}|${d.wbsid}`} style={{ border: "1px solid #ece8e0", borderRadius: 6, padding: "8px 10px" }}>
+          <div
+            key={`${d.ciKey}|${d.wbsid}`}
+            className="cf-enter"
+            style={{
+              border: "1px solid #ece8e0",
+              borderRadius: 6,
+              padding: "8px 10px",
+              animationDelay: `${Math.min(i, 6) * 50}ms`,
+            }}
+          >
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
               {(d.priceType === "O" || d.priceType === "N") && <PriceTag price={d.priceType} />}
               <span style={{ fontSize: 12.5, fontWeight: 600 }}>
@@ -606,7 +975,7 @@ function PreviewPane({ p }: { p: IwmsPreview }) {
 /** 확정 결과 — 다시 조회한 대조와 되돌리기. */
 function ResultPane({ r, undone }: { r: CommitOut; undone: UndoOut | null }) {
   return (
-    <div style={{ padding: "10px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
+    <div className="cf-enter" style={{ padding: "6px 14px 10px", display: "flex", flexDirection: "column", gap: 10 }}>
       {undone ? (
         undone.verified ? (
           <Notice tone="muted">되돌렸습니다 — 이번에 넣은 행만 i-WMS 에서 지웠고, 다시 조회해 확인했습니다 ✓</Notice>
@@ -842,6 +1211,8 @@ function DraftRow({
   t,
   d,
   dup,
+  enter,
+  flash,
   options,
   disabled,
   onCategory,
@@ -852,6 +1223,10 @@ function DraftRow({
   t: Target;
   d: Draft;
   dup: Duplicate | null;
+  /** 방금 정제로 생긴 줄의 차례 — 그만큼 늦게 들어온다. `-1` 이면 움직이지 않는다. */
+  enter: number;
+  /** [분 다시 나누기] 로 분이 바뀐 횟수 — 오를 때마다 분 칸이 한 번 빛난다. */
+  flash: number;
   options: IwmsCategory[];
   disabled: boolean;
   onCategory: (c: IwmsCategory | null) => void;
@@ -868,8 +1243,22 @@ function DraftRow({
   const aiCat = byAi && !!d.category && !d.edited.category;
   const aiNote = byAi && !d.edited.note;
   const conf = d.confidence;
+  const minRef = useRef<HTMLInputElement | null>(null);
+  useReplay(minRef, flash, "cf-flash");
+  // 앱이 맞춘 분은 옛 값에서 흘러간다. 사람이 친 값(`edited`)은 친 그대로 — 흘리면 치는 동안 숫자가 따라온다.
+  const tween = useTween(d.minutes, 380);
+  const minutes = d.edited.minutes ? d.minutes : Math.round(tween);
   return (
-    <div style={{ display: "flex", gap: 10, padding: "9px 14px", borderBottom: "1px solid #f0ede7" }}>
+    <div
+      className={enter >= 0 ? "cf-enter" : undefined}
+      style={{
+        display: "flex",
+        gap: 10,
+        padding: "9px 14px",
+        borderBottom: "1px solid #f0ede7",
+        animationDelay: enter > 0 ? `${Math.min(enter, 8) * 40}ms` : undefined,
+      }}
+    >
       <div style={{ flex: "0 0 230px", minWidth: 0, display: "flex", flexDirection: "column", gap: 4 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <PriceTag price={t.price} />
@@ -935,6 +1324,7 @@ function DraftRow({
                   height: "100%",
                   width: `${Math.max(0, Math.min(100, conf))}%`,
                   background: conf >= 70 ? "#2f7f57" : "#b07520",
+                  transition: `width 260ms ${EASE_OUT}`,
                 }}
               />
             </span>
@@ -945,11 +1335,12 @@ function DraftRow({
 
       <div style={{ flex: "0 0 74px", display: "flex", flexDirection: "column", gap: 3 }}>
         <input
+          ref={minRef}
           type="number"
           min={0}
           max={1440}
           step={10}
-          value={d.minutes}
+          value={minutes}
           disabled={disabled}
           onChange={(e) => onMinutes(Math.max(0, Math.min(1440, Math.round(Number(e.target.value) || 0))))}
           style={{ ...cellInput, height: 28, width: "100%", padding: "0 6px", fontFamily: "'Roboto Mono',monospace" }}

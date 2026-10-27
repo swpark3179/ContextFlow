@@ -22,6 +22,8 @@ export default function LocalCliCard({ id }: { id: string }) {
 
   const [draft, setDraft] = useState(saved);
   const [saveError, setSaveError] = useState<string | null>(null);
+  /** 누른 단추 — 저장 · 해제 · 탐지가 끝날 때까지 그 단추가 돌고 나머지는 쉰다. */
+  const [busy, setBusy] = useState<"save" | "clear" | "detect" | null>(null);
   // 저장된 값이 바뀌면(저장 · 해제 · 최초 로드) 입력창을 맞춰 준다.
   useEffect(() => setDraft(saved), [saved]);
 
@@ -29,9 +31,13 @@ export default function LocalCliCard({ id }: { id: string }) {
   const name = info?.name ?? id;
 
   /** 저장 실패를 카드에 남긴다 — 예전에는 처리되지 않은 프라미스 거절로 조용히 사라졌다. */
-  const guard = (p: Promise<void>) => {
+  const guard = (which: "save" | "clear" | "detect", run: () => Promise<void>) => {
+    if (busy) return;
     setSaveError(null);
-    void p.catch((e) => setSaveError(api.errMessage(e)));
+    setBusy(which);
+    void run()
+      .catch((e) => setSaveError(api.errMessage(e)))
+      .finally(() => setBusy(null));
   };
 
   /**
@@ -88,10 +94,27 @@ export default function LocalCliCard({ id }: { id: string }) {
         <Btn
           label="저장하고 다시 탐지"
           primary
-          onClick={() => guard(saveAgentBin(id, draft.trim() || null))}
+          busy={busy === "save"}
+          busyLabel="저장하고 탐지하는 중"
+          disabled={!!busy}
+          onClick={() => guard("save", () => saveAgentBin(id, draft.trim() || null))}
         />
-        {saved && <Btn label="지정 해제" onClick={() => guard(saveAgentBin(id, null))} />}
-        <Btn label="다시 탐지" onClick={() => void detectOne(id, true)} />
+        {saved && (
+          <Btn
+            label="지정 해제"
+            busy={busy === "clear"}
+            busyLabel="해제하는 중"
+            disabled={!!busy}
+            onClick={() => guard("clear", () => saveAgentBin(id, null))}
+          />
+        )}
+        <Btn
+          label="다시 탐지"
+          busy={busy === "detect"}
+          busyLabel="탐지하는 중"
+          disabled={!!busy}
+          onClick={() => guard("detect", () => detectOne(id, true))}
+        />
       </div>
       {saveError && <div style={{ ...hintStyle, color: "#c04a4a" }}>{saveError}</div>}
       {ignored && (

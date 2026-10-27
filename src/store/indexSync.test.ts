@@ -438,6 +438,8 @@ describe("충돌 토스트", () => {
         title: "카테고리 허브 2개를 쓰지 못했습니다",
         sub: `같은 이름의 노트가 있거나 읽을 수 없습니다 · ${PATH}`,
         color: TOAST.warn,
+        ms: 2800,
+        interactive: false,
       },
     ]);
 

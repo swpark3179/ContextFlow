@@ -94,6 +94,9 @@ export default function TaskDeleteModal() {
         </div>
         {!!del.error && (
           <div
+            key={del.error}
+            role="alert"
+            className="cf-enter"
             style={{
               border: "1px solid #f0d6d2",
               background: "#fdf2f1",

@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { AiSignal, AiStep, Box, Input } from "../lib/ui";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { AiSignal, AiStep, Box, EASE_OUT, Input, Spinner } from "../lib/ui";
 import { AI, AI_SIGNAL_KINDS, TEXT, VIOLET } from "../lib/design";
 import { OptionCard } from "../modals/Modal";
 import { useStore, type Settings as S } from "../store/useStore";
@@ -11,6 +11,13 @@ import PromptPacksCard from "./settings/PromptPacksCard";
 import WebSearchCard from "./settings/WebSearchCard";
 import WikiCard from "./settings/WikiCard";
 import { Chip, Toggle, cardStyle, headStyle, inputFocus, inputMono, rowStyle } from "./settings/shared";
+
+type Tab = "general" | "iwms";
+
+const TABS: [Tab, string][] = [
+  ["general", "일반"],
+  ["iwms", "i-WMS"],
+];
 
 const TOGGLES: [keyof S, string, string][] = [
   [
@@ -57,7 +64,22 @@ function ObsidianRegistration({ vault }: { vault: string }) {
     };
   }, [vault]);
 
-  if (!st) return null;
+  // 읽는 동안에도 한 줄 자리를 잡아 둔다 — 결과가 와서 줄이 생기면 아래 카드가 통째로 밀렸다.
+  if (!st) {
+    return (
+      <div
+        aria-busy
+        style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8, minHeight: 18, fontSize: 11.5, lineHeight: 1.6, color: TEXT.sub }}
+      >
+        {vault && (
+          <>
+            <Spinner size={9} />
+            Obsidian 등록 확인 중
+          </>
+        )}
+      </div>
+    );
+  }
 
   // 목록을 못 읽었을 때는 "등록 안 됨" 이 아니라 "알 수 없음" 이다 — 포터블 설치이거나
   // Obsidian 을 아직 한 번도 실행하지 않았을 수 있고, 그 경우에도 열기는 잘 된다.
@@ -100,7 +122,33 @@ export default function Settings() {
   const [thrDraft, setThrDraft] = useState<number | null>(null);
   const threshold = thrDraft ?? settings.threshold;
   /** 탭. 숨긴 탭도 마운트를 유지해 고치던 초안이 탭을 오가도 남는다. */
-  const [tab, setTab] = useState<"general" | "iwms">("general");
+  const [tab, setTab] = useState<Tab>("general");
+  /** 탭 밑줄 하나가 고른 탭으로 미끄러진다. 글꼴이 늦게 들어와 폭이 바뀌어도 따라간다. */
+  const tabEls = useRef<Partial<Record<Tab, HTMLDivElement | null>>>({});
+  const [bar, setBar] = useState<{ x: number; w: number } | null>(null);
+  useLayoutEffect(() => {
+    const el = tabEls.current[tab];
+    if (!el) return;
+    const place = () => setBar({ x: el.offsetLeft, w: el.offsetWidth });
+    place();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(place);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [tab]);
+  /**
+   * 탭마다 스크롤 상자가 따로다 — 하나를 같이 쓰면 i-WMS 를 보고 돌아올 때 일반 탭이 엉뚱한 자리에
+   * 있었다. 숨긴 탭은 `visibility` 로 숨겨 스크롤 자리가 그대로 남는다.
+   */
+  const pane = (k: Tab): React.CSSProperties => ({
+    position: "absolute",
+    inset: 0,
+    overflow: "auto",
+    padding: "16px 22px 28px",
+    visibility: tab === k ? "visible" : "hidden",
+    opacity: tab === k ? 1 : 0,
+    transition: `opacity 140ms linear, visibility 0s linear ${tab === k ? "0s" : "140ms"}`,
+  });
   const commitThreshold = () => {
     if (thrDraft === null) return;
     if (thrDraft !== settings.threshold) s.patchSettings({ threshold: thrDraft });
@@ -108,22 +156,71 @@ export default function Settings() {
   };
 
   return (
-    <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "18px 22px", background: "#fdfcfa" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-        <div style={{ fontSize: 16, fontWeight: 600, letterSpacing: "-.2px" }}>설정</div>
-        <div role="tablist" style={{ display: "flex", gap: 4 }}>
-          <Chip on={tab === "general"} label="일반" onClick={() => setTab("general")} />
-          <Chip on={tab === "iwms"} label="i-WMS" onClick={() => setTab("iwms")} />
+    <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", background: "#fdfcfa" }}>
+      {/* 머리는 스크롤 밖에 있어 늘 보인다. */}
+      <div
+        style={{
+          flex: "0 0 auto",
+          display: "flex",
+          alignItems: "flex-end",
+          gap: 16,
+          padding: "14px 22px 0",
+          borderBottom: "1px solid #e6e2da",
+          background: "#fdfcfa",
+        }}
+      >
+        <div style={{ fontSize: 16, fontWeight: 600, letterSpacing: "-.2px", paddingBottom: 9 }}>설정</div>
+        <div role="tablist" style={{ position: "relative", display: "flex" }}>
+          {TABS.map(([k, label]) => (
+            <Box
+              key={k}
+              ref={(el) => {
+                tabEls.current[k] = el;
+              }}
+              role="tab"
+              aria-selected={tab === k}
+              onClick={() => setTab(k)}
+              style={{
+                padding: "6px 14px 9px",
+                fontSize: 12.5,
+                cursor: "pointer",
+                color: tab === k ? TEXT.ink : TEXT.sub,
+                fontWeight: tab === k ? 600 : 400,
+              }}
+              hover={tab === k ? undefined : { color: TEXT.ink }}
+            >
+              {label}
+            </Box>
+          ))}
+          {bar && (
+            <span
+              aria-hidden
+              className="cf-mv"
+              style={{
+                position: "absolute",
+                left: 0,
+                bottom: -1,
+                height: 2,
+                width: bar.w,
+                background: "#3a6fd8",
+                transform: `translateX(${bar.x}px)`,
+                transition: `transform 200ms ${EASE_OUT}, width 200ms ${EASE_OUT}`,
+              }}
+            />
+          )}
         </div>
       </div>
-      <div style={{ maxWidth: 680, marginTop: tab === "iwms" ? 14 : 0 }}>
-        <IwmsTab hidden={tab !== "iwms"} />
+      <div style={{ position: "relative", flex: 1, minHeight: 0 }}>
+      <div style={pane("iwms")} aria-hidden={tab !== "iwms"}>
+        <div style={{ maxWidth: 680 }}>
+          <IwmsTab hidden={false} />
+        </div>
       </div>
+      <div style={pane("general")} aria-hidden={tab !== "general"}>
       <div
         style={{
           maxWidth: 680,
-          marginTop: 14,
-          display: tab === "general" ? "flex" : "none",
+          display: "flex",
           flexDirection: "column",
           gap: 16,
         }}
@@ -442,11 +539,14 @@ export default function Settings() {
               </div>
               <Toggle
                 on={!!settings[k]}
+                label={label}
                 onClick={() => s.patchSettings({ [k]: !settings[k] } as Partial<S>)}
               />
             </div>
           ))}
         </div>
+      </div>
+      </div>
       </div>
     </div>
   );

@@ -46,6 +46,11 @@ interface WikiState {
    * 위키 화면에 들어오면 지운다(`seenFresh`) — 토스트를 놓쳐도 새로 쌓인 것이 남는다.
    */
   fresh: number;
+  /**
+   * 이번에 큐를 비우는 동안의 진행 — 끝난 건수와 넣은 건수. 반영이 도는 동안만 있다. 위키 화면의
+   * `n/m` 과 진행선이 쓴다. 큐에는 앞서 끝난 결과도 남아 있어 큐만으로는 이번 몫을 셀 수 없다.
+   */
+  progress: { done: number; total: number } | null;
 
   refresh: () => Promise<void>;
   /** 반영 대기열에 넣는다. 이미 대기 중이거나 도는 중이면 무시한다. */
@@ -72,7 +77,7 @@ export const useWiki = create<WikiState>((set, get) => {
 
   const pump = async () => {
     if (get().running) return;
-    set({ running: true });
+    set({ running: true, progress: { done: 0, total: get().queue.filter((q) => q.state === "queued").length } });
     try {
       for (;;) {
         const next = get().queue.find((q) => q.state === "queued");
@@ -121,13 +126,14 @@ export const useWiki = create<WikiState>((set, get) => {
           }
         } finally {
           controller = null;
+          set((s) => (s.progress ? { progress: { ...s.progress, done: s.progress.done + 1 } } : {}));
         }
         // 한 건 끝날 때마다 카탈로그를 다시 읽는다 — 다음 반영이 방금 만든 페이지를 보고
         // 링크하고, 화면의 대기 수도 줄어든다.
         await get().refresh();
       }
     } finally {
-      set({ running: false });
+      set({ running: false, progress: null });
       const { done, failed, pages } = batch;
       batch = { done: 0, failed: 0, pages: 0 };
       // 위키 화면을 보고 있으면 새로 쌓인 것이 이미 눈앞에 있다.
@@ -157,6 +163,7 @@ export const useWiki = create<WikiState>((set, get) => {
     queue: [],
     running: false,
     fresh: 0,
+    progress: null,
 
     refresh: async () => {
       const { vault, archDays } = useStore.getState().settings;
@@ -181,6 +188,8 @@ export const useWiki = create<WikiState>((set, get) => {
           ...s.queue.filter((q) => q.taskId !== taskId),
           { taskId, title, state: "queued", step: "" },
         ],
+        // 도는 중에 넣은 것은 이번 몫에 더한다. 멈춰 있으면 `pump` 가 대기열로 센다.
+        progress: s.progress ? { ...s.progress, total: s.progress.total + 1 } : s.progress,
       }));
       void pump();
     },

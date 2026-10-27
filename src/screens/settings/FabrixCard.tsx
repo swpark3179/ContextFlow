@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Collapse } from "../../lib/ui";
 import { useAi } from "../../store/aiStore";
 import * as api from "../../lib/api";
 import {
@@ -17,11 +18,14 @@ import {
   Field,
   Models,
   ProbeLine,
+  SavedNote,
+  StepLine,
   TextField,
   Toggle,
   hintStyle,
   rowStyle,
 } from "./shared";
+import { PROBE_RUNNING, probeView, type ProbeView } from "./probe";
 
 /** 두 칸 격자 — 짝을 이루는 입력(헤더 두 개 · 이메일과 상한)을 나란히 둬 탭 높이를 줄인다. */
 const pair = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 } as const;
@@ -111,8 +115,16 @@ export default function FabrixCard({ onDirtyChange }: { onDirtyChange?: (dirty: 
   const { detectOne, saveFabrix, probeOne } = useAi.getState();
 
   const [d, setD] = useState<Draft>(() => draftOf(cfg));
+  /** 저장 실패 한 줄. */
   const [probe, setProbe] = useState<{ ok: boolean; msg: string } | null>(null);
+  /** 연결 테스트 결과를 단계로 편 것. */
+  const [result, setResult] = useState<(ProbeView & { ms: number }) | null>(null);
   const [busy, setBusy] = useState(false);
+  const [saving, setSaving] = useState(false);
+  /** 저장을 마친 횟수 — "저장됨 ✓" 이 한 번씩 떴다 사라진다. */
+  const [savedN, setSavedN] = useState(0);
+  /** 테스트를 마친 횟수 — 모델 칩이 차례로 다시 들어온다. */
+  const [probeN, setProbeN] = useState(0);
   const patch = (p: Partial<Draft>) => setD((cur) => ({ ...cur, ...p }));
 
   // 저장된 설정이 바뀌면 입력창을 맞춰 준다.
@@ -124,16 +136,28 @@ export default function FabrixCard({ onDirtyChange }: { onDirtyChange?: (dirty: 
   useEffect(() => onDirtyChange?.(dirty), [dirty]);
 
   const save = () => {
+    if (saving) return;
     setProbe(null);
-    void saveFabrix(toConfig(d)).catch((e) => setProbe({ ok: false, msg: api.errMessage(e) }));
+    setResult(null);
+    setSaving(true);
+    void saveFabrix(toConfig(d))
+      .then(() => setSavedN((n) => n + 1))
+      .catch((e) => setProbe({ ok: false, msg: api.errMessage(e) }))
+      .finally(() => setSaving(false));
   };
 
   const test = () => {
     setBusy(true);
     setProbe(null);
+    setResult(null);
+    const t0 = Date.now();
+    const done = (ok: boolean, msg: string) => {
+      setResult({ ...probeView(ok, msg), ms: Date.now() - t0 });
+      setProbeN((n) => n + 1);
+    };
     void probeOne(ID)
-      .then((msg) => setProbe({ ok: true, msg }))
-      .catch((e) => setProbe({ ok: false, msg: api.errMessage(e) }))
+      .then((msg) => done(true, msg))
+      .catch((e) => done(false, api.errMessage(e)))
       .finally(() => setBusy(false));
   };
 
@@ -217,11 +241,11 @@ export default function FabrixCard({ onDirtyChange }: { onDirtyChange?: (dirty: 
             사내 TLS 검사 프록시의 CA 가 OS 저장소에 없을 때만 켜세요.
           </div>
         </div>
-        <Toggle on={d.allowInvalid} onClick={() => patch({ allowInvalid: !d.allowInvalid })} />
+        <Toggle on={d.allowInvalid} onClick={() => patch({ allowInvalid: !d.allowInvalid })} label="인증서 검증 건너뛰기" />
       </div>
 
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        <Btn label="저장" primary onClick={save} />
+        <Btn label="저장" primary onClick={save} busy={saving} busyLabel="저장하는 중" />
         <Btn
           label="연결 테스트"
           busy={busy}
@@ -232,13 +256,63 @@ export default function FabrixCard({ onDirtyChange }: { onDirtyChange?: (dirty: 
         />
         <Btn label="모델 다시 조회" onClick={() => void detectOne(ID, true)} disabled={dirty} />
         <DirtyMark dirty={dirty} />
+        <SavedNote n={savedN} />
       </div>
       {dirty && (
         <div style={hintStyle}>연결 테스트는 저장된 설정으로 합니다 — 먼저 저장하세요.</div>
       )}
       <ProbeLine probe={probe} />
+      {/*
+        연결 테스트의 두 단계. 백엔드는 한 번에 답하므로 기다리는 동안은 ① 이 도는 것으로 보이고, 답이
+        오면 그 문장을 단계 줄로 편다(`probeView`).
+      */}
+      <Collapse open={busy || !!result}>
+        <ProbeSteps busy={busy} result={result} />
+      </Collapse>
 
-      <Models agent={agent} />
+      <Models agent={agent} stagger={probeN} />
     </ConnectionPanel>
+  );
+}
+
+function ProbeSteps({ busy, result }: { busy: boolean; result: (ProbeView & { ms: number }) | null }) {
+  const steps = busy || !result ? PROBE_RUNNING : result.steps;
+  const failed = !busy && result && !result.ok;
+  return (
+    <div
+      role="status"
+      style={{
+        border: `1px solid ${failed ? "#f0d2d2" : "#e6e2da"}`,
+        borderRadius: 6,
+        background: "#fdfcfa",
+        padding: "9px 11px",
+        display: "flex",
+        flexDirection: "column",
+        gap: 7,
+      }}
+    >
+      {steps.map((x) => (
+        <StepLine key={x.label} state={x.state} label={x.label} detail={x.detail} />
+      ))}
+      {!busy && result && (
+        <div
+          className="cf-enter"
+          style={{
+            ...hintStyle,
+            fontSize: 12,
+            fontWeight: 600,
+            color: result.ok ? "#256b47" : "#9b4b42",
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+          }}
+        >
+          {result.summary}
+          <span style={{ fontWeight: 400, color: "#6a665e", fontFamily: "'Roboto Mono',monospace", fontSize: 11.5 }}>
+            {" "}
+            · {(result.ms / 1000).toFixed(1)}초
+          </span>
+        </div>
+      )}
+    </div>
   );
 }

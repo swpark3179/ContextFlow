@@ -1,16 +1,32 @@
-import { Box } from "../lib/ui";
+import { useRef } from "react";
+import { Box, BusyLabel, useExitSnapshot } from "../lib/ui";
 import { BLUE } from "../lib/design";
 import { useStore } from "../store/useStore";
+import { useSubmit } from "./Modal";
 
 /**
  * Folds a cluster of near-duplicate task notes into one representative node.
  * Sources are archived rather than deleted — the design promises noise
  * reduction, not data loss.
+ *
+ * 새 업무 추가 위에 뜬다. 바탕은 이미 한 번 어두우니 옅게만 한 겹 더 깔고 천천히 들인다 — 같은 진하기로
+ * 한 번에 덮으면 뒤의 대화상자가 갑자기 꺼진 것처럼 보인다. 열고 닫히는 움직임은 `Modal` 과 같다.
  */
 export default function MergeModal() {
+  const open = useStore((s) => !!s.merge?.rec.cluster);
+  return open ? <MergeView /> : null;
+}
+
+function MergeView() {
   const s = useStore();
+  const root = useRef<HTMLDivElement | null>(null);
+  useExitSnapshot(root, "modal");
+  const [busy, submit] = useSubmit();
   const merge = s.merge;
   if (!merge?.rec.cluster) return null;
+  /** 새 업무 추가 위에 겹쳐 떴다. */
+  const over = s.newOpen;
+  const close = () => !busy && s.set({ merge: null });
 
   const nodes = merge.rec.cluster;
   const selected = Object.values(merge.sel).filter(Boolean).length;
@@ -43,19 +59,23 @@ export default function MergeModal() {
 
   return (
     <div
+      ref={root}
       style={{
         position: "fixed",
         inset: 0,
-        background: "rgba(35,33,30,.34)",
-        backdropFilter: "blur(1.5px)",
+        background: over ? "rgba(35,33,30,.16)" : "rgba(35,33,30,.34)",
+        backdropFilter: over ? undefined : "blur(1.5px)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
         zIndex: 70,
-        animation: "fIn .12s ease-out",
+        animation: over ? "cfFadeIn 200ms linear" : "cfFadeIn 140ms linear",
       }}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="유사 노드 병합"
         style={{
           width: 820,
           maxWidth: "94vw",
@@ -68,7 +88,7 @@ export default function MergeModal() {
           display: "flex",
           flexDirection: "column",
           overflow: "hidden",
-          animation: "pIn .15s ease-out",
+          animation: "cfPanelIn 220ms cubic-bezier(.2,.8,.2,1)",
         }}
       >
         <div
@@ -88,7 +108,10 @@ export default function MergeModal() {
           </span>
           <div style={{ flex: 1 }} />
           <Box
-            onClick={() => s.set({ merge: null })}
+            onClick={close}
+            role="button"
+            aria-label="닫기"
+            title="닫기"
             style={{
               width: 24,
               height: 24,
@@ -127,15 +150,17 @@ export default function MergeModal() {
                   <div
                     key={n.id}
                     style={{
-                      border: `1px solid ${pri ? "#cfc0f4" : on ? "#e6e2da" : "#efece6"}`,
-                      background: pri ? "#faf7ff" : "#fff",
+                      // 대표는 고른 것(조작)이라 파랑 — 보라는 AI 가 일하는 동안만 쓴다.
+                      border: `1px solid ${pri ? "#cddcf8" : on ? "#e6e2da" : "#efece6"}`,
+                      background: pri ? "#f7fafe" : "#fff",
+                      transition: "background-color 140ms, border-color 140ms",
                       borderRadius: 6,
                       padding: "8px 9px",
                     }}
                   >
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <div
-                        onClick={() => s.set({ merge: { ...merge, sel: { ...merge.sel, [i]: !on } } })}
+                        onClick={() => !busy && s.set({ merge: { ...merge, sel: { ...merge.sel, [i]: !on } } })}
                         style={{
                           width: 14,
                           height: 14,
@@ -181,6 +206,7 @@ export default function MergeModal() {
                     >
                       <Box
                         onClick={() =>
+                          !busy &&
                           s.set({
                             merge: { ...merge, primary: i, sel: { ...merge.sel, [i]: true } },
                           })
@@ -215,7 +241,7 @@ export default function MergeModal() {
                         <span
                           style={{
                             fontSize: 11.5,
-                            color: pri ? "#5a44b4" : "#6a665e",
+                            color: pri ? "#2f5cbb" : "#6a665e",
                             fontWeight: pri ? 600 : 400,
                           }}
                         >
@@ -322,7 +348,7 @@ export default function MergeModal() {
               : "대표 노드 외 1개 이상을 선택하세요."}
           </span>
           <Box
-            onClick={() => s.set({ merge: null })}
+            onClick={close}
             style={{
               height: 29,
               padding: "0 14px",
@@ -339,22 +365,28 @@ export default function MergeModal() {
             취소
           </Box>
           <Box
-            onClick={() => void s.doMerge()}
+            role={busy ? "status" : "button"}
+            onClick={() => selected > 1 && void submit(() => s.doMerge())}
             style={{
               height: 29,
+              minWidth: 96,
               padding: "0 16px",
               display: "flex",
               alignItems: "center",
+              justifyContent: "center",
               borderRadius: 5,
               fontSize: 12.5,
               fontWeight: 600,
-              cursor: selected > 1 ? "pointer" : "not-allowed",
-              background: selected > 1 ? BLUE : "#e6e2da",
-              color: selected > 1 ? "#fff" : "#a09a8f",
+              whiteSpace: "nowrap",
+              cursor: busy ? "progress" : selected > 1 ? "pointer" : "not-allowed",
+              background: busy ? "#2f5cbb" : selected > 1 ? BLUE : "#e6e2da",
+              color: busy || selected > 1 ? "#fff" : "#a09a8f",
             }}
-            hover={selected > 1 ? { background: "#5a44b4" } : undefined}
+            hover={selected > 1 && !busy ? { background: "#2f5cbb" } : undefined}
           >
-            병합 실행
+            <BusyLabel busy={busy} color="#fff" idle="병합 실행">
+              병합하는 중
+            </BusyLabel>
           </Box>
         </div>
       </div>

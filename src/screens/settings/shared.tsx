@@ -4,8 +4,19 @@
  * ContextFlow 는 CSS Modules 를 쓰지 않고 전부 인라인 `CSSProperties` 다 — 디자인 HTML 에서
  * 옮겨 온 관례이므로 AI 카드도 같은 방식을 따른다.
  */
-import type { CSSProperties, ReactNode } from "react";
-import { AiSignal, Box, BusyLabel, Input, TextArea } from "../../lib/ui";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import {
+  AiSignal,
+  Box,
+  BusyLabel,
+  CheckMark,
+  ELAPSED_AFTER_MS,
+  Input,
+  Spinner,
+  TextArea,
+  fmtSec,
+  useElapsed,
+} from "../../lib/ui";
 import { AI, GREEN, TEXT } from "../../lib/design";
 import type { DetectedAgent } from "../../lib/ai";
 import { DIAGNOSTIC_HINT, MODELS_SOURCE_LABEL } from "../../lib/ai";
@@ -85,33 +96,72 @@ export function Chip({ on, label, onClick }: { on: boolean; label: string; onCli
   );
 }
 
-export function Toggle({ on, onClick }: { on: boolean; onClick: () => void }) {
+/**
+ * 켜고 끄는 스위치. 손잡이가 자리를 바꾸지 않고 미끄러진다(`cf-mv` — 동작 줄이기면 곧바로). 켠 색은
+ * 조작의 파랑이다 — 보라는 "AI 가 지금 일한다" 에만 쓴다.
+ */
+export function Toggle({ on, onClick, label }: { on: boolean; onClick: () => void; label?: string }) {
   return (
     <div
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      tabIndex={0}
       onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key === " " || e.key === "Enter") {
+          e.preventDefault();
+          onClick();
+        }
+      }}
       style={{
+        position: "relative",
         flex: "0 0 34px",
         width: 34,
         height: 19,
         borderRadius: 11,
-        padding: 2,
         cursor: "pointer",
-        background: on ? "#7a5af8" : "#d5d0c6",
-        display: "flex",
-        justifyContent: on ? "flex-end" : "flex-start",
-        transition: "background .15s",
+        background: on ? "#3a6fd8" : "#d5d0c6",
+        transition: "background-color 160ms linear",
+        outline: "none",
       }}
     >
       <div
+        className="cf-mv"
         style={{
+          position: "absolute",
+          top: 2,
+          left: 2,
           width: 15,
           height: 15,
           borderRadius: "50%",
           background: "#fff",
           boxShadow: "0 1px 2px rgba(0,0,0,.2)",
+          transform: `translateX(${on ? 15 : 0}px)`,
+          transition: "transform 160ms cubic-bezier(.34,1.4,.64,1)",
         }}
       />
     </div>
+  );
+}
+
+/**
+ * AI 가 아닌 대기의 단추 안쪽 — 돌기 + 글자 + (3초가 넘으면) 경과. `BusyLabel` 과 같은 자리를 쓰되
+ * 보라 점 대신 회색 돌기다(저장 · 탐지 · 가져오기).
+ */
+function SpinLabel({ color, children }: { color: string; children: ReactNode }) {
+  const [since] = useState(() => Date.now());
+  const ms = useElapsed(since);
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 7, width: "100%", whiteSpace: "nowrap" }}>
+      <Spinner color={color} />
+      <span>{children}</span>
+      {ms >= ELAPSED_AFTER_MS && (
+        <span style={{ marginLeft: "auto", fontFamily: "'Roboto Mono',monospace", fontSize: 11.5, opacity: 0.85 }}>
+          {fmtSec(ms)}
+        </span>
+      )}
+    </span>
   );
 }
 
@@ -169,9 +219,13 @@ export function Btn({
       }}
       hover={off || busy ? undefined : { background: primary ? "#e2ebfb" : "#ece8e0" }}
     >
-      <BusyLabel busy={!!busy} ai={ai} idle={label}>
-        {busyLabel ?? label}
-      </BusyLabel>
+      {busy && !ai ? (
+        <SpinLabel color={tone.fg}>{busyLabel ?? label}</SpinLabel>
+      ) : (
+        <BusyLabel busy={!!busy} ai={ai} idle={label}>
+          {busyLabel ?? label}
+        </BusyLabel>
+      )}
     </Box>
   );
 }
@@ -383,8 +437,11 @@ export function ProbeLine({ probe }: { probe: { ok: boolean; msg: string } | nul
   );
 }
 
-/** 모델 칩 목록 + 출처 배지. */
-export function Models({ agent }: { agent: DetectedAgent | null }) {
+/**
+ * 모델 칩 목록 + 출처 배지. `stagger` 가 바뀌면(연결 테스트를 마쳤다) 칩이 차례로 다시 들어온다 —
+ * 처음 그릴 때(0)는 가만히 둔다.
+ */
+export function Models({ agent, stagger = 0 }: { agent: DetectedAgent | null; stagger?: number }) {
   if (!agent || agent.models.length === 0) {
     return <div style={HINT}>연결하면 사용 가능한 모델이 표시됩니다.</div>;
   }
@@ -405,11 +462,13 @@ export function Models({ agent }: { agent: DetectedAgent | null }) {
         </span>
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-        {agent.models.map((m) => (
+        {agent.models.map((m, i) => (
           <span
-            key={m.id}
+            key={`${stagger}:${m.id}`}
             title={m.id}
+            className={stagger ? "cf-enter" : undefined}
             style={{
+              animationDelay: `${Math.min(i, 12) * 35}ms`,
               fontSize: 11.5,
               color: "#4e4a43",
               border: "1px solid #e6e2da",
@@ -423,5 +482,84 @@ export function Models({ agent }: { agent: DetectedAgent | null }) {
         ))}
       </div>
     </div>
+  );
+}
+
+/** 단계 줄의 상태 — 도는 중 · 됨 · 안 됨. */
+export type StepState = "run" | "ok" | "fail";
+
+/**
+ * 단계 한 줄 — 돌기 → 체크(튐) / 빨간 "!". 연결 테스트처럼 여러 단계를 거치는 확인에 쓴다.
+ */
+export function StepLine({ state, label, detail }: { state: StepState; label: string; detail?: string }) {
+  return (
+    <div className="cf-enter" style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12.5, lineHeight: 1.6 }}>
+      <span style={{ flex: "0 0 16px", height: 20, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        {state === "run" ? (
+          <Spinner size={11} />
+        ) : state === "ok" ? (
+          <CheckMark size={11} color={GREEN} />
+        ) : (
+          <span
+            aria-label="실패"
+            className="cf-pop"
+            style={{
+              width: 12,
+              height: 12,
+              borderRadius: "50%",
+              background: "#c04a4a",
+              color: "#fff",
+              fontSize: 8.5,
+              fontWeight: 700,
+              lineHeight: "12px",
+              textAlign: "center",
+            }}
+          >
+            !
+          </span>
+        )}
+      </span>
+      <span style={{ flex: "0 0 auto", fontWeight: 500 }}>{label}</span>
+      {detail && (
+        <span
+          style={{
+            ...HINT,
+            fontSize: 11.5,
+            lineHeight: "20px",
+            minWidth: 0,
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+            color: state === "fail" ? "#9b4b42" : TEXT.sub,
+          }}
+        >
+          {detail}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/**
+ * 잠깐 떴다 사라지는 확인 — "저장됨 ✓". `n` 이 오를 때마다 다시 뜬다(0 이면 없음). 다 사라지면 내린다.
+ */
+export function SavedNote({ n, text = "저장됨" }: { n: number; text?: string }) {
+  const [shown, setShown] = useState(0);
+  useEffect(() => {
+    if (!n) return;
+    setShown(n);
+    const t = window.setTimeout(() => setShown((x) => (x === n ? 0 : x)), 3100);
+    return () => window.clearTimeout(t);
+  }, [n]);
+  if (!shown) return null;
+  return (
+    <span
+      key={shown}
+      role="status"
+      className="cf-chip"
+      style={{ ...HINT, alignSelf: "center", color: "#256b47", display: "inline-flex", alignItems: "center", gap: 5 }}
+    >
+      {text}
+      <CheckMark size={10} color={GREEN} />
+    </span>
   );
 }

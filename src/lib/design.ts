@@ -126,14 +126,15 @@ export const BS_STATUS: Record<BsStatus, BsStatusStyle> = {
     line: "#ddd8cf",
     dash: false,
   },
+  // 유력은 청록이다 — 예전에는 보라였는데, 보라는 "AI 가 지금 일한다" 에만 쓴다(`AI`).
   strong: {
     label: "유력",
-    dot: VIOLET,
-    bg: "#f4f0fd",
-    fg: "#5a44b4",
-    bd: "#e4dcf8",
-    card: "#faf7ff",
-    line: "#bda9f0",
+    dot: "#2f6f80",
+    bg: "#e8f3f5",
+    fg: "#2f6f80",
+    bd: "#c7e2e7",
+    card: "#f3fafb",
+    line: "#93c9d3",
     dash: false,
   },
   adopted: {
@@ -173,9 +174,10 @@ export const BS_STATUS: Record<BsStatus, BsStatusStyle> = {
  *
  * 설계 원본에는 초록이 세 번째로 들어 있었는데 뺐다 — 채택된 경로를 굵은 초록 선으로
  * 잇기 때문에, 세 번째 가지가 통째로 "채택된 것처럼" 보였다. 굵기 차이(2.2px 대 1.3px)로
- * 구분하기를 기대하는 것은 무리다. 의미를 가진 색은 그 의미로만 쓴다.
+ * 구분하기를 기대하는 것은 무리다. 의미를 가진 색은 그 의미로만 쓴다. 같은 까닭으로 보라(AI)와
+ * 청록(유력)도 뺐다 — 가지 색이 상태 색과 겹치면 정해지지 않은 가지가 정해진 것처럼 보인다.
  */
-export const BS_BRANCH = [BLUE, VIOLET, "#3f8ea3", AMBER, "#a3557c"];
+export const BS_BRANCH = [BLUE, "#59708a", AMBER, "#a3557c"];
 
 export const BS_EVIDENCE: Record<EvidenceKind, { bg: string; fg: string; bd: string }> = {
   근거: { bg: "#e9f4ee", fg: "#256b47", bd: "#c9e4d5" },
@@ -295,6 +297,14 @@ export function extStyle(ext: string): { fg: string; bg: string } {
 }
 
 /** Toast accents used across the design's `toast(...)` calls. */
+/**
+ * [되돌리기] 를 누를 수 있는 시간 — 토스트의 카운트다운 · 미뤄 둔 삭제 · 미뤄 둔 위키 반영이 같은
+ * 값을 쓴다. 마우스를 올린 동안은 카운트다운이 멈추므로 실제로는 그보다 길 수 있다.
+ */
+export const UNDO_MS = 6000;
+/** 단추 없는 토스트가 떠 있는 시간. */
+export const TOAST_MS = 2800;
+
 export const TOAST = {
   info: "#6a9ff0",
   ok: "#5fbf8d",

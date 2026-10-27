@@ -4,7 +4,15 @@
  * 캔버스 · 개요 · 결정 로그가 같은 문서를 본다. 상태를 보여 주는 방식이 화면마다 다르면
  * "이 생각이 채택인가"를 화면마다 다시 배워야 하므로, 배지는 여기 하나만 둔다.
  */
-import { useEffect, useState, type CSSProperties, type InputHTMLAttributes, type TextareaHTMLAttributes } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type InputHTMLAttributes,
+  type Ref,
+  type TextareaHTMLAttributes,
+} from "react";
 import { Input, TextArea } from "../lib/ui";
 import { BS_STATUS } from "../lib/design";
 import { STATUS_MARK, trimmedBlock, trimmedLine, type BsStatus } from "../lib/bstorm";
@@ -49,6 +57,18 @@ export function StatusBadge({ status, big = false }: { status: BsStatus; big?: b
 }
 
 /**
+ * 값이 처음 그린 값에서 한 번이라도 바뀌었나. 한 번만 도는 `cf-*` 클래스(배지 `cf-enter-down` ·
+ * 접기 알약 `cf-bump`)를 **바뀐 뒤에만** 달 때 쓴다 — 파일을 열자마자 카드마다 배지가 튀면
+ * "방금 바뀌었다"는 신호가 아무 뜻이 없어진다. 다시 재생하는 것은 부르는 쪽이 `key` 로 한다.
+ */
+export function useChangedOnce(value: unknown): boolean {
+  const first = useRef(value);
+  const moved = useRef(false);
+  if (!Object.is(value, first.current)) moved.current = true;
+  return moved.current;
+}
+
+/**
  * 문서에서 되짚어 온 값과 싸우지 않는 입력칸.
  *
  * 인스펙터가 만지는 값은 `serializeBstorm → parseBstorm` 을 한 바퀴 돌아서 돌아온다.
@@ -70,6 +90,8 @@ function useDraft(value: string, echo: (v: string) => string) {
 }
 
 type DraftInputProps = Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "onChange"> & {
+  /** 캔버스의 제목 칸이 스스로 커서를 받는다(`focus({ preventScroll })`). */
+  ref?: Ref<HTMLInputElement>;
   value: string;
   onCommit: (v: string) => void;
   style?: CSSProperties;

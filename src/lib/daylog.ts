@@ -190,3 +190,14 @@ export function forgetLegacyLog(): void {
     /* 못 지워도 다음 부팅에서 같은 값을 다시 이관할 뿐이고, 그건 DB 가 접어 준다 */
   }
 }
+
+/**
+ * [되돌리기] — 지운 줄을 지우기 전의 자리에 되돌린다. 그사이 같은 줄이 다시 올라왔으면(업무를 또
+ * 손댔다) 그쪽이 새것이라 그대로 둔다. 날이 바뀌었으면 화면은 이미 새 날짜라 끼울 자리가 없다.
+ */
+export function restoreEntry(log: DayLog, entry: DayEntry, at: number): DayLog {
+  if (log.day !== entry.day) return log;
+  if (log.entries.some((e) => e.id === entry.id)) return log;
+  const i = Math.max(0, Math.min(at, log.entries.length));
+  return { ...log, entries: [...log.entries.slice(0, i), entry, ...log.entries.slice(i)] };
+}

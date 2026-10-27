@@ -6,11 +6,14 @@
 import {
   forwardRef,
   useEffect,
+  useLayoutEffect,
+  useRef,
   useState,
   useSyncExternalStore,
   type CSSProperties,
   type HTMLAttributes,
   type ReactNode,
+  type RefObject,
   type InputHTMLAttributes,
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
@@ -22,8 +25,30 @@ type BoxProps = HTMLAttributes<HTMLDivElement> & {
   hover?: CSSProperties;
 };
 
+/** 호버가 있는 요소는 `cf-hover` 로 색이 90ms 에 바뀐다 — 예전에는 순간 교체였다. */
+function hoverClass(hover: CSSProperties | undefined, className: string | undefined): string | undefined {
+  if (!hover) return className;
+  return className ? `cf-hover ${className}` : "cf-hover";
+}
+
+/**
+ * 호버가 테두리 색(`borderColor`)만 바꾸는데 바탕이 줄여 쓰기(`border: "1px solid #…"`)면, React 가 다시
+ * 그릴 때 둘을 섞었다고 경고하고 떠난 뒤 테두리 색이 지워질 수 있다. 그런 바탕은 풀어 쓴다.
+ */
+function hoverStyle(style: CSSProperties | undefined, hover: CSSProperties | undefined, on: boolean) {
+  let base = style;
+  if (hover?.borderColor !== undefined && typeof style?.border === "string") {
+    const m = /^(\S+)\s+(\S+)\s+(.+)$/.exec(style.border.trim());
+    if (m) {
+      const { border: _drop, ...rest } = style;
+      base = { ...rest, borderWidth: m[1], borderStyle: m[2] as CSSProperties["borderStyle"], borderColor: m[3] };
+    }
+  }
+  return on && hover ? { ...base, ...hover } : base;
+}
+
 export const Box = forwardRef<HTMLDivElement, BoxProps>(function Box(
-  { style, hover, onMouseEnter, onMouseLeave, ...rest },
+  { style, hover, onMouseEnter, onMouseLeave, className, ...rest },
   ref,
 ) {
   const [on, setOn] = useState(false);
@@ -31,13 +56,15 @@ export const Box = forwardRef<HTMLDivElement, BoxProps>(function Box(
     <div
       ref={ref}
       {...rest}
-      style={on && hover ? { ...style, ...hover } : style}
+      className={hoverClass(hover, className)}
+      style={hoverStyle(style, hover, on)}
       onMouseEnter={(e) => {
         if (hover) setOn(true);
         onMouseEnter?.(e);
       }}
       onMouseLeave={(e) => {
-        if (hover) setOn(false);
+        // `hover` 가 사라졌다 다시 생기는 요소(고른 칸 · 켜진 항목)도 떠날 때는 꼭 내린다 — 남으면 호버가 붙어 있다.
+        if (on) setOn(false);
         onMouseLeave?.(e);
       }}
     />
@@ -49,18 +76,19 @@ type SpanProps = HTMLAttributes<HTMLSpanElement> & {
   hover?: CSSProperties;
 };
 
-export function Span({ style, hover, onMouseEnter, onMouseLeave, ...rest }: SpanProps) {
+export function Span({ style, hover, onMouseEnter, onMouseLeave, className, ...rest }: SpanProps) {
   const [on, setOn] = useState(false);
   return (
     <span
       {...rest}
-      style={on && hover ? { ...style, ...hover } : style}
+      className={hoverClass(hover, className)}
+      style={hoverStyle(style, hover, on)}
       onMouseEnter={(e) => {
         if (hover) setOn(true);
         onMouseEnter?.(e);
       }}
       onMouseLeave={(e) => {
-        if (hover) setOn(false);
+        if (on) setOn(false);
         onMouseLeave?.(e);
       }}
     />
@@ -505,5 +533,396 @@ export function AiWaitBar({
         </Box>
       )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 모션 부품 — 디자인 검토(ContextFlow 디자인 개선 · 모션)의 모션 시스템. 시간과 곡선은
+// `global.css` 의 토큰(`--m-*` · `--e-*`)과 같은 값이다. CSS 로 그릴 수 없는 움직임(자리 옮기기 ·
+// 숫자 · 닫히는 잔상)만 여기서 JS 로 돌리고, 동작 줄이기는 `reducedMotion` 하나로 판단한다.
+
+export const EASE_OUT = "cubic-bezier(.2,.8,.2,1)";
+export const EASE_IN = "cubic-bezier(.4,0,1,1)";
+
+/**
+ * 지금 움직임을 줄여야 하는가 — 앱 설정(`data-motion="reduce"`, `applyMotion`) 또는 OS 설정.
+ * CSS 가 닿지 않는 움직임(자리 옮기기 · 숫자 · 부드러운 스크롤)이 본다.
+ */
+export function reducedMotion(): boolean {
+  if (typeof document === "undefined") return true;
+  if (document.documentElement.dataset.motion === "reduce") return true;
+  return typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+/**
+ * 롱프레스 링 — 누르고 있는 1초(`LONG_PRESS_MS`)가 차오른다. 처음 15% 는 비워 두어 그냥 누른
+ * 클릭에서는 보이지 않는다(`cfHold`). 부르는 쪽이 누르는 동안만 그린다. 동작 줄이기에서도 남는다 —
+ * 진행 신호다.
+ */
+export function HoldRing({
+  size = 17,
+  color = "#3a6fd8",
+  track = "#d9d4ca",
+  style,
+}: {
+  size?: number;
+  color?: string;
+  track?: string;
+  style?: CSSProperties;
+}) {
+  const c = size / 2;
+  const r = c - 1.5;
+  const len = 2 * Math.PI * r;
+  return (
+    <svg
+      aria-hidden
+      width={size}
+      height={size}
+      viewBox={`0 0 ${size} ${size}`}
+      style={{ position: "absolute", pointerEvents: "none", ...style }}
+    >
+      <circle cx={c} cy={c} r={r} fill="none" stroke={track} strokeWidth={1.6} />
+      <circle
+        className="cf-hold"
+        cx={c}
+        cy={c}
+        r={r}
+        fill="none"
+        stroke={color}
+        strokeWidth={1.6}
+        strokeLinecap="round"
+        strokeDasharray={len}
+        strokeDashoffset={len}
+        transform={`rotate(-90 ${c} ${c})`}
+        style={{ ["--cf-ring" as string]: len } as CSSProperties}
+      />
+    </svg>
+  );
+}
+
+/** 작은 돌기 — AI 가 아닌 대기(저장 · 파일 쓰기 · 다시 조회)의 표시. 보라를 쓰지 않는다. */
+export function Spinner({
+  size = 10,
+  color = TEXT.sub,
+  track = "#e6e2da",
+  style,
+}: {
+  size?: number;
+  color?: string;
+  track?: string;
+  style?: CSSProperties;
+}) {
+  return (
+    <svg aria-hidden className="cf-orbit" width={size} height={size} viewBox="0 0 10 10" style={{ flex: `0 0 ${size}px`, ...style }}>
+      <circle cx="5" cy="5" r="3.6" fill="none" stroke={track} strokeWidth="1.4" />
+      <path d="M5 1.4a3.6 3.6 0 0 1 3.6 3.6" fill="none" stroke={color} strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** 확인 체크 — 저장됨 · 완료 · 성공. 나타날 때 한 번 튄다(`cf-pop`). */
+export function CheckMark({ size = 10, color = "currentColor", pop = true }: { size?: number; color?: string; pop?: boolean }) {
+  return (
+    <svg aria-hidden className={pop ? "cf-pop" : undefined} width={size} height={size} viewBox="0 0 10 10" style={{ flex: `0 0 ${size}px` }}>
+      <path d="M1.6 5.2 4 7.5 8.5 2.6" fill="none" stroke={color} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/**
+ * 높이째 열고 닫는 상자 — 폴더 · 묶음 · 도크 · 펼친 줄. 예전에는 자식이 한 프레임에 생기고 사라져
+ * 아래 줄이 통째로 튀었다. 닫힌 동안에는 자식을 그리지 않는다(닫히는 200ms 동안만 남는다).
+ */
+export function Collapse({
+  open,
+  children,
+  ms = 200,
+  style,
+}: {
+  open: boolean;
+  children: ReactNode;
+  ms?: number;
+  style?: CSSProperties;
+}) {
+  const box = useRef<HTMLDivElement | null>(null);
+  const [show, setShow] = useState(open);
+  const [h, setH] = useState<string>(open ? "auto" : "0px");
+  const first = useRef(true);
+  useLayoutEffect(() => {
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    const el = box.current;
+    if (!el) return;
+    if (reducedMotion()) {
+      setShow(open);
+      setH(open ? "auto" : "0px");
+      return;
+    }
+    let t: number | undefined;
+    let raf = 0;
+    if (open) {
+      setShow(true);
+      // 자식이 그려진 다음 프레임에 높이를 잰다.
+      raf = requestAnimationFrame(() => {
+        setH(`${el.scrollHeight}px`);
+        t = window.setTimeout(() => setH("auto"), ms);
+      });
+    } else {
+      setH(`${el.scrollHeight}px`);
+      raf = requestAnimationFrame(() => {
+        setH("0px");
+        t = window.setTimeout(() => setShow(false), ms);
+      });
+    }
+    return () => {
+      cancelAnimationFrame(raf);
+      window.clearTimeout(t);
+    };
+  }, [open, ms]);
+  return (
+    <div
+      ref={box}
+      style={{
+        height: h,
+        overflow: h === "auto" ? undefined : "hidden",
+        transition: `height ${ms}ms ${EASE_OUT}`,
+        ...style,
+      }}
+    >
+      {show && children}
+    </div>
+  );
+}
+
+/**
+ * 목록의 자리 옮기기(FLIP) — `data-flip` 을 단 자식들의 위치를 매번 재 두었다가, `key` 가 바뀐 렌더에서
+ * 옛 자리에서 새 자리로 미끄러지게 한다. 순서가 바뀐 업무 · 맨 위로 올라온 오늘의 한일 · 다시 매긴
+ * 추천 카드가 쓴다. 위치는 상자 기준이라 스크롤은 움직임으로 세지 않는다. `enter` 면 새로 생긴 자식은
+ * 위에서 밀고 들어온다.
+ */
+export function useFlip(
+  ref: RefObject<HTMLElement | null>,
+  key: unknown,
+  opts: { ms?: number; enter?: boolean } = {},
+): void {
+  const prev = useRef<Map<string, number> | null>(null);
+  const lastKey = useRef<unknown>(key);
+  useLayoutEffect(() => {
+    const box = ref.current;
+    if (!box) return;
+    const top0 = box.getBoundingClientRect().top - box.scrollTop;
+    const nodes = box.querySelectorAll<HTMLElement>("[data-flip]");
+    const next = new Map<string, number>();
+    nodes.forEach((n) => next.set(n.dataset.flip as string, n.getBoundingClientRect().top - top0));
+    const changed = lastKey.current !== key;
+    lastKey.current = key;
+    const was = prev.current;
+    prev.current = next;
+    if (!changed || !was || reducedMotion() || typeof Element.prototype.animate !== "function") return;
+    const ms = opts.ms ?? 200;
+    nodes.forEach((n) => {
+      const id = n.dataset.flip as string;
+      const from = was.get(id);
+      if (from === undefined) {
+        if (opts.enter) {
+          n.animate([{ opacity: 0, transform: "translateY(-6px)" }, { opacity: 1, transform: "none" }], {
+            duration: ms,
+            easing: EASE_OUT,
+          });
+        }
+        return;
+      }
+      const dy = from - (next.get(id) as number);
+      if (Math.abs(dy) < 0.5) return;
+      n.animate([{ transform: `translateY(${dy}px)` }, { transform: "none" }], { duration: ms, easing: EASE_OUT });
+    });
+  });
+}
+
+/**
+ * 숫자를 옛 값에서 새 값으로 흘린다 — 분 다시 나누기 · 다시 매긴 유사도. 동작 줄이기면 곧바로 새 값.
+ * 소수가 나오므로 그리는 쪽이 반올림한다.
+ */
+export function useTween(value: number, ms = 400): number {
+  const [shown, setShown] = useState(value);
+  const cur = useRef(value);
+  useEffect(() => {
+    const a = cur.current;
+    const b = value;
+    if (a === b) return;
+    if (reducedMotion() || !Number.isFinite(a) || !Number.isFinite(b)) {
+      cur.current = b;
+      setShown(b);
+      return;
+    }
+    const t0 = performance.now();
+    let raf = 0;
+    const step = (t: number) => {
+      const k = Math.min(1, (t - t0) / ms);
+      const v = a + (b - a) * (1 - Math.pow(1 - k, 3));
+      cur.current = v;
+      setShown(v);
+      if (k < 1) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [value, ms]);
+  return shown;
+}
+
+/**
+ * 닫히는 잔상. 대화상자 · 메뉴 · 토스트는 스토어 값이 비는 순간 `null` 을 그려 한 프레임에 사라진다
+ * — 닫힘이 순간 절단이다. 사라지기 직전의 DOM 을 복제해 같은 자리에 붙이고 나가는 움직임을 한 번
+ * 돌린 뒤 지운다. 복제본은 눌리지 않고(`pointer-events: none`) 화면 읽기에도 잡히지 않는다. 스크롤
+ * 위치도 옮겨 실어 닫히는 동안 내용이 튀지 않는다.
+ *
+ * 붙이는 것은 커밋이 끝난 뒤(마이크로태스크)이고, 그때도 원본이 문서에 붙어 있으면 실제로 사라진 것이
+ * 아니므로(StrictMode 의 두 번 도는 effect) 버린다. `enabled` 가 거짓이면 잔상을 남기지 않는다 —
+ * 다른 대화상자로 이어지는 닫힘(오늘의 한일 → i-WMS)이 그렇다.
+ */
+export function useExitSnapshot(
+  ref: RefObject<HTMLElement | null>,
+  kind: "modal" | "menu" | "toast" = "menu",
+  enabled = true,
+): void {
+  const on = useRef(enabled);
+  on.current = enabled;
+  useLayoutEffect(() => {
+    const node = ref;
+    return () => {
+      const el = node.current;
+      if (!el || !on.current || reducedMotion() || typeof Element.prototype.animate !== "function") return;
+      const rect = el.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      const cs = getComputedStyle(el);
+      const ghost = el.cloneNode(true) as HTMLElement;
+      const scrolls: [number, number, number][] = [];
+      el.querySelectorAll<HTMLElement>("*").forEach((n, i) => {
+        if (n.scrollTop || n.scrollLeft) scrolls.push([i, n.scrollTop, n.scrollLeft]);
+      });
+      queueMicrotask(() => {
+        if (el.isConnected) return;
+        ghost.setAttribute("aria-hidden", "true");
+        ghost.removeAttribute("id");
+        ghost.style.pointerEvents = "none";
+        if (cs.position !== "fixed") {
+          Object.assign(ghost.style, {
+            position: "fixed",
+            left: `${rect.left}px`,
+            top: `${rect.top}px`,
+            width: `${rect.width}px`,
+            height: `${rect.height}px`,
+            right: "auto",
+            bottom: "auto",
+            margin: "0",
+            transform: "none",
+          });
+        }
+        ghost.style.zIndex = String(Math.max(Number(cs.zIndex) || 0, 60));
+        ghost.style.animation = "none";
+        document.body.appendChild(ghost);
+        const all = ghost.querySelectorAll<HTMLElement>("*");
+        for (const [i, top, left] of scrolls) {
+          if (all[i]) {
+            all[i].scrollTop = top;
+            all[i].scrollLeft = left;
+          }
+        }
+        let ms = 100;
+        if (kind === "modal") {
+          ms = 140;
+          ghost.animate([{ opacity: 1 }, { opacity: 0 }], { duration: ms, easing: "linear", fill: "forwards" });
+          const panel = ghost.firstElementChild as HTMLElement | null;
+          if (panel) {
+            panel.style.animation = "none";
+            panel.animate([{ transform: "none" }, { transform: "translateY(6px) scale(.99)" }], {
+              duration: ms,
+              easing: EASE_IN,
+              fill: "forwards",
+            });
+          }
+        } else if (kind === "toast") {
+          ms = 140;
+          ghost.animate(
+            [
+              { opacity: 1, transform: "none" },
+              { opacity: 0, transform: "translateX(12px)" },
+            ],
+            { duration: ms, easing: EASE_IN, fill: "forwards" },
+          );
+        } else {
+          ghost.animate(
+            [
+              { opacity: 1, transform: "none" },
+              { opacity: 0, transform: "translateY(-2px) scale(.98)" },
+            ],
+            { duration: ms, easing: EASE_IN, fill: "forwards" },
+          );
+        }
+        window.setTimeout(() => ghost.remove(), ms + 30);
+      });
+    };
+  }, [ref, kind]);
+}
+
+/**
+ * 메뉴 · 팝오버 판 — 붙은 자리(`origin`)에서 자라나고(`cf-menu`) 닫힐 때 잔상이 짧게 나간다
+ * (`useExitSnapshot`). 바깥을 누르면 닫힌다. `esc` 면 Esc 를 capture 단계에서 먼저 받아
+ * `preventDefault()` 한다 — App 의 Esc 사슬이 메뉴 밑의 대화상자까지 닫지 않게. 안에서 Esc 를 스스로
+ * 다루는 입력(카테고리 고르기 — 목록 먼저 닫는다)은 `esc={false}` 로 맡긴다.
+ */
+export function Popover({
+  onClose,
+  origin = "top left",
+  esc = true,
+  role = "menu",
+  style,
+  children,
+}: {
+  onClose: () => void;
+  origin?: string;
+  esc?: boolean;
+  role?: string;
+  style?: CSSProperties;
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  useExitSnapshot(ref, "menu");
+  const close = useRef(onClose);
+  close.current = onClose;
+  useEffect(() => {
+    if (!esc) return;
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      e.preventDefault();
+      close.current();
+    };
+    window.addEventListener("keydown", key, true);
+    return () => window.removeEventListener("keydown", key, true);
+  }, [esc]);
+  return (
+    <>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 25 }} />
+      <div
+        ref={ref}
+        role={role}
+        className="cf-menu"
+        style={{
+          position: "absolute",
+          zIndex: 30,
+          background: "#fff",
+          border: "1px solid #d9d4ca",
+          borderRadius: 6,
+          boxShadow: "0 10px 26px rgba(35,33,30,.16)",
+          padding: 4,
+          transformOrigin: origin,
+          ...style,
+        }}
+      >
+        {children}
+      </div>
+    </>
   );
 }

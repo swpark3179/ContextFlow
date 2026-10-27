@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Box, Input, TextArea } from "../lib/ui";
+import { Box, BusyLabel, Input, TextArea } from "../lib/ui";
 import { useStore } from "../store/useStore";
 import {
   GhostButton,
@@ -9,6 +9,7 @@ import {
   PrimaryButton,
   inputFocus,
   inputStyle,
+  useSubmit,
 } from "./Modal";
 import { sanitizeFolderName } from "../lib/vaultPaths";
 import { taskAtFolder, templatePrefill } from "../lib/templates";
@@ -22,6 +23,8 @@ export default function TemplateModal() {
   // 폴더 모드에서 "복사될 파일" 목록. 훅은 조기 반환보다 앞에 와야 한다.
   const [srcFiles, setSrcFiles] = useState<string[]>([]);
   const src = tp?.src ?? "";
+  // 등록하는 동안 다시 누르지 못하게 — 두 번째 요청은 "이미 있는 템플릿" 경고를 낸다.
+  const [busy, submit] = useSubmit();
   useEffect(() => {
     if (!src) return setSrcFiles([]);
     let live = true;
@@ -84,7 +87,7 @@ export default function TemplateModal() {
     <Modal
       width={720}
       zIndex={74}
-      onClose={() => s.set({ tplNew: null })}
+      onClose={() => !busy && s.set({ tplNew: null })}
       panelStyle={{ height: 480, maxHeight: "90vh" }}
     >
       <div
@@ -333,12 +336,18 @@ export default function TemplateModal() {
         >
           {path}
         </span>
-        <GhostButton onClick={() => s.set({ tplNew: null })}>취소</GhostButton>
+        <GhostButton onClick={() => !busy && s.set({ tplNew: null })} disabled={busy}>
+          취소
+        </GhostButton>
         <PrimaryButton
           disabled={!name || (folderMode && !src)}
-          onClick={() => void s.createTemplate()}
+          busy={busy}
+          minWidth={104}
+          onClick={() => void submit(() => s.createTemplate())}
         >
-          템플릿 등록
+          <BusyLabel busy={busy} color="#fff" idle="템플릿 등록">
+            등록하는 중
+          </BusyLabel>
         </PrimaryButton>
       </ModalFooter>
     </Modal>

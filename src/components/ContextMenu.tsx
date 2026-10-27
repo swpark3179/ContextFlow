@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { Box } from "../lib/ui";
+import { Box, useExitSnapshot } from "../lib/ui";
 import { appsFor, extStyle } from "../lib/design";
-import { useStore } from "../store/useStore";
+import { useStore, type CtxTarget } from "../store/useStore";
 import { BSTORM_EXT } from "../lib/bstorm";
 import * as api from "../lib/api";
 
@@ -16,25 +16,36 @@ interface Item {
   run: () => void;
 }
 
+/**
+ * 탐색기 우클릭 메뉴. 메뉴 하나를 연 자리마다 따로 붙였다 떼어야(`key`) 열릴 때 커서 자리에서
+ * 자라나고(`cf-menu`) 닫힐 때 잔상이 빠진다(`useExitSnapshot`) — 늘 붙어 있는 컴포넌트가 `null` 을
+ * 그리면 닫힘은 한 프레임의 절단이다.
+ */
 export default function ContextMenu() {
-  const s = useStore();
-  const ctx = s.ctx;
-  const ref = useRef<HTMLDivElement | null>(null);
-  const [pos, setPos] = useState({ x: 0, y: 0 });
+  const ctx = useStore((s) => s.ctx);
+  if (!ctx) return null;
+  return <Menu key={`${ctx.path}|${ctx.x}|${ctx.y}`} ctx={ctx} />;
+}
 
-  // Flip the menu back inside the viewport once we know its size.
+function Menu({ ctx }: { ctx: CtxTarget }) {
+  const s = useStore();
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+  useExitSnapshot(ref, "menu");
+
+  // 크기를 안 뒤 화면 안으로 되접는다. 칠하기 전에 끝나므로 접히기 전 자리는 보이지 않는다.
   useLayoutEffect(() => {
-    if (!ctx || !ref.current) return;
+    if (!ref.current) return;
     const M = 8;
-    const r = ref.current.getBoundingClientRect();
+    // `offset*` 로 잰다 — 여는 움직임(`cf-menu`)이 줄여 둔 크기가 아니라 다 자란 크기라야 한다.
+    const w = ref.current.offsetWidth;
+    const h = ref.current.offsetHeight;
     let x = ctx.x;
     let y = ctx.y;
-    if (x + r.width > window.innerWidth - M) x = Math.max(M, window.innerWidth - M - r.width);
-    if (y + r.height > window.innerHeight - M) y = Math.max(M, ctx.y - r.height);
+    if (x + w > window.innerWidth - M) x = Math.max(M, window.innerWidth - M - w);
+    if (y + h > window.innerHeight - M) y = Math.max(M, ctx.y - h);
     setPos({ x, y });
   }, [ctx]);
-
-  if (!ctx) return null;
 
   // `.bs.md` 는 확장자가 `md` 라 배지도 MD 가 된다. 트리와 같게 BS 로 가른다.
   const isBs = !ctx.isDir && ctx.path.toLowerCase().endsWith(BSTORM_EXT);
@@ -115,8 +126,9 @@ export default function ContextMenu() {
       label: "바탕화면에 링크 만들기",
       hint: "심볼릭 링크",
       badge: "⇢",
-      badgeFg: "#5a44b4",
-      badgeBg: "#f2eefc",
+      // 링크는 고스트 · 커서 배지와 같은 청록이다 — 보라는 AI 전용.
+      badgeFg: "#2f6f80",
+      badgeBg: "#e8f3f5",
       run: () => {
         s.set({ ctx: null });
         void s.exportToDesktop(ctx.path, "link");
@@ -220,8 +232,8 @@ export default function ContextMenu() {
                 label: "마크다운 뷰어로 열기",
                 hint: "읽기",
                 badge: "MD",
-                badgeFg: "#5a44b4",
-                badgeBg: "#f2eefc",
+                badgeFg: "#2f6f80",
+                badgeBg: "#e8f3f5",
                 run: () => void s.openFile(ctx.path, "md"),
               },
             ]
@@ -296,6 +308,7 @@ export default function ContextMenu() {
       />
       <div
         ref={ref}
+        className="cf-menu"
         style={{
           position: "fixed",
           zIndex: 81,
@@ -305,9 +318,10 @@ export default function ContextMenu() {
           borderRadius: 6,
           boxShadow: "0 12px 30px rgba(35,33,30,.20)",
           padding: 4,
-          animation: "pIn .1s ease-out",
-          left: pos.x || ctx.x,
-          top: pos.y || ctx.y,
+          left: pos?.x ?? ctx.x,
+          top: pos?.y ?? ctx.y,
+          // 누른 자리에서 자라난다 — 화면 끝에서 되접혔으면 그 모서리가 커서 쪽이다.
+          transformOrigin: pos ? `${ctx.x - pos.x}px ${ctx.y - pos.y}px` : "0 0",
         }}
       >
         <div

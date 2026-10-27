@@ -39,8 +39,32 @@ interface IwmsState {
   push: { day: string } | null;
   /** 정제 · 저장 · 되돌리기가 도는 중. Esc 로 닫지 않는다(실패 사유를 적을 자리가 사라진다). */
   pushBusy: boolean;
-  openPush: (day: string) => void;
-  closePush: (back: boolean) => void;
+  /**
+   * 오늘의 한일 ↔ i-WMS 이어 받기. 두 팝업은 번갈아 뜨지만 한 대화상자처럼 보여야 한다 — 떠나는 쪽이 제 판
+   * 크기를 남기고, 받는 쪽이 열릴 때 한 번 읽어(`liveHandoff`) 그 크기에서 자란 뒤 비운다. 받지 않은 채 오래된
+   * 값은 버린다(다음에 따로 열린 팝업이 엉뚱하게 이어 받지 않게).
+   */
+  handoff: IwmsHandoff | null;
+  /** `from` 은 오늘의 한일 판의 크기 — 있으면 이어 받는다. */
+  openPush: (day: string, from?: { width: number; height: number }) => void;
+  /** `back` 이면 그 날짜의 오늘의 한일을 다시 연다. `from` 은 이 판의 크기와 방금 넣은 줄. */
+  closePush: (back: boolean, from?: { width: number; height: number; pushed?: number[] }) => void;
+}
+
+export interface IwmsHandoff {
+  width: number;
+  height: number;
+  /** 오늘의 한일로 돌아갈 때 — 방금 i-WMS 에 넣은 줄의 id. 그 줄의 `i-WMS ✓` 칩이 튄다. */
+  pushed: number[];
+  at: number;
+}
+
+/** 이어 받기가 유효한 시간. 받는 쪽은 같은 틱에 열리므로 넉넉하다. */
+const HANDOFF_MS = 1500;
+
+/** 지금 받아도 되는 이어 받기 — 오래됐으면 `null`. 렌더 중에 읽으므로 스토어를 고치지 않는다. */
+export function liveHandoff(h: IwmsHandoff | null, now = Date.now()): IwmsHandoff | null {
+  return h && now - h.at < HANDOFF_MS ? h : null;
 }
 
 export const useIwms = create<IwmsState>((set, get) => ({
@@ -98,15 +122,25 @@ export const useIwms = create<IwmsState>((set, get) => ({
 
   push: null,
   pushBusy: false,
+  handoff: null,
 
-  openPush: (day) => {
+  openPush: (day, from) => {
+    set({
+      push: { day },
+      pushBusy: false,
+      handoff: from ? { width: from.width, height: from.height, pushed: [], at: Date.now() } : null,
+    });
     useStore.getState().set({ dayLogOpen: null });
-    set({ push: { day }, pushBusy: false });
   },
 
-  closePush: (back) => {
+  closePush: (back, from) => {
     const day = get().push?.day;
-    set({ push: null, pushBusy: false });
+    set({
+      push: null,
+      pushBusy: false,
+      handoff:
+        back && from ? { width: from.width, height: from.height, pushed: from.pushed ?? [], at: Date.now() } : null,
+    });
     if (back && day) void useStore.getState().openDayLog(day);
   },
 }));

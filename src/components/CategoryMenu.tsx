@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { Box } from "../lib/ui";
+import { Box, useExitSnapshot } from "../lib/ui";
 import { label } from "../lib/category";
 import { emptyNewTask, openCategoryHub, useStore } from "../store/useStore";
 
@@ -13,25 +13,42 @@ import { emptyNewTask, openCategoryHub, useStore } from "../store/useStore";
  * 허브 · 관리에는 키(`keyOf`)를 넘긴다 — 파일 이름은 백엔드가 전체 업무로 정하므로 사이드바의
  * 표시 철자(진행 중 업무만으로 정한 것)를 믿지 않는다. 새 업무만 표시 철자로 연다. 사이드바의
  * ＋ 와 같은 값이라 새 업무가 이 묶음과 같은 철자로 붙는다.
+ *
+ * 연 자리에서 자라나고(`cf-menu`, 되접혔으면 그 모서리에서) 닫힐 때 잔상이 짧게 나간다. 열 때마다 새로
+ * 그린다(`key`) — 다른 머리를 우클릭하면 옛 메뉴는 나가고 새 메뉴가 그 자리에서 자란다.
  */
 export default function CategoryMenu() {
   const ctx = useStore((s) => s.catCtx);
-  const ref = useRef<HTMLDivElement | null>(null);
-  const [pos, setPos] = useState({ x: 0, y: 0 });
+  if (!ctx) return null;
+  return <Panel key={`${ctx.x},${ctx.y},${ctx.key}`} ctx={ctx} />;
+}
 
-  // 메뉴 크기를 알게 된 뒤 화면 안으로 되접는다 — `ContextMenu` 와 같은 규칙이다.
+function Panel({ ctx }: { ctx: NonNullable<ReturnType<typeof useStore.getState>["catCtx"]> }) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  useExitSnapshot(ref, "menu");
+  const [pos, setPos] = useState<{ x: number; y: number; origin: string } | null>(null);
+
+  // 메뉴 크기를 알게 된 뒤 화면 안으로 되접는다 — `ContextMenu` 와 같은 규칙이다. 크기는 `offset*` 로
+  // 잰다 — 자라나는 동안의 축소(`scale`)가 섞인 `getBoundingClientRect` 는 조금 작다.
   useLayoutEffect(() => {
-    if (!ctx || !ref.current) return;
+    if (!ref.current) return;
     const M = 8;
-    const r = ref.current.getBoundingClientRect();
+    const w = ref.current.offsetWidth;
+    const h = ref.current.offsetHeight;
     let x = ctx.x;
     let y = ctx.y;
-    if (x + r.width > window.innerWidth - M) x = Math.max(M, window.innerWidth - M - r.width);
-    if (y + r.height > window.innerHeight - M) y = Math.max(M, ctx.y - r.height);
-    setPos({ x, y });
+    let ox = "left";
+    let oy = "top";
+    if (x + w > window.innerWidth - M) {
+      x = Math.max(M, window.innerWidth - M - w);
+      ox = "right";
+    }
+    if (y + h > window.innerHeight - M) {
+      y = Math.max(M, ctx.y - h);
+      oy = "bottom";
+    }
+    setPos({ x, y, origin: `${oy} ${ox}` });
   }, [ctx]);
-
-  if (!ctx) return null;
 
   const { set } = useStore.getState();
   const close = () => set({ catCtx: null });
@@ -50,8 +67,9 @@ export default function CategoryMenu() {
       key: "hub",
       label: "Obsidian에서 보기",
       badge: "↗",
-      badgeFg: "#5a44b4",
-      badgeBg: "#f4f0fd",
+      // 링크는 청록 — 보라는 AI 가 일하는 중에만 쓴다(탐색기의 링크 배지와 같다).
+      badgeFg: "#2f6f80",
+      badgeBg: "#e8f3f5",
       run: () => void openCategoryHub(ctx.key),
     },
     // 미분류로 만드는 새 업무는 사이드바 아래 [새 업무 추가] 와 같다 — 머리 행의 ＋ 도 없다.
@@ -91,18 +109,22 @@ export default function CategoryMenu() {
       />
       <div
         ref={ref}
+        role="menu"
+        className={pos ? "cf-menu" : undefined}
         style={{
           position: "fixed",
           zIndex: 81,
+          // 자리를 재기 전 한 프레임은 감춘다 — 되접히기 전 자리에서 자라나기 시작하지 않게.
+          visibility: pos ? "visible" : "hidden",
+          transformOrigin: pos?.origin,
           minWidth: 196,
           background: "#fff",
           border: "1px solid #d9d4ca",
           borderRadius: 6,
           boxShadow: "0 12px 30px rgba(35,33,30,.20)",
           padding: 4,
-          animation: "pIn .1s ease-out",
-          left: pos.x || ctx.x,
-          top: pos.y || ctx.y,
+          left: pos?.x ?? ctx.x,
+          top: pos?.y ?? ctx.y,
         }}
       >
         <div

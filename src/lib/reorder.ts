@@ -39,3 +39,18 @@ export function reorderedList(
   if (anchor < 0 || anchor === from) return null;
   return [...rest.slice(0, anchor), moved, ...rest.slice(anchor)];
 }
+
+/**
+ * 순서 쓰기가 끝나기 전에 목록을 먼저 새 순서로 보인다(낙관적 반영). 예전에는 놓은 행이 제자리로
+ * 돌아갔다가 IPC 가 끝난 뒤에야 새 자리로 튀었다 — 손을 뗀 순간과 결과 사이에 틈이 있었다.
+ *
+ * `next` 는 `reorderedList` 가 만든 살아 있는 업무 전체의 순서다. 거기 없는 업무(보관된 것)는
+ * 서로의 순서를 지킨 채 뒤로 간다 — 업무 리스트는 그것을 그리지 않는다.
+ */
+export function applyOrder<T extends { folder: string }>(tasks: T[], next: string[]): T[] {
+  const at = new Map(next.map((f, i) => [f, i]));
+  return tasks
+    .map((t, i) => ({ t, i, k: at.get(t.folder) ?? next.length + i }))
+    .sort((a, b) => a.k - b.k)
+    .map((x) => x.t);
+}

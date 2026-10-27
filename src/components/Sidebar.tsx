@@ -1,5 +1,18 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { AiRail, AiSignal, AiStep, Box, Input } from "../lib/ui";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  AiRail,
+  AiSignal,
+  AiStep,
+  Box,
+  Collapse,
+  EASE_IN,
+  EASE_OUT,
+  HoldRing,
+  Input,
+  Popover,
+  reducedMotion,
+  useFlip,
+} from "../lib/ui";
 import { AI, BLUE, TEXT, normalizeStatus, statusOf } from "../lib/design";
 import { useDropGuard, useLongPress } from "../lib/longPress";
 import { shortStamp, today } from "../lib/format";
@@ -35,6 +48,101 @@ const NAV: [Screen, string][] = [
   ["settings", "설정"],
 ];
 
+/** 펼침 화살표 — 글자(▶ ▼)를 갈아 끼우던 것을 돌린다. `open` 이면 아래를 본다. */
+function Chevron({ open, closed = -90, dim }: { open: boolean; closed?: number; dim?: boolean }) {
+  return (
+    <svg
+      aria-hidden
+      className="cf-mv"
+      width="9"
+      height="9"
+      viewBox="0 0 10 10"
+      style={{
+        flex: "0 0 9px",
+        transform: open ? "none" : `rotate(${closed}deg)`,
+        transition: `transform var(--m-base) ${EASE_OUT}`,
+        opacity: dim ? 0.4 : 1,
+      }}
+    >
+      <path
+        d="M2.5 3.8 5 6.3l2.5-2.5"
+        fill="none"
+        stroke="#6a665e"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+/** 한 번 튀기기(`cf-bump`) — 같은 요소에서 다시 돌리려면 클래스를 뗐다 붙인다. */
+function bump(el: Element | null | undefined) {
+  if (!el) return;
+  el.classList.remove("cf-bump");
+  void (el as HTMLElement).offsetWidth;
+  el.classList.add("cf-bump");
+}
+
+/**
+ * 보관으로 빠지는 행 · 되돌리기로 돌아오는 행이 보관함 도크와의 사이를 날아간다. 예전에는 행이 그
+ * 자리에서 사라져 어디로 갔는지가 보이지 않았다. 행을 복제해 `body` 에 띄우고 한 번 날린 뒤 지운다.
+ * 목록의 보이는 칸 밖에 있던 행(스크롤로 가려졌다)은 날리지 않는다 — 엉뚱한 곳에서 튀어나온다.
+ */
+let flown: object | null = null;
+function flyRow(el: HTMLElement, dir: "out" | "in", token: object) {
+  if (flown === token || reducedMotion() || typeof el.animate !== "function") return;
+  const dock = document.querySelector<HTMLElement>('[data-dock="archive"]');
+  const list = el.closest<HTMLElement>("[data-task-list]");
+  // 접어 둔 사이드바(보이지 않는 판)에서는 날리지 않는다.
+  if (!dock || !list || el.closest("[inert]")) return;
+  const a = el.getBoundingClientRect();
+  const b = dock.getBoundingClientRect();
+  const box = list.getBoundingClientRect();
+  if (!a.width || !b.width || a.bottom < box.top || a.top > box.bottom) return;
+  flown = token;
+  const ghost = el.cloneNode(true) as HTMLElement;
+  ghost.setAttribute("aria-hidden", "true");
+  Object.assign(ghost.style, {
+    position: "fixed",
+    left: `${a.left}px`,
+    top: `${a.top}px`,
+    width: `${a.width}px`,
+    height: `${a.height}px`,
+    margin: "0",
+    zIndex: "60",
+    pointerEvents: "none",
+    background: "#fff",
+    boxShadow: "0 8px 22px rgba(35,33,30,.18)",
+    transformOrigin: "50% 50%",
+  });
+  const dx = b.left + b.width / 2 - (a.left + a.width / 2);
+  const dy = b.top + b.height / 2 - (a.top + a.height / 2);
+  const far = { transform: `translate(${dx}px,${dy}px) scale(.3)`, opacity: 0 };
+  const near = { transform: "none", opacity: 1 };
+  const ms = 460;
+  const run = () => {
+    document.body.appendChild(ghost);
+    const anim = ghost.animate(dir === "out" ? [near, far] : [far, near], {
+      duration: ms,
+      easing: dir === "out" ? "cubic-bezier(.5,0,.2,1)" : EASE_OUT,
+      fill: "forwards",
+    });
+    anim.onfinish = () => {
+      ghost.remove();
+      if (dir === "out") bump(dock.querySelector("[data-dock-count]"));
+    };
+    // 돌아오는 행은 잔상이 닿을 때까지 감춘다 — 둘이 한꺼번에 보이면 하나가 둘이 된다.
+    if (dir === "in") el.animate([{ opacity: 0 }, { opacity: 0 }], { duration: ms });
+  };
+  // 빠지는 행은 커밋이 끝나 원본이 문서에서 떨어진 뒤에 띄운다(`useExitSnapshot` 과 같다).
+  if (dir === "out") {
+    queueMicrotask(() => {
+      if (!el.isConnected) run();
+    });
+  } else run();
+}
+
 /**
  * LLM 위키로 가는 도크 버튼. 2×2 NAV 에 다섯째 칸을 끼우면 격자가 깨지므로 "보관함" 도크와
  * 같은 모양으로 그 아래에 둔다 — 위키는 보관된 업무에서 자라므로 자리도 그 옆이다.
@@ -55,9 +163,12 @@ function WikiDock() {
   const current = useWiki((w) => w.queue.find((q) => q.state === "running"));
   const fresh = useWiki((w) => w.fresh);
   const on = screen === "wiki";
+  // 두 모양(평소 한 줄 · 도는 동안 두 줄)을 오갈 때 한 번 흐려졌다 나타난다 — 도크가 툭 늘어나지 않게.
   if (running && total > 0) {
     return (
       <Box
+        className="cf-enter-down"
+        role="button"
         onClick={() => setScreen("wiki")}
         title="위키 반영 중 — 눌러서 위키 화면으로"
         style={{
@@ -110,6 +221,8 @@ function WikiDock() {
   }
   return (
     <Box
+      className="cf-fade"
+      role="button"
       onClick={() => setScreen("wiki")}
       title="완료한 업무를 AI 가 정리한 위키"
       style={{
@@ -181,8 +294,8 @@ function WikiDock() {
  * 도크를 여러 날짜로 늘리면 사이드바에서 스크롤로 과거를 뒤지게 되는데, 그것은 이 자리가
  * 할 일이 아니다 — 여기는 지금 하루의 눈금이다.
  *
- * 항목은 눌러 그 업무로 갈 수 있고, 오른쪽 ✕ 로 지운다. 팝업에서 손으로 넣은 자유 항목은
- * 가리키는 업무가 없어 눌리지 않는다.
+ * 항목은 눌러 그 업무로 갈 수 있고, 줄에 올리면 나타나는 ✕ 로 지운다(6초 [되돌리기]). 팝업 · 머리의
+ * ＋ 로 손으로 넣은 자유 항목은 가리키는 업무가 없어 눌리지 않는다.
  */
 function TodayDock() {
   const s = useStore();
@@ -216,6 +329,56 @@ function TodayDock() {
     return () => window.clearTimeout(timer);
   }, [tick]);
 
+  // 건수가 늘면 한 번 튄다. 처음 그릴 때와 날이 바뀌어 줄어들 때는 가만히 있다.
+  const countRef = useRef<HTMLSpanElement | null>(null);
+  const lastCount = useRef(items.length);
+  useEffect(() => {
+    if (items.length > lastCount.current) bump(countRef.current);
+    lastCount.current = items.length;
+  }, [items.length]);
+
+  // 올라온 줄은 맨 위로 미끄러져 들어가고, 나머지는 한 칸씩 내려간다.
+  const listRef = useRef<HTMLDivElement | null>(null);
+  useFlip(listRef, items.map((it) => it.id).join(","), { enter: true, ms: 240 });
+
+  // 직접 적어 넣기 — 회의 · 전화처럼 업무가 아닌 일. 예전에는 팝업을 열어야 했다.
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState("");
+  const addRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    if (adding) addRef.current?.focus();
+  }, [adding]);
+  const commit = async () => {
+    const text = draft.trim();
+    if (!text) {
+      setAdding(false);
+      return;
+    }
+    setDraft("");
+    // 이어서 또 적을 수 있게 칸은 열어 둔다. 못 넣었으면 쓴 글을 돌려놓는다.
+    if (!(await s.addTodayNote(text))) setDraft(text);
+  };
+
+  /**
+   * ✕ — 줄을 접어 없앤 뒤 지운다. 확인을 묻지 않는 대신 6초 [되돌리기] 가 있다(`dropEntry` 의 `undo`).
+   * 예전에는 묻지도 되돌리지도 않고 곧바로 DB 에서 지웠다.
+   */
+  const remove = (id: number, el: HTMLElement | null) => {
+    const drop = () => s.dropEntry(id, { undo: true });
+    if (!el || reducedMotion() || typeof el.animate !== "function") return drop();
+    el.style.overflow = "hidden";
+    el.animate(
+      [
+        { height: `${el.offsetHeight}px`, opacity: 1 },
+        { height: "0px", opacity: 0 },
+      ],
+      { duration: 160, easing: EASE_IN, fill: "forwards" },
+    ).onfinish = drop;
+  };
+
+  const open = !s.todayMin;
+  const peek = items[0]?.title;
+
   return (
     <div
       style={{
@@ -226,191 +389,327 @@ function TodayDock() {
         flex: "0 0 auto",
       }}
     >
+      {/* 접기 · 건수(팝업) · ＋ 는 나란한 세 단추다 — 단추 안에 단추를 넣으면 화면 읽기가 하나로 읽는다. */}
       <Box
-        onClick={() => s.set({ todayMin: !s.todayMin })}
-        title={s.todayMin ? "오늘의 한일 펼치기" : "오늘의 한일 접기"}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-          height: 23,
-          padding: "0 6px 0 8px",
-          cursor: "pointer",
-        }}
+        style={{ display: "flex", alignItems: "center", gap: 2, height: 25, padding: "0 4px 0 0" }}
         hover={{ background: "#f2efe9" }}
       >
-        <span
+        <Box
+          onClick={() => s.set({ todayMin: !s.todayMin })}
+          role="button"
+          tabIndex={0}
+          className="cf-focus"
+          onKeyDown={(e) => {
+            if (e.key !== "Enter" && e.key !== " ") return;
+            e.preventDefault();
+            s.set({ todayMin: !s.todayMin });
+          }}
+          aria-expanded={open}
+          title={open ? "오늘의 한일 접기" : "오늘의 한일 펼치기"}
           style={{
-            fontSize: 11,
-            fontWeight: 600,
-            letterSpacing: ".4px",
-            color: "#6a665e",
             flex: 1,
             minWidth: 0,
-          }}
-        >
-          오늘의 한일
-        </span>
-        {/* 건수가 곧 팝업을 여는 곳이다. 접기(▲/▼)와 겹치지 않도록 클릭을 멈춰 세운다. */}
-        <Box
-          onClick={(e) => {
-            e.stopPropagation();
-            void s.openDayLog();
-          }}
-          title="날짜별 기록 보기"
-          style={{
+            alignSelf: "stretch",
             display: "flex",
             alignItems: "center",
-            gap: 3,
-            borderRadius: 3,
-            padding: "0 3px",
-            flex: "0 0 auto",
+            gap: 6,
+            padding: "0 4px 0 7px",
+            cursor: "pointer",
           }}
-          hover={{ background: "#e0dcd4" }}
         >
-          <span style={{ fontSize: 11, color: "#6a665e" }}>🗓</span>
+          {/* 도크는 아래에 붙어 있어 위로 열린다 — 접혔을 때 위를 본다. */}
+          <Chevron open={open} closed={180} />
           <span
             style={{
-              fontFamily: "'Roboto Mono',monospace",
-              fontSize: 11.5,
-              color: items.length ? "#6a665e" : "#b5afa2",
+              fontSize: 11,
+              fontWeight: 600,
+              letterSpacing: ".4px",
+              color: "#6a665e",
+              flex: "0 0 auto",
+              whiteSpace: "nowrap",
             }}
           >
-            {items.length}건
+            오늘의 한일
+          </span>
+          {/* 접어 둔 동안에도 방금 무엇이 올라왔는지는 보인다. */}
+          <span
+            key={peek ?? ""}
+            className={!open && peek ? "cf-fade" : undefined}
+            style={{
+              flex: 1,
+              minWidth: 0,
+              fontSize: 11,
+              color: "#6a665e",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {!open && peek ? `· ${peek}` : ""}
           </span>
         </Box>
-        <span style={{ fontSize: 9, color: "#6a665e", flex: "0 0 auto" }}>
-          {s.todayMin ? "▲" : "▼"}
-        </span>
+          {/* 건수가 곧 팝업을 여는 곳이다. */}
+          <Box
+            onClick={() => void s.openDayLog()}
+            role="button"
+            title="날짜별 기록 보기"
+            aria-label={`날짜별 기록 보기 — 오늘 ${items.length}건`}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+              height: 19,
+              borderRadius: 3,
+              padding: "0 4px",
+              flex: "0 0 auto",
+              color: "#6a665e",
+            }}
+            hover={{ background: "#e0dcd4", color: "#3a3630" }}
+          >
+            <svg aria-hidden width="11" height="11" viewBox="0 0 12 12">
+              <rect x="1.5" y="2.5" width="9" height="8" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.2" />
+              <path d="M1.5 5h9M4 1.2v2.4M8 1.2v2.4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+            </svg>
+            <span
+              ref={countRef}
+              style={{
+                display: "inline-block",
+                fontFamily: "'Roboto Mono',monospace",
+                fontSize: 11.5,
+                color: items.length ? undefined : "#b5afa2",
+              }}
+            >
+              {items.length}건
+            </span>
+          </Box>
+          <Box
+            onClick={() => {
+              if (!open) s.set({ todayMin: false });
+              setAdding(!adding || !open);
+            }}
+            role="button"
+            title="직접 적어 넣기"
+            aria-label="오늘의 한일에 직접 적어 넣기"
+            style={{
+              flex: "0 0 19px",
+              width: 19,
+              height: 19,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              borderRadius: 3,
+              color: adding && open ? BLUE : "#6a665e",
+            }}
+            hover={{ background: "#e0dcd4", color: "#3a3630" }}
+          >
+            <svg aria-hidden width="10" height="10" viewBox="0 0 10 10">
+              <path d="M5 1.5v7M1.5 5h7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+            </svg>
+          </Box>
       </Box>
 
-      {!s.todayMin && !items.length && (
-        <div
-          style={{
-            padding: "5px 8px 7px 8px",
-            fontSize: 11,
-            color: "#6a665e",
-            lineHeight: 1.5,
-            borderTop: "1px solid #efece5",
-          }}
-        >
-          업무를 고치면 여기에 쌓입니다. 지난 날짜는 위 건수를 눌러 봅니다
-        </div>
-      )}
-
-      {!s.todayMin && items.length > 0 && (
-        <div style={{ maxHeight: 116, overflowY: "auto", borderTop: "1px solid #efece5" }}>
-          {items.map((it) => {
-            // 자유 항목은 가리키는 업무가 없다(팝업에서 손으로 넣은 회의 · 전화 · 지원 업무).
-            const task = it.folder ? tasks.find((t) => t.folder === it.folder) : undefined;
-            const archived = !!task && isArchived(task, settings.archDays);
-            // 취소선은 "있었던 업무가 사라졌다" 는 뜻이다. 애초에 업무가 아니었던 줄에
-            // 그으면 거짓말이 되므로, 자유 항목은 흐린 글자로만 구분한다.
-            const missing = it.folder !== null && !task;
-            return (
-              <Box
-                key={it.id}
-                onClick={() => {
-                  // 사라진 업무(Vault 밖에서 지웠다)는 열 곳이 없다. 제목은 남겨 둔다 —
-                  // 오늘 그 일을 한 것은 사실이다.
-                  if (!task) return;
-                  if (archived) void s.peekArchived(task.folder);
-                  else void s.selectTask(task.folder);
-                }}
-                title={
-                  task
-                    ? it.folder ?? ""
-                    : missing
-                      ? `${it.folder} · 지금은 없는 업무입니다`
-                      : it.body || "업무와 연결되지 않은 기록입니다"
+      <Collapse open={open} ms={220}>
+        <Collapse open={adding} ms={180}>
+          <div style={{ padding: "2px 6px 4px 6px" }}>
+            <Input
+              ref={addRef}
+              value={draft}
+              aria-label="오늘 한 일"
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.nativeEvent.isComposing) return;
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void commit();
+                } else if (e.key === "Escape") {
+                  // 겹친 레이어를 닫는 App 의 Esc 사슬로 넘기지 않는다.
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setDraft("");
+                  setAdding(false);
                 }
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  padding: "3px 4px 3px 8px",
-                  cursor: task ? "pointer" : "default",
-                }}
-                hover={task ? { background: "#f2efe9" } : undefined}
-              >
-                <span
-                  style={{
-                    fontSize: 11.5,
-                    lineHeight: "16px",
-                    color: task ? "#3a3630" : "#6a665e",
-                    flex: "1 1 auto",
-                    minWidth: 0,
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                    textDecoration: missing ? "line-through" : "none",
+              }}
+              onBlur={() => {
+                if (!draft.trim()) setAdding(false);
+              }}
+              placeholder="무엇을 했습니까 — Enter 로 추가"
+              style={{
+                width: "100%",
+                height: 24,
+                border: "1px solid #ddd8cf",
+                borderRadius: 4,
+                background: "#fff",
+                padding: "0 7px",
+                fontSize: 11.5,
+                color: "#23211e",
+                outline: "none",
+              }}
+              focusStyle={{ borderColor: "#cddcf8", boxShadow: "0 0 0 2px #e6eefc" }}
+            />
+          </div>
+        </Collapse>
+
+        {!items.length && (
+          <div
+            style={{
+              padding: "5px 8px 7px 8px",
+              fontSize: 11,
+              color: "#6a665e",
+              lineHeight: 1.5,
+              borderTop: "1px solid #efece5",
+            }}
+          >
+            업무를 고치면 여기에 쌓입니다. 지난 날짜는 위 건수를 눌러 봅니다
+          </div>
+        )}
+
+        {items.length > 0 && (
+          <div ref={listRef} style={{ maxHeight: 116, overflowY: "auto", borderTop: "1px solid #efece5" }}>
+            {items.map((it) => {
+              // 자유 항목은 가리키는 업무가 없다(팝업 · 도크에서 손으로 넣은 회의 · 전화 · 지원 업무).
+              const task = it.folder ? tasks.find((t) => t.folder === it.folder) : undefined;
+              const archived = !!task && isArchived(task, settings.archDays);
+              // 취소선은 "있었던 업무가 사라졌다" 는 뜻이다. 애초에 업무가 아니었던 줄에
+              // 그으면 거짓말이 되므로, 자유 항목은 흐린 글자로만 구분한다.
+              const missing = it.folder !== null && !task;
+              return (
+                <Box
+                  key={it.id}
+                  data-flip={it.id}
+                  className="cf-reveal-host"
+                  onClick={() => {
+                    // 사라진 업무(Vault 밖에서 지웠다)는 열 곳이 없다. 제목은 남겨 둔다 —
+                    // 오늘 그 일을 한 것은 사실이다.
+                    if (!task) return;
+                    if (archived) void s.peekArchived(task.folder);
+                    else void s.selectTask(task.folder);
                   }}
+                  title={
+                    task
+                      ? it.folder ?? ""
+                      : missing
+                        ? `${it.folder} · 지금은 없는 업무입니다`
+                        : it.body || "업무와 연결되지 않은 기록입니다"
+                  }
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    padding: "3px 4px 3px 8px",
+                    cursor: task ? "pointer" : "default",
+                  }}
+                  hover={task ? { background: "#f2efe9" } : undefined}
                 >
-                  {it.title}
-                </span>
-                {/* 내용이 있는 줄에는 점을 하나 찍는다 — 팝업에 더 있다는 표시다. */}
-                {!!it.body && (
-                  <span
-                    style={{ fontSize: 9, color: "#c5c0b6", flex: "0 0 auto", lineHeight: "16px" }}
-                    title="내용이 있습니다"
-                  >
-                    ●
-                  </span>
-                )}
-                {archived && (
                   <span
                     style={{
-                      fontSize: 11,
+                      fontSize: 11.5,
+                      lineHeight: "16px",
+                      color: task ? "#3a3630" : "#6a665e",
+                      flex: "1 1 auto",
+                      minWidth: 0,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                      textDecoration: missing ? "line-through" : "none",
+                    }}
+                  >
+                    {it.title}
+                  </span>
+                  {/* 업무가 아닌 줄 — 손으로 넣은 일이다. */}
+                  {it.folder === null && (
+                    <span
+                      style={{
+                        fontSize: 10.5,
+                        color: "#4e4a43",
+                        background: "#ece8e0",
+                        borderRadius: 3,
+                        padding: "0 4px",
+                        lineHeight: "15px",
+                        flex: "0 0 auto",
+                      }}
+                    >
+                      메모
+                    </span>
+                  )}
+                  {/* 내용이 있는 줄에는 점을 하나 찍는다 — 팝업에 더 있다는 표시다. */}
+                  {!!it.body && (
+                    <span
+                      title="내용이 있습니다"
+                      style={{ width: 4, height: 4, borderRadius: "50%", background: "#a09a8f", flex: "0 0 4px" }}
+                    />
+                  )}
+                  {archived && (
+                    <span
+                      style={{
+                        fontSize: 11,
+                        color: "#6a665e",
+                        background: "#ece8e0",
+                        borderRadius: 3,
+                        padding: "0 3px",
+                        lineHeight: "15px",
+                        flex: "0 0 auto",
+                      }}
+                    >
+                      보관
+                    </span>
+                  )}
+                  <span
+                    // 시각이 바뀌면(다시 손댔다) 한 번 흐려졌다 나타난다.
+                    key={it.at}
+                    className="cf-fade"
+                    style={{
+                      fontFamily: "'Roboto Mono',monospace",
+                      fontSize: 11.5,
                       color: "#6a665e",
-                      background: "#ece8e0",
-                      borderRadius: 3,
-                      padding: "0 3px",
-                      lineHeight: "15px",
                       flex: "0 0 auto",
                     }}
                   >
-                    보관
+                    {it.at}
                   </span>
-                )}
-                <span
-                  style={{
-                    fontFamily: "'Roboto Mono',monospace",
-                    fontSize: 11.5,
-                    color: "#6a665e",
-                    flex: "0 0 auto",
-                  }}
-                >
-                  {it.at}
-                </span>
-                <Box
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    s.dropEntry(it.id);
-                  }}
-                  title="오늘의 한일에서 제거"
-                  style={{
-                    flex: "0 0 15px",
-                    width: 15,
-                    height: 15,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    borderRadius: 3,
-                    fontSize: 11,
-                    color: "#c5c0b6",
-                  }}
-                  hover={{ background: "#e0dcd4", color: "#4e4a43" }}
-                >
-                  ✕
+                  <Box
+                    className="cf-reveal"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      remove(it.id, e.currentTarget.parentElement);
+                    }}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key !== "Enter" && e.key !== " ") return;
+                      e.preventDefault();
+                      e.stopPropagation();
+                      remove(it.id, e.currentTarget.parentElement);
+                    }}
+                    title="오늘의 한일에서 제거"
+                    aria-label={`${it.title} 기록 지우기`}
+                    style={{
+                      flex: "0 0 17px",
+                      width: 17,
+                      height: 17,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      borderRadius: 3,
+                      color: "#8a857c",
+                    }}
+                    hover={{ background: "#e0dcd4", color: "#4e4a43" }}
+                  >
+                    <svg aria-hidden width="8" height="8" viewBox="0 0 8 8">
+                      <path d="M1.5 1.5l5 5M6.5 1.5l-5 5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                    </svg>
+                  </Box>
                 </Box>
-              </Box>
-            );
-          })}
-        </div>
-      )}
+              );
+            })}
+          </div>
+        )}
+      </Collapse>
     </div>
   );
 }
+
+/** 끄는 행 위에 적는 "지금 놓으면" — `TaskRow` 의 `verdict`. */
+type Verdict = { kind: "cancel" } | { kind: "dwell"; name: string; since: number } | { kind: "armed"; name: string };
 
 /** 업무 행을 누를 때 롱프레스에 넘기는 것. `group` 은 카테고리로 묶었을 때만 있다(미분류 `""`). */
 interface TaskPress {
@@ -421,6 +720,9 @@ interface TaskPress {
 /**
  * 업무 리스트의 업무 한 줄. 평평한 목록과 카테고리 트리가 같은 행을 쓴다 — 트리에서는
  * 들여 쓰고 카테고리 라벨을 숨길 뿐이다(머리 행이 이미 말한다).
+ *
+ * 선택 표시(흰 바탕 · 왼쪽 띠)는 행이 아니라 목록의 알약 하나가 그린다(`Sidebar`) — 고른 행으로
+ * 미끄러져 간다. 끄는 동안 이 행은 손을 따라 떠오르고(`lift`), 이웃 행은 자리를 비켜 준다(`shift`).
  */
 function TaskRow({
   task: t,
@@ -428,8 +730,12 @@ function TaskRow({
   drag,
   dragging,
   dim,
-  lineTop,
-  lineBottom,
+  shift,
+  lift,
+  verdict,
+  holding,
+  flash,
+  focusable,
   indent,
   showCategory,
   group,
@@ -438,7 +744,7 @@ function TaskRow({
   onClick,
 }: {
   task: TaskMeta;
-  /** 지금 열려 있는 업무. */
+  /** 지금 열려 있는(또는 막 고른) 업무. */
   on: boolean;
   /** 어느 업무든 끄는 중이다. */
   drag: boolean;
@@ -446,9 +752,21 @@ function TaskRow({
   dragging: boolean;
   /** 끄는 업무와 다른 묶음 — 여기에는 놓을 수 없다. */
   dim: boolean;
-  /** 놓을 자리 선 — 이 행의 위 · 아래. */
-  lineTop: boolean;
-  lineBottom: boolean;
+  /** 끄는 행에 자리를 비켜 주는 거리(px). */
+  shift: number;
+  /** 끄는 행이 손을 따라 떠오른 거리(px). */
+  lift: number;
+  /**
+   * 끄는 행이 들고 다니는 "지금 놓으면" — 묶음 밖이면 취소, 다른 묶음 머리 위면 머무는 동안 막대가 차고
+   * 다 차면 그 카테고리로. 행이 손을 따라 떠올라 그 아래 머리를 가리므로 결과를 행 위에 적는다.
+   */
+  verdict: Verdict | null;
+  /** 누르고 있다 — 1초 링이 찬다. */
+  holding: boolean;
+  /** 방금 옮겨 놓았다. */
+  flash: boolean;
+  /** Tab 으로 목록에 들어올 때 이 행에 닿는다(한 목록에 한 행). */
+  focusable: boolean;
   indent: number;
   showCategory: boolean;
   group?: string;
@@ -457,15 +775,39 @@ function TaskRow({
   onClick: () => void;
 }) {
   const cfg = statusOf(t.status);
+  const ref = useRef<HTMLDivElement | null>(null);
+  // 보관 · 되돌리기로 목록을 떠나고 들어오는 순간 보관함 도크와의 사이를 난다(`fly`).
+  useLayoutEffect(() => {
+    const el = ref.current;
+    const folder = t.folder;
+    const f = useStore.getState().fly;
+    if (el && f?.dir === "in" && f.folder === folder) flyRow(el, "in", f);
+    return () => {
+      const g = useStore.getState().fly;
+      if (el && g?.dir === "out" && g.folder === folder) flyRow(el, "out", g);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   return (
     <Box
+      ref={ref}
       data-task-folder={t.folder}
       data-task-group={group}
+      data-flip={t.folder}
+      role="option"
+      aria-selected={on}
+      tabIndex={focusable ? 0 : -1}
+      title={sortable ? `${t.title}\n1초 길게 눌러 옮기기 · Alt+↑↓` : t.title}
+      className={flash ? "cf-mv cf-focus cf-flash" : "cf-mv cf-focus"}
       onPointerDown={(e) => {
         if (sortable) startPress(e, { folder: t.folder, group });
       }}
       onClick={onClick}
       style={{
+        position: "relative",
+        zIndex: dragging ? 3 : undefined,
+        // 손을 따라 떠오른 행이 포인터 밑을 가리면 `elementFromPoint` 가 그 아래 머리를 찾지 못한다.
+        pointerEvents: dragging ? "none" : undefined,
         display: "flex",
         gap: 8,
         padding: "7px 8px 7px 7px",
@@ -473,33 +815,26 @@ function TaskRow({
         borderRadius: 5,
         cursor: drag ? "grabbing" : "pointer",
         marginBottom: 1,
-        borderLeft: `2px solid ${on ? cfg.dot : "transparent"}`,
-        background: on ? "#fff" : "transparent",
-        boxShadow: on ? "0 1px 2px rgba(35,33,30,.10)" : "none",
-        // 끌고 있는 행은 흐리게 — 지금 손에 쥔 것이 무엇인지 보여 준다.
-        opacity: dragging ? 0.4 : dim ? 0.45 : 1,
-        // 놓을 자리를 행 사이의 선으로 그린다. 고스트는 필요 없다 — 탐색기와
-        // 달리 이 드래그는 창 밖으로 나가지 않는다. 테두리는 **드래그 중에만**
-        // 깐다: 평소에도 투명 테두리를 두면 모든 행이 4px 씩 두꺼워져 설계의
-        // 목록 밀도가 바뀐다. 드래그 중에는 모든 행에 똑같이 깔리므로 선이
-        // 켜지고 꺼져도 행이 흔들리지 않는다.
-        ...(drag && {
-          borderTop: `2px solid ${lineTop ? BLUE : "transparent"}`,
-          borderBottom: `2px solid ${lineBottom ? BLUE : "transparent"}`,
-        }),
+        // 띠의 자리만 둔다 — 색은 알약이 칠한다. 행마다 두께가 같아야 알약과 글자가 맞는다.
+        borderLeft: "2px solid transparent",
+        background: dragging ? "#fff" : holding ? "#e9e5dd" : "transparent",
+        boxShadow: dragging ? "0 10px 24px rgba(35,33,30,.18), 0 1px 3px rgba(35,33,30,.12)" : "none",
+        opacity: dim ? 0.45 : 1,
+        // 끄는 행은 손을 그대로 따라간다(전환 없음). 비켜 주는 행만 미끄러진다 — 끌기가 끝나는 순간에는
+        // 전환을 끈다: 새 순서로 다시 그려진 자리에서 옛 비켜 준 거리를 되감으면 한 칸 튄다(그쪽은 FLIP 이 맡는다).
+        transform: dragging ? `translateY(${lift}px) scale(1.02)` : shift ? `translateY(${shift}px)` : undefined,
+        transition: dragging
+          ? "box-shadow 140ms, background-color 90ms"
+          : drag
+            ? `transform var(--m-base) ${EASE_OUT}, opacity 140ms, background-color 90ms`
+            : "opacity 140ms, background-color 90ms",
       }}
-      hover={drag ? undefined : { background: on ? "#fff" : "#ede9e2" }}
+      hover={drag || on ? undefined : { background: "#ede9e2" }}
     >
-      <div
-        style={{
-          width: 7,
-          height: 7,
-          borderRadius: "50%",
-          marginTop: 4,
-          flex: "0 0 7px",
-          background: cfg.dot,
-        }}
-      />
+      <div style={{ position: "relative", width: 7, height: 7, marginTop: 4, flex: "0 0 7px" }}>
+        <div style={{ position: "absolute", inset: 0, borderRadius: "50%", background: cfg.dot }} />
+        {holding && <HoldRing size={17} style={{ left: -5, top: -5 }} />}
+      </div>
       <div style={{ minWidth: 0, flex: 1 }}>
         <div
           style={{
@@ -556,7 +891,49 @@ function TaskRow({
           </span>
         </div>
       </div>
-      {t.runs > 1 && (
+      {verdict && (
+        <span
+          key={verdict.kind}
+          className="cf-fade"
+          style={{
+            position: "relative",
+            overflow: "hidden",
+            alignSelf: "center",
+            flex: "0 1 auto",
+            minWidth: 0,
+            maxWidth: "55%",
+            fontSize: 11,
+            fontWeight: verdict.kind === "armed" ? 600 : 400,
+            color: verdict.kind === "armed" ? "#2f5cbb" : "#6a665e",
+            background: verdict.kind === "armed" ? "#e6eefc" : "#f0ede7",
+            border: `1px solid ${verdict.kind === "armed" ? "#cddcf8" : "#e4e0d8"}`,
+            borderRadius: 3,
+            padding: "0 5px",
+            lineHeight: "17px",
+            whiteSpace: "nowrap",
+            textOverflow: "ellipsis",
+          }}
+        >
+          {verdict.kind === "cancel" ? "놓으면 취소" : verdict.kind === "armed" ? `‘${verdict.name}’(으)로` : `‘${verdict.name}’…`}
+          {verdict.kind === "dwell" && (
+            <span
+              key={verdict.since}
+              aria-hidden
+              className="cf-sweep"
+              style={{
+                position: "absolute",
+                left: 0,
+                right: 0,
+                bottom: 0,
+                height: 2,
+                background: BLUE,
+                animationDuration: `${HEAD_DWELL_MS}ms`,
+              }}
+            />
+          )}
+        </span>
+      )}
+      {!verdict && t.runs > 1 && (
         <div
           style={{
             fontFamily: "'Roboto Mono',monospace",
@@ -585,12 +962,16 @@ function TaskRow({
  * 업무를 끄는 동안에는 놓을 곳이다 — 다른 묶음의 업무를 여기 머물렀다 놓으면 이 카테고리로
  * 바뀐다. 끌기 쪽은 `data-cat-key` · `data-cat-path` 로 포인터 아래의 머리를 찾는다(`catAt`).
  * 키 · 철자는 사용자가 지은 이름이라 셀렉터에 넣지 않고 dataset 으로 읽는다.
+ *
+ * 머무는 동안 아래에 막대가 차오르고(`dwell`, `HEAD_DWELL_MS`), 다 차면 건수 자리에 무엇이 될지
+ * 적는다 — 예전에는 0.3초가 보이지 않아 왜 어떤 때는 바뀌고 어떤 때는 안 바뀌는지 알 수 없었다.
  */
 function CategoryRow({
   row,
   forceOpen,
   drag,
   dim,
+  dwell,
   target,
   onToggle,
   onNew,
@@ -601,6 +982,8 @@ function CategoryRow({
   drag: boolean;
   /** 끄는 업무가 든 묶음의 머리 — 놓아도 바뀔 것이 없다. */
   dim: boolean;
+  /** 머무는 중 — 이 시각부터 막대가 찬다. 아니면 0. */
+  dwell: number;
   /** 지금 놓으면 이 카테고리로 바뀐다(머물러 켜졌다). */
   target: boolean;
   onToggle: () => void;
@@ -612,9 +995,13 @@ function CategoryRow({
     <Box
       data-cat-key={row.key}
       data-cat-path={row.path}
+      data-flip={`cat:${row.key}`}
       onClick={onToggle}
       onContextMenu={onMenu}
+      role="button"
+      aria-expanded={row.open}
       style={{
+        position: "relative",
         display: "flex",
         alignItems: "center",
         gap: 6,
@@ -627,21 +1014,12 @@ function CategoryRow({
         opacity: dim ? 0.45 : 1,
         // 탐색기에서 폴더 안으로 끌 때와 같은 강조.
         background: target ? "#e6eefc" : "transparent",
-        outline: target ? `1px solid ${BLUE}` : "none",
+        boxShadow: target ? `inset 0 0 0 1px ${BLUE}` : "none",
+        transition: "background-color 90ms, box-shadow 140ms, opacity 140ms",
       }}
       hover={drag || forceOpen ? undefined : { background: "#efece6" }}
     >
-      <span
-        style={{
-          flex: "0 0 9px",
-          fontSize: 8,
-          color: "#6a665e",
-          textAlign: "center",
-          opacity: forceOpen ? 0.4 : 1,
-        }}
-      >
-        {row.open ? "▼" : "▶"}
-      </span>
+      <Chevron open={row.open} dim={forceOpen} />
       <span
         style={{
           fontSize: 12.5,
@@ -656,16 +1034,24 @@ function CategoryRow({
       >
         {row.name}
       </span>
-      <span
-        style={{
-          fontFamily: "'Roboto Mono',monospace",
-          fontSize: 11.5,
-          color: "#6a665e",
-          flex: "0 0 auto",
-        }}
-      >
-        {row.count}
-      </span>
+      {target ? (
+        <span className="cf-fade" style={{ fontSize: 11, fontWeight: 600, color: "#2f5cbb", whiteSpace: "nowrap" }}>
+          {uncat ? "놓으면 미분류로" : `놓으면 ‘${row.name}’(으)로`}
+        </span>
+      ) : (
+        <span
+          data-cat-count
+          style={{
+            display: "inline-block",
+            fontFamily: "'Roboto Mono',monospace",
+            fontSize: 11.5,
+            color: "#6a665e",
+            flex: "0 0 auto",
+          }}
+        >
+          {row.count}
+        </span>
+      )}
       {uncat ? (
         // 미분류로 만드는 새 업무는 아래 [새 업무 추가] 와 같다. 개수 칸의 줄만 맞춘다.
         <span style={{ flex: "0 0 15px" }} />
@@ -676,6 +1062,7 @@ function CategoryRow({
             onNew();
           }}
           title="이 카테고리로 새 업무"
+          aria-label={`${row.name} 카테고리로 새 업무`}
           style={{
             flex: "0 0 15px",
             width: 15,
@@ -694,6 +1081,23 @@ function CategoryRow({
         >
           ＋
         </Box>
+      )}
+      {dwell > 0 && !target && (
+        <span
+          key={dwell}
+          aria-hidden
+          className="cf-sweep"
+          style={{
+            position: "absolute",
+            left: 6,
+            right: 6,
+            bottom: 1,
+            height: 2,
+            borderRadius: 1,
+            background: BLUE,
+            animationDuration: `${HEAD_DWELL_MS}ms`,
+          }}
+        />
       )}
     </Box>
   );
@@ -764,8 +1168,13 @@ export default function Sidebar() {
     dropKind({ at: drag.at, overKey: drag.over.key, group: drag.group, armed: drag.over.armed }) === "category"
       ? drag.over.key
       : null;
-  /** 순서 선을 그을 자리. 카테고리 바꾸기가 켜지면 감춘다. */
+  /** 비켜 줄 자리. 카테고리 바꾸기가 켜지면 모두 제자리로 돌아간다. */
   const lineAt = dragOn && dropCat === null ? drag.at : -1;
+  /**
+   * 선택 표시가 가 있을 업무 — 누른 순간 옮긴다(`pendingFolder`). 앞 업무의 저장 · 스냅샷을 기다리는
+   * 동안 예전 업무에 표시가 남아 있으면 눌렸는지 알 수 없었다.
+   */
+  const sel = listActive ? s.pendingFolder || s.activeFolder : "";
   /** 검색 중에는 접어 둔 묶음도 모두 펼쳐 보인다 — 찾은 업무가 접힌 머리 행 뒤에 숨지 않게. */
   const forceOpen = !!query.trim();
 
@@ -850,20 +1259,49 @@ export default function Sidebar() {
   const insertAt = (y: number, group?: string): number => {
     const rows = rowsOnScreen(group);
     if (group !== undefined && rows.length) {
-      const first = rows[0].getBoundingClientRect();
-      const last = rows[rows.length - 1].getBoundingClientRect();
+      const first = slot(rows[0]);
+      const last = slot(rows[rows.length - 1]);
       if (y < first.top - first.height / 2 || y > last.bottom + last.height / 2) return -1;
     }
     for (let i = 0; i < rows.length; i++) {
-      const r = rows[i].getBoundingClientRect();
+      const r = slot(rows[i]);
       if (y < r.top + r.height / 2) return i;
     }
     return rows.length;
   };
 
-  const { startPress } = useLongPress<TaskPress>((press, { x, y }) => {
+  /**
+   * 행이 **놓인** 자리(화면 좌표). 끄는 동안 행들은 자리를 비켜 주며 `transform` 으로 움직이는데,
+   * `getBoundingClientRect` 로 재면 비켜 준 자리를 다시 재어 삽입 지점이 흔들린다. 그래서 움직임에
+   * 상관없는 `offsetTop` 으로 잰다(목록이 행들의 기준 상자다 — `position: relative`).
+   */
+  const slot = (el: HTMLElement) => {
+    const list = listRef.current;
+    if (!list || el.offsetParent !== list) return el.getBoundingClientRect();
+    const top = list.getBoundingClientRect().top + list.clientTop - list.scrollTop + el.offsetTop;
+    return { top, height: el.offsetHeight, bottom: top + el.offsetHeight };
+  };
+
+  /**
+   * 끌기를 시작한 자리 — 목록 안 좌표(스크롤을 더한 값)와 행 한 칸의 높이. 손을 따라 떠오르는 거리와
+   * 이웃이 비켜 줄 거리를 여기서 잰다. 자동 스크롤이 돌아도 행이 손에서 떨어지지 않는다.
+   */
+  const grab = useRef<{ y0: number; h: number }>({ y0: 0, h: 0 });
+  const { startPress, holding } = useLongPress<TaskPress>((press, { x, y }) => {
+    const list = listRef.current;
+    const row = rowsOnScreen(press.group).find((el) => el.dataset.taskFolder === press.folder);
+    if (list && row) {
+      grab.current = { y0: y - list.getBoundingClientRect().top + list.scrollTop, h: row.offsetHeight + 1 };
+    }
     s.set({ taskDrag: { ...press, x, y, at: insertAt(y, press.group), over: null } });
   });
+  /** 방금 옮겨 놓은 행 — 한 번 파랗게 빛난다(`cf-flash`). */
+  const [flash, setFlash] = useState("");
+  useEffect(() => {
+    if (!flash) return;
+    const t = window.setTimeout(() => setFlash(""), 950);
+    return () => window.clearTimeout(t);
+  }, [flash]);
   const { markDropped, justDropped } = useDropGuard();
 
   const pick = (folder: string) => {
@@ -930,7 +1368,15 @@ export default function Sidebar() {
         armed: !!d.over?.armed,
       });
       if (kind === "category" && d.over) {
-        void st.dropOnCategory(d.folder, d.over.path);
+        const key = d.over.key;
+        void st.dropOnCategory(d.folder, d.over.path).then(() => {
+          // 들어간 묶음의 건수가 한 번 튀고, 옮긴 행이 그 묶음 안에서 빛난다.
+          const head = Array.from(listRef.current?.querySelectorAll<HTMLElement>("[data-cat-key]") ?? []).find(
+            (el) => el.dataset.catKey === key,
+          );
+          bump(head?.querySelector("[data-cat-count]"));
+          setFlash(d.folder);
+        });
         return;
       }
       // 묶음 밖에 놓았다 — 취소다(아무것도 쓰지 않는다).
@@ -940,6 +1386,7 @@ export default function Sidebar() {
       // 않은 목록에서는 원래 null 이라 달라지는 것이 없다).
       const from = scope.indexOf(d.folder);
       if (d.at === from || d.at === from + 1) return;
+      setFlash(d.folder);
       void st.reorderTask(d.folder, d.at, scope);
     };
     /**
@@ -1034,156 +1481,253 @@ export default function Sidebar() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [revealSig, forceOpen]);
 
-  if (s.sidebarMin) {
-    return (
+  /**
+   * 이웃이 비켜 줄 거리. 끄는 행은 원래 칸을 그대로 차지하고 있으므로(목록은 다시 흐르지 않는다), 그
+   * 칸과 놓을 자리 사이의 행만 한 칸씩 당기거나 민다 — 놓을 자리에 빈칸이 열리고, 묶음 밖의 행 ·
+   * 머리는 움직이지 않는다. 예전에는 행 사이에 2px 선만 그었다.
+   */
+  const shifts = new Map<string, number>();
+  if (dragOn && lineAt >= 0 && grab.current.h) {
+    const order = rows
+      ? rows.flatMap((r) => (r.kind === "task" && r.group === drag.group ? [r.task.folder] : []))
+      : visible.map((t) => t.folder);
+    const from = order.indexOf(drag.folder);
+    order.forEach((f, i) => {
+      if (from < 0 || i === from) return;
+      if (from < i && i < lineAt) shifts.set(f, -grab.current.h);
+      else if (lineAt <= i && i < from) shifts.set(f, grab.current.h);
+    });
+  }
+  const list = listRef.current;
+  const lift =
+    dragOn && list ? drag.y - list.getBoundingClientRect().top + list.scrollTop - grab.current.y0 : 0;
+  const overHead = dragOn && drag.over && drag.over.key !== drag.group ? drag.over : null;
+  const headName = overHead
+    ? overHead.key === ""
+      ? "미분류"
+      : (rows?.find((r) => r.kind === "cat" && r.key === overHead.key) as { name?: string } | undefined)?.name ??
+        label(overHead.path)
+    : "";
+  const verdict: Verdict | null = !dragOn
+    ? null
+    : overHead
+      ? overHead.armed
+        ? { kind: "armed", name: headName }
+        : { kind: "dwell", name: headName, since: overHead.since }
+      : drag.at < 0
+        ? { kind: "cancel" }
+        : null;
+
+  // 순서가 바뀌거나(놓기 · Alt+↑↓ · 다른 창의 고침) 거르기 · 접기로 행이 빠지고 들면 옛 자리에서 미끄러진다.
+  // 끌기가 끝나는 순간도 센다 — 제자리에 놓거나 취소한 행이 손에서 원래 칸으로 돌아간다.
+  const flipKey = `${dragOn ? "d|" : ""}${
+    rows
+      ? rows.map((r) => (r.kind === "cat" ? `c:${r.key}` : r.task.folder)).join("|")
+      : visible.map((t) => t.folder).join("|")
+  }`;
+  useFlip(listRef, flipKey, { enter: true });
+
+  /**
+   * 선택 알약 — 고른 행 밑에 깔린 흰 바탕 하나가 그 행으로 미끄러진다. 행마다 바탕을 켜고 끄면 눈이
+   * 어디서 어디로 옮겨 갔는지를 따라가지 못한다. 자리는 행의 `offsetTop`(+ 비켜 준 거리)로 잡는다.
+   * 처음 나타날 때는 미끄러지지 않고 그 자리에서 떠오른다.
+   */
+  const pillRef = useRef<HTMLDivElement | null>(null);
+  const pillOn = useRef(false);
+  const selTask = sel ? live.find((t) => t.folder === sel) : undefined;
+  const pillColor = selTask ? statusOf(selTask.status).dot : BLUE;
+  const selShift = shifts.get(sel) ?? 0;
+  const selDragging = dragOn && drag.folder === sel;
+  useLayoutEffect(() => {
+    const pill = pillRef.current;
+    const box = listRef.current;
+    if (!pill || !box) return;
+    const row = sel
+      ? Array.from(box.querySelectorAll<HTMLElement>("[data-task-folder]")).find((el) => el.dataset.taskFolder === sel)
+      : undefined;
+    if (!row || selDragging) {
+      pill.style.opacity = "0";
+      pillOn.current = false;
+      return;
+    }
+    const moving = pillOn.current && !reducedMotion();
+    pill.style.transition = moving
+      ? `transform var(--m-base) ${EASE_OUT}, height var(--m-base) ${EASE_OUT}, border-color var(--m-base), opacity 140ms`
+      : "opacity 140ms";
+    pill.style.transform = `translateY(${row.offsetTop + selShift}px)`;
+    pill.style.left = `${row.offsetLeft}px`;
+    pill.style.width = `${row.offsetWidth}px`;
+    pill.style.height = `${row.offsetHeight}px`;
+    pill.style.borderLeftColor = pillColor;
+    pill.style.opacity = "1";
+    pillOn.current = true;
+  });
+
+  /**
+   * 키보드 — ↑↓ 로 행 사이를 옮겨 다니고 Enter 로 연다. Alt+↑↓ 는 그 업무를 한 칸 옮긴다(끌기와 같은
+   * `reorderTask`). 끌기는 1초 누르기가 필요해 손이 불편하면 순서를 바꿀 길이 없었다. Tab 으로 들어오면
+   * 고른 행에 닿는다(목록 전체가 한 번의 Tab).
+   */
+  const focusRow = (folder: string) =>
+    requestAnimationFrame(() =>
+      Array.from(listRef.current?.querySelectorAll<HTMLElement>("[data-task-folder]") ?? [])
+        .find((el) => el.dataset.taskFolder === folder)
+        ?.focus({ preventScroll: false }),
+    );
+  const onListKey = (e: React.KeyboardEvent) => {
+    const el = (e.target as HTMLElement).closest<HTMLElement>("[data-task-folder]");
+    if (!el || drag) return;
+    const folder = el.dataset.taskFolder ?? "";
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      pick(folder);
+      return;
+    }
+    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+    e.preventDefault();
+    const up = e.key === "ArrowUp";
+    if (e.altKey) {
+      if (!sortable) return;
+      const scope = rowsOnScreen(el.dataset.taskGroup).map((r) => r.dataset.taskFolder ?? "");
+      const from = scope.indexOf(folder);
+      // 삽입 인덱스다 — 아래로 한 칸은 다음 행의 뒤(`from + 2`).
+      const at = up ? from - 1 : from + 2;
+      if (from < 0 || at < 0 || at > scope.length) return;
+      setFlash(folder);
+      void s.reorderTask(folder, at, scope);
+      focusRow(folder);
+      return;
+    }
+    const all = Array.from(listRef.current?.querySelectorAll<HTMLElement>("[data-task-folder]") ?? []);
+    all[all.indexOf(el) + (up ? -1 : 1)]?.focus();
+  };
+  // Tab 으로 닿을 행 — 고른 업무, 보이지 않으면 맨 위.
+  const shownFolders = rows ? rows.flatMap((r) => (r.kind === "task" ? [r.task.folder] : [])) : visible.map((t) => t.folder);
+  const tabStop = shownFolders.includes(sel) ? sel : shownFolders[0];
+
+  /**
+   * 접고 펴기. 예전에는 250px 이 한 프레임에 34px 로 바뀌어 옆의 작업공간이 통째로 튀었다. 폭이
+   * 미끄러지는 동안 넓은 판은 먼저 흐려지고 좁은 띠가 늦게 떠오른다(펼 때는 그 반대). 끌어서 폭을
+   * 바꿀 때는 손을 따라야 하므로, 전환은 접기 · 펴기를 누른 그 한 번에만 건다.
+   */
+  const min = s.sidebarMin;
+  const [prevMin, setPrevMin] = useState(min);
+  const [toggling, setToggling] = useState(false);
+  if (prevMin !== min) {
+    setPrevMin(min);
+    setToggling(true);
+  }
+  useEffect(() => {
+    if (!toggling) return;
+    const t = window.setTimeout(() => setToggling(false), 320);
+    return () => window.clearTimeout(t);
+  }, [toggling]);
+  const W = Math.round(s.sidebarW);
+
+  // 오른쪽 위 업무 리스트 묶음 보기 메뉴 · 필터 알약의 자리.
+  const fi = FILTERS.findIndex(([k]) => k === filter);
+
+  return (
+    <div
+      className="cf-mv"
+      style={{
+        flex: "0 0 auto",
+        minWidth: 0,
+        position: "relative",
+        overflow: "hidden",
+        background: "#f5f3ef",
+        borderRight: "1px solid #e0dcd4",
+        width: min ? 34 : W,
+        transition: toggling ? `width var(--m-screen) ${EASE_OUT}` : "none",
+      }}
+    >
       <div
+        inert={min}
+        aria-hidden={min || undefined}
         style={{
-          flex: "0 0 auto",
-          minWidth: 0,
+          position: "absolute",
+          top: 0,
+          bottom: 0,
+          left: 0,
+          width: W - 1,
           display: "flex",
           flexDirection: "column",
-          background: "#f5f3ef",
-          borderRight: "1px solid #e0dcd4",
-          width: 34,
+          opacity: min ? 0 : 1,
+          transition: toggling ? (min ? "opacity 90ms" : "opacity 140ms 80ms") : "none",
         }}
       >
-        <Box
-          onClick={() => s.set({ sidebarMin: false })}
+        <div
           style={{
-            flex: 1,
+            height: 30,
+            flex: "0 0 30px",
             display: "flex",
-            flexDirection: "column",
             alignItems: "center",
-            gap: 11,
-            padding: "9px 0",
-            cursor: "pointer",
+            gap: 6,
+            padding: "0 6px 0 11px",
+            borderBottom: "1px solid #e6e2da",
+            position: "relative",
           }}
-          hover={{ background: "#ece8e0" }}
         >
-          <span style={{ fontSize: 9, color: "#6a665e" }}>▶</span>
           <span
             style={{
-              writingMode: "vertical-rl",
               fontSize: 11.5,
               fontWeight: 600,
-              letterSpacing: 1,
+              letterSpacing: ".6px",
               color: "#6a665e",
+              flex: 1,
+              minWidth: 0,
+              // 최소 폭(196px)에서 버튼이 하나 늘어도 두 줄로 꺾이지 않게.
+              whiteSpace: "nowrap",
             }}
           >
             업무 리스트
           </span>
           <span
             style={{
-              writingMode: "vertical-rl",
               fontFamily: "'Roboto Mono',monospace",
-              fontSize: 11.5,
-              color: "#6a665e",
+              fontSize: 11,
+              color: "#9b968c",
+              flex: "0 0 auto",
             }}
           >
             {live.length}개
           </span>
-        </Box>
-      </div>
-    );
-  }
-
-  return (
-    <div
-      style={{
-        flex: "0 0 auto",
-        minWidth: 0,
-        display: "flex",
-        flexDirection: "column",
-        background: "#f5f3ef",
-        borderRight: "1px solid #e0dcd4",
-        width: Math.round(s.sidebarW),
-      }}
-    >
-      <div
-        style={{
-          height: 30,
-          flex: "0 0 30px",
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-          padding: "0 6px 0 11px",
-          borderBottom: "1px solid #e6e2da",
-          position: "relative",
-        }}
-      >
-        <span
-          style={{
-            fontSize: 11.5,
-            fontWeight: 600,
-            letterSpacing: ".6px",
-            color: "#6a665e",
-            flex: 1,
-            minWidth: 0,
-            // 최소 폭(196px)에서 버튼이 하나 늘어도 두 줄로 꺾이지 않게.
-            whiteSpace: "nowrap",
-          }}
-        >
-          업무 리스트
-        </span>
-        <span
-          style={{
-            fontFamily: "'Roboto Mono',monospace",
-            fontSize: 11,
-            color: "#9b968c",
-            flex: "0 0 auto",
-          }}
-        >
-          {live.length}개
-        </span>
-        {/* 묶어 보기를 꺼도 남는다 — 다시 켜는 곳이 여기뿐이다. */}
-        {nodes.length > 0 && (
-          <Box
-            onClick={() => setViewMenu(!viewMenu)}
-            title="카테고리 보기"
-            style={{
-              flex: "0 0 17px",
-              width: 17,
-              height: 17,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              borderRadius: 3,
-              cursor: "pointer",
-              color: "#8a857c",
-              fontSize: 12,
-              lineHeight: 1,
-              background: viewMenu ? "#e6e2da" : "transparent",
-            }}
-            hover={{ background: "#e6e2da", color: "#3a3630" }}
-          >
-            ⋯
-          </Box>
-        )}
-        {viewMenu && nodes.length > 0 && (
-          <>
-            <div
-              onClick={() => setViewMenu(false)}
-              style={{ position: "fixed", inset: 0, zIndex: 25 }}
-            />
-            <div
+          {/* 묶어 보기를 꺼도 남는다 — 다시 켜는 곳이 여기뿐이다. */}
+          {nodes.length > 0 && (
+            <Box
+              onClick={() => setViewMenu(!viewMenu)}
+              role="button"
+              aria-haspopup="menu"
+              aria-expanded={viewMenu}
+              title="카테고리 보기"
               style={{
-                position: "absolute",
-                top: 28,
-                right: 6,
-                zIndex: 30,
-                background: "#fff",
-                border: "1px solid #d9d4ca",
-                borderRadius: 6,
-                boxShadow: "0 10px 26px rgba(35,33,30,.16)",
-                padding: 4,
-                minWidth: 172,
-                animation: "pIn .12s ease-out",
+                flex: "0 0 17px",
+                width: 17,
+                height: 17,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                borderRadius: 3,
+                cursor: "pointer",
+                color: "#8a857c",
+                fontSize: 12,
+                lineHeight: 1,
+                background: viewMenu ? "#e6e2da" : "transparent",
               }}
+              hover={{ background: "#e6e2da", color: "#3a3630" }}
             >
+              ⋯
+            </Box>
+          )}
+          {viewMenu && nodes.length > 0 && (
+            <Popover onClose={() => setViewMenu(false)} origin="top right" style={{ top: 28, right: 6, minWidth: 172 }}>
               {viewItems.map((it) => (
                 <Fragment key={it.label}>
                   {it.line && <div style={{ height: 1, background: "#f0ede7", margin: "3px 0" }} />}
                   <Box
+                    role="menuitemcheckbox"
+                    aria-checked={it.check}
+                    aria-disabled={!!it.off || undefined}
                     onClick={() => {
                       if (it.off) return;
                       setViewMenu(false);
@@ -1208,397 +1752,596 @@ export default function Sidebar() {
                   </Box>
                 </Fragment>
               ))}
-            </div>
-          </>
-        )}
-        <Box
-          onClick={() => s.set({ sidebarMin: true })}
-          style={{
-            flex: "0 0 17px",
-            width: 17,
-            height: 17,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            borderRadius: 3,
-            cursor: "pointer",
-            color: "#8a857c",
-            fontSize: 12,
-            lineHeight: 1,
-          }}
-          hover={{ background: "#e6e2da", color: "#3a3630" }}
-        >
-          –
-        </Box>
-      </div>
-
-      <div
-        style={{
-          padding: "8px 9px 6px 9px",
-          display: "flex",
-          flexDirection: "column",
-          gap: 7,
-          opacity: listActive ? 1 : 0.42,
-          pointerEvents: listActive ? "auto" : "none",
-        }}
-      >
-        <Input
-          value={query}
-          disabled={!listActive}
-          onChange={(e) => s.set({ query: e.target.value })}
-          placeholder="업무 · 태그 · 경로 검색"
-          style={{
-            height: 26,
-            border: "1px solid #ddd8cf",
-            borderRadius: 5,
-            background: "#fff",
-            padding: "0 8px",
-            fontSize: 12.5,
-            color: "#23211e",
-            outline: "none",
-          }}
-          focusStyle={{ borderColor: "#3a6fd8", boxShadow: "0 0 0 2px #e6eefc" }}
-        />
-        <div style={{ display: "flex", gap: 4 }}>
-          {FILTERS.map(([k, label]) => {
-            const on = filter === k;
-            return (
-              <div
-                key={k}
-                onClick={() => s.set({ filter: k })}
-                style={{
-                  flex: 1,
-                  textAlign: "center",
-                  fontSize: 11.5,
-                  lineHeight: "20px",
-                  height: 21,
-                  borderRadius: 4,
-                  cursor: "pointer",
-                  userSelect: "none",
-                  border: `1px solid ${on ? "#d9d4ca" : "transparent"}`,
-                  background: on ? "#fff" : "transparent",
-                  color: on ? "#23211e" : "#6a665e",
-                  fontWeight: on ? 600 : 400,
-                }}
-              >
-                {label} {counts[k]}
-              </div>
-            );
-          })}
-        </div>
-        {/* 순서를 정해 둔 사용자가 검색을 켠 채 끌어 보고 "왜 안 되지" 하는 것을 막는다.
-            한 번도 순서를 바꾼 적 없으면 알릴 것도 없으므로 띄우지 않는다. */}
-        {listActive && !sortable && live.some((t) => t.order !== null) && (
-          <div style={{ fontSize: 11, color: "#6a665e", lineHeight: 1.5 }}>
-            검색 중에는 순서를 바꿀 수 없습니다
-          </div>
-        )}
-      </div>
-
-      <div
-        ref={listRef}
-        style={{
-          flex: 1,
-          minHeight: 0,
-          overflowY: "auto",
-          padding: "2px 6px 8px 6px",
-          opacity: listActive ? 1 : 0.42,
-          pointerEvents: listActive ? "auto" : "none",
-          // 드래그 중에는 텍스트가 잡히지 않게 한다.
-          userSelect: drag ? "none" : undefined,
-        }}
-      >
-        {!listActive && (
-          <div
+            </Popover>
+          )}
+          <Box
+            onClick={() => s.set({ sidebarMin: true })}
+            role="button"
+            title="업무 리스트 접기"
+            aria-label="업무 리스트 접기"
             style={{
-              padding: "5px 7px 8px 7px",
-              fontSize: 11.5,
-              color: "#6a665e",
-              lineHeight: 1.6,
+              flex: "0 0 17px",
+              width: 17,
+              height: 17,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              borderRadius: 3,
+              cursor: "pointer",
+              color: "#8a857c",
+              fontSize: 12,
+              lineHeight: 1,
             }}
+            hover={{ background: "#e6e2da", color: "#3a3630" }}
           >
-            워크스페이스에서 업무를 선택할 수 있습니다
-          </div>
-        )}
-        {/* 묶지 않았으면 지금까지의 평평한 목록 그대로다 — 자리는 보이는 목록 전체의 인덱스. */}
-        {!rows &&
-          visible.map((t, i) => (
-            <TaskRow
-              key={t.folder}
-              task={t}
-              on={listActive && t.folder === s.activeFolder}
-              drag={dragOn}
-              dragging={dragOn && drag.folder === t.folder}
-              dim={false}
-              lineTop={lineAt === i}
-              lineBottom={lineAt === visible.length && i === visible.length - 1}
-              indent={0}
-              showCategory
-              sortable={sortable}
-              startPress={startPress}
-              onClick={() => pick(t.folder)}
+            –
+          </Box>
+        </div>
+
+        <div
+          style={{
+            padding: "8px 9px 6px 9px",
+            display: "flex",
+            flexDirection: "column",
+            gap: 7,
+            opacity: listActive ? 1 : 0.42,
+            pointerEvents: listActive ? "auto" : "none",
+            transition: "opacity 140ms",
+          }}
+        >
+          <Input
+            value={query}
+            disabled={!listActive}
+            onChange={(e) => s.set({ query: e.target.value })}
+            placeholder="업무 · 태그 · 경로 검색"
+            style={{
+              height: 26,
+              border: "1px solid #ddd8cf",
+              borderRadius: 5,
+              background: "#fff",
+              padding: "0 8px",
+              fontSize: 12.5,
+              color: "#23211e",
+              outline: "none",
+            }}
+            focusStyle={{ borderColor: "#3a6fd8", boxShadow: "0 0 0 2px #e6eefc" }}
+          />
+          {/* 고른 칸 밑의 흰 알약이 옆 칸으로 미끄러진다 — 칸마다 테두리를 켜고 끄던 것. */}
+          <div role="radiogroup" aria-label="상태 필터" style={{ position: "relative", display: "flex", gap: 4 }}>
+            <div
+              aria-hidden
+              className="cf-mv"
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                height: 21,
+                width: "calc((100% - 8px) / 3)",
+                transform: `translateX(calc(${Math.max(fi, 0) * 100}% + ${Math.max(fi, 0) * 4}px))`,
+                opacity: fi < 0 ? 0 : 1,
+                transition: `transform var(--m-base) ${EASE_OUT}, opacity 140ms`,
+                background: "#fff",
+                border: "1px solid #d9d4ca",
+                borderRadius: 4,
+                boxShadow: "0 1px 2px rgba(35,33,30,.06)",
+              }}
             />
-          ))}
-        {rows?.map((r) => {
-          if (r.kind === "cat") {
+            {FILTERS.map(([k, label]) => {
+              const on = filter === k;
+              return (
+                <Box
+                  key={k}
+                  role="radio"
+                  aria-checked={on}
+                  tabIndex={on ? 0 : -1}
+                  className="cf-focus"
+                  onClick={() => s.set({ filter: k })}
+                  onKeyDown={(e) => {
+                    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+                    e.preventDefault();
+                    const n = FILTERS.length;
+                    const next = FILTERS[(Math.max(fi, 0) + (e.key === "ArrowLeft" ? n - 1 : 1)) % n][0];
+                    s.set({ filter: next });
+                    const box = e.currentTarget.parentElement;
+                    requestAnimationFrame(() => box?.querySelector<HTMLElement>('[aria-checked="true"]')?.focus());
+                  }}
+                  style={{
+                    position: "relative",
+                    flex: 1,
+                    textAlign: "center",
+                    fontSize: 11.5,
+                    lineHeight: "21px",
+                    height: 21,
+                    borderRadius: 4,
+                    cursor: "pointer",
+                    userSelect: "none",
+                    color: on ? "#23211e" : "#6a665e",
+                    fontWeight: on ? 600 : 400,
+                  }}
+                  hover={on ? undefined : { color: "#3a3630", background: "rgba(35,33,30,.04)" }}
+                >
+                  {label} {counts[k]}
+                </Box>
+              );
+            })}
+          </div>
+          {/* 순서를 정해 둔 사용자가 검색을 켠 채 끌어 보고 "왜 안 되지" 하는 것을 막는다.
+              한 번도 순서를 바꾼 적 없으면 알릴 것도 없으므로 띄우지 않는다. */}
+          {listActive && !sortable && live.some((t) => t.order !== null) && (
+            <div className="cf-fade" style={{ fontSize: 11, color: "#6a665e", lineHeight: 1.5 }}>
+              검색 중에는 순서를 바꿀 수 없습니다
+            </div>
+          )}
+        </div>
+
+        <div
+          ref={listRef}
+          data-task-list
+          role="listbox"
+          aria-label="업무 리스트"
+          onKeyDown={onListKey}
+          style={{
+            position: "relative",
+            flex: 1,
+            minHeight: 0,
+            overflowY: "auto",
+            padding: "2px 6px 8px 6px",
+            opacity: listActive ? 1 : 0.42,
+            pointerEvents: listActive ? "auto" : "none",
+            transition: "opacity 140ms",
+            // 드래그 중에는 텍스트가 잡히지 않게 한다.
+            userSelect: drag ? "none" : undefined,
+          }}
+        >
+          <div
+            ref={pillRef}
+            aria-hidden
+            className="cf-mv"
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              opacity: 0,
+              borderRadius: 5,
+              borderLeft: `2px solid ${BLUE}`,
+              background: "#fff",
+              boxShadow: "0 1px 2px rgba(35,33,30,.10)",
+              pointerEvents: "none",
+            }}
+          />
+          {!listActive && (
+            <div
+              style={{
+                padding: "5px 7px 8px 7px",
+                fontSize: 11.5,
+                color: "#6a665e",
+                lineHeight: 1.6,
+              }}
+            >
+              워크스페이스에서 업무를 선택할 수 있습니다
+            </div>
+          )}
+          {/* 묶지 않았으면 지금까지의 평평한 목록 그대로다 — 자리는 보이는 목록 전체의 인덱스. */}
+          {!rows &&
+            visible.map((t) => {
+              const dragging = dragOn && drag.folder === t.folder;
+              return (
+                <TaskRow
+                  key={t.folder}
+                  task={t}
+                  on={t.folder === sel}
+                  drag={dragOn}
+                  dragging={dragging}
+                  dim={false}
+                  shift={shifts.get(t.folder) ?? 0}
+                  lift={dragging ? lift : 0}
+                  verdict={dragging ? verdict : null}
+                  holding={holding?.folder === t.folder && !drag}
+                  flash={flash === t.folder && !drag}
+                  focusable={t.folder === tabStop}
+                  indent={0}
+                  showCategory
+                  sortable={sortable}
+                  startPress={startPress}
+                  onClick={() => pick(t.folder)}
+                />
+              );
+            })}
+          {rows?.map((r) => {
+            if (r.kind === "cat") {
+              const over = dragOn && drag.over?.key === r.key && r.key !== drag.group ? drag.over : null;
+              return (
+                <CategoryRow
+                  key={`cat:${r.key}`}
+                  row={r}
+                  forceOpen={forceOpen}
+                  drag={dragOn}
+                  // 다른 묶음의 머리는 놓을 곳이라 그대로 둔다. 자기 묶음의 머리만 흐리게 — 거기 놓아도
+                  // 바뀔 것이 없다.
+                  dim={dragOn && r.key === drag.group}
+                  dwell={over && !over.armed ? over.since : 0}
+                  target={dropCat === r.key}
+                  onToggle={() => {
+                    if (justDropped() || forceOpen) return;
+                    s.patchSettings({
+                      catClosed: r.open
+                        ? [...settings.catClosed, r.key]
+                        : settings.catClosed.filter((k) => k !== r.key),
+                    });
+                  }}
+                  onNew={() => openNew(r.path)}
+                  // 놓은 직후의 우클릭도 접기와 같은 까닭으로 무시한다. 웹뷰 기본 메뉴는 늘 막는다.
+                  onMenu={(e) => {
+                    e.preventDefault();
+                    if (drag || justDropped()) return;
+                    s.set({ catCtx: { x: e.clientX, y: e.clientY, key: r.key, path: r.path } });
+                  }}
+                />
+              );
+            }
+            const t = r.task;
+            // 업무 행 사이에 놓을 수 있는 곳은 끄는 업무와 같은 묶음뿐이다. 다른 묶음으로는 그 머리에 놓는다.
+            const here = dragOn && drag.group === r.group;
+            const dragging = dragOn && drag.folder === t.folder;
             return (
-              <CategoryRow
-                key={`cat:${r.key}`}
-                row={r}
-                forceOpen={forceOpen}
+              <TaskRow
+                key={t.folder}
+                task={t}
+                on={t.folder === sel}
                 drag={dragOn}
-                // 다른 묶음의 머리는 놓을 곳이라 그대로 둔다. 자기 묶음의 머리만 흐리게 — 거기 놓아도
-                // 바뀔 것이 없다.
-                dim={dragOn && r.key === drag.group}
-                target={dropCat === r.key}
-                onToggle={() => {
-                  if (justDropped() || forceOpen) return;
-                  s.patchSettings({
-                    catClosed: r.open
-                      ? [...settings.catClosed, r.key]
-                      : settings.catClosed.filter((k) => k !== r.key),
-                  });
-                }}
-                onNew={() => openNew(r.path)}
-                // 놓은 직후의 우클릭도 접기와 같은 까닭으로 무시한다. 웹뷰 기본 메뉴는 늘 막는다.
-                onMenu={(e) => {
-                  e.preventDefault();
-                  if (drag || justDropped()) return;
-                  s.set({ catCtx: { x: e.clientX, y: e.clientY, key: r.key, path: r.path } });
-                }}
+                dragging={dragging}
+                dim={dragOn && !here}
+                shift={shifts.get(t.folder) ?? 0}
+                lift={dragging ? lift : 0}
+                verdict={dragging ? verdict : null}
+                holding={holding?.folder === t.folder && !drag}
+                flash={flash === t.folder && !drag}
+                focusable={t.folder === tabStop}
+                indent={r.depth * 13}
+                showCategory={false}
+                group={r.group}
+                sortable={sortable}
+                startPress={startPress}
+                onClick={() => pick(t.folder)}
               />
             );
-          }
-          const t = r.task;
-          // 업무 행 사이에 놓을 수 있는 곳은 끄는 업무와 같은 묶음뿐이다. 선도 그 묶음 안의 자리로
-          // 긋는다. 다른 묶음으로는 그 머리에 놓는다.
-          const here = dragOn && drag.group === r.group;
-          return (
-            <TaskRow
-              key={t.folder}
-              task={t}
-              on={listActive && t.folder === s.activeFolder}
-              drag={dragOn}
-              dragging={dragOn && drag.folder === t.folder}
-              dim={dragOn && !here}
-              lineTop={here && lineAt === r.gi}
-              lineBottom={here && lineAt === r.glen && r.gi === r.glen - 1}
-              indent={r.depth * 13}
-              showCategory={false}
-              group={r.group}
-              sortable={sortable}
-              startPress={startPress}
-              onClick={() => pick(t.folder)}
-            />
-          );
-        })}
+          })}
 
-        {visible.length === 0 && sideArch.length === 0 && (
-          <div
+          {visible.length === 0 && sideArch.length === 0 && (
+            <div
+              className="cf-fade"
+              style={{
+                padding: "22px 12px",
+                textAlign: "center",
+                fontSize: 12.5,
+                color: "#8a857c",
+                lineHeight: 1.6,
+              }}
+            >
+              조건에 맞는 업무가 없습니다.
+              <br />
+              보관함까지 찾으려면 아래 보관함을 열어보세요.
+            </div>
+          )}
+
+          {sideArch.length > 0 && (
+            <div className="cf-enter" style={{ marginTop: 9, padding: "0 2px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
+                <div style={{ flex: 1, height: 1, background: "#e0dcd4" }} />
+                <span
+                  style={{
+                    fontSize: 11,
+                    letterSpacing: ".3px",
+                    color: "#6a665e",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  보관함 {sideArch.length}건
+                </span>
+                <div style={{ flex: 1, height: 1, background: "#e0dcd4" }} />
+              </div>
+              {sideArch.slice(0, 4).map((t) => (
+                <Box
+                  key={t.folder}
+                  onClick={() => void s.peekArchived(t.folder)}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 7,
+                    padding: "6px 7px",
+                    borderRadius: 5,
+                    cursor: "pointer",
+                    marginBottom: 1,
+                  }}
+                  hover={{ background: "#ece8e0" }}
+                >
+                  <div
+                    style={{
+                      width: 7,
+                      height: 7,
+                      borderRadius: "50%",
+                      flex: "0 0 7px",
+                      border: "1px solid #c5c0b6",
+                      background: "#e6e2da",
+                    }}
+                  />
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div
+                      style={{
+                        fontSize: 12.5,
+                        lineHeight: "16px",
+                        color: "#7d7871",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {t.title}
+                    </div>
+                    <div
+                      style={{
+                        fontFamily: "'Roboto Mono',monospace",
+                        fontSize: 11.5,
+                        color: "#6a665e",
+                        marginTop: 1,
+                      }}
+                    >
+                      완료 {(t.completedAt ?? "").slice(2)}
+                    </div>
+                  </div>
+                  {/* 조작은 파랑이다 — 보라는 AI 가 일하는 중에만 쓴다. */}
+                  <Box
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void s.restoreTask(t.folder);
+                    }}
+                    role="button"
+                    style={{
+                      flex: "0 0 auto",
+                      fontSize: 11,
+                      color: "#2f5cbb",
+                      background: "#eef3fd",
+                      border: "1px solid #cddcf8",
+                      borderRadius: 3,
+                      padding: "2px 6px",
+                    }}
+                    hover={{ background: "#e2ebfc" }}
+                  >
+                    재개
+                  </Box>
+                </Box>
+              ))}
+              <Box
+                // 카테고리 거르기도 푼다 — 약속한 n건이 그대로 보여야 한다.
+                onClick={() =>
+                  s.set({ screen: "archive", archQuery: query.trim(), archOpen: "", archCat: null })
+                }
+                style={{ fontSize: 11.5, color: "#3a6fd8", cursor: "pointer", padding: "5px 7px" }}
+                hover={{ textDecoration: "underline" }}
+              >
+                {sideArch.length > 4
+                  ? `보관함에서 ${sideArch.length}건 모두 보기 →`
+                  : "보관함에서 열기 →"}
+              </Box>
+            </div>
+          )}
+        </div>
+
+        <div
+          style={{
+            flex: "0 0 auto",
+            borderTop: "1px solid #e6e2da",
+            padding: "8px 9px",
+            display: "flex",
+            flexDirection: "column",
+            gap: 6,
+          }}
+        >
+          <TodayDock />
+          <Box
+            onClick={() => openNew()}
+            role="button"
+            title="새 업무 추가 (Ctrl+N)"
             style={{
-              padding: "22px 12px",
-              textAlign: "center",
+              height: 28,
+              borderRadius: 5,
+              background: "#3a6fd8",
+              color: "#fff",
               fontSize: 12.5,
-              color: "#8a857c",
-              lineHeight: 1.6,
+              fontWeight: 600,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 5,
+              cursor: "pointer",
+            }}
+            hover={{ background: "#2f5cbb" }}
+          >
+            <span style={{ fontSize: 14, lineHeight: 1 }}>+</span> 새 업무 추가
+          </Box>
+          <Box
+            data-dock="archive"
+            onClick={() => s.setScreen("archive")}
+            role="button"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 7,
+              height: 25,
+              padding: "0 8px",
+              borderRadius: 4,
+              cursor: "pointer",
+              background: s.screen === "archive" ? "#fff" : "#ebe7df",
+              border: s.screen === "archive" ? "1px solid #d9d4ca" : "1px solid transparent",
+            }}
+            hover={{ background: s.screen === "archive" ? "#fff" : "#e2ded4" }}
+          >
+            <div
+              style={{
+                width: 9,
+                height: 7,
+                borderRadius: "1px 2px 2px 2px",
+                background: "#cfcabf",
+                flex: "0 0 9px",
+              }}
+            />
+            <span style={{ fontSize: 11.5, color: "#6a665e", flex: 1, minWidth: 0 }}>보관함</span>
+            <span
+              data-dock-count
+              style={{
+                display: "inline-block",
+                fontFamily: "'Roboto Mono',monospace",
+                fontSize: 11,
+                color: "#6a665e",
+                flex: "0 0 auto",
+              }}
+            >
+              {archived.length}개
+            </span>
+          </Box>
+          <WikiDock />
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4 }}>
+            {NAV.map(([k, label]) => {
+              const on = s.screen === k;
+              return (
+                <Box
+                  key={k}
+                  onClick={() => s.setScreen(k)}
+                  role="button"
+                  aria-current={on ? "page" : undefined}
+                  style={{
+                    height: 24,
+                    borderRadius: 4,
+                    fontSize: 11.5,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    cursor: "pointer",
+                    border: `1px solid ${on ? "#d9d4ca" : "#e6e2da"}`,
+                    background: on ? "#fff" : "transparent",
+                    color: on ? "#23211e" : "#6a665e",
+                    fontWeight: on ? 600 : 400,
+                  }}
+                  hover={on ? undefined : { background: "#ece8e0", color: "#3a3630" }}
+                >
+                  {label}
+                </Box>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* 접었을 때의 띠 — 펼치기와, 업무마다 상태 점 하나. 점을 누르면 펼치지 않고도 그 업무로 간다. */}
+      <div
+        inert={!min}
+        aria-hidden={!min || undefined}
+        style={{
+          position: "absolute",
+          top: 0,
+          bottom: 0,
+          left: 0,
+          width: 33,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          opacity: min ? 1 : 0,
+          pointerEvents: min ? undefined : "none",
+          transition: toggling ? (min ? "opacity 140ms 110ms" : "opacity 90ms") : "none",
+        }}
+      >
+        <Box
+          onClick={() => s.set({ sidebarMin: false })}
+          role="button"
+          title="업무 리스트 펼치기"
+          aria-label="업무 리스트 펼치기"
+          style={{
+            width: "100%",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: 11,
+            padding: "10px 0 9px",
+            cursor: "pointer",
+            flex: "0 0 auto",
+          }}
+          hover={{ background: "#ece8e0" }}
+        >
+          <Chevron open={false} />
+          <span
+            style={{
+              writingMode: "vertical-rl",
+              fontSize: 11.5,
+              fontWeight: 600,
+              letterSpacing: 1,
+              color: "#6a665e",
             }}
           >
-            조건에 맞는 업무가 없습니다.
-            <br />
-            보관함까지 찾으려면 아래 보관함을 열어보세요.
-          </div>
-        )}
-
-        {sideArch.length > 0 && (
-          <div style={{ marginTop: 9, padding: "0 2px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
-              <div style={{ flex: 1, height: 1, background: "#e0dcd4" }} />
-              <span
-                style={{
-                  fontSize: 11,
-                  letterSpacing: ".3px",
-                  color: "#6a665e",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                보관함 {sideArch.length}건
-              </span>
-              <div style={{ flex: 1, height: 1, background: "#e0dcd4" }} />
-            </div>
-            {sideArch.slice(0, 4).map((t) => (
+            업무 리스트
+          </span>
+          <span
+            style={{
+              writingMode: "vertical-rl",
+              fontFamily: "'Roboto Mono',monospace",
+              fontSize: 11.5,
+              color: "#6a665e",
+            }}
+          >
+            {live.length}개
+          </span>
+        </Box>
+        <div
+          style={{
+            flex: 1,
+            minHeight: 0,
+            width: "100%",
+            overflowY: "auto",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: 2,
+            padding: "6px 0 10px",
+            borderTop: "1px solid #e6e2da",
+            // 33px 띠에 스크롤바 자리(11px)를 잡으면 점이 가운데서 밀린다 — 휠로만 굴린다.
+            scrollbarWidth: "none",
+            opacity: listActive ? 1 : 0.42,
+            pointerEvents: listActive ? undefined : "none",
+          }}
+        >
+          {live.map((t) => {
+            const dot = statusOf(t.status).dot;
+            const on = t.folder === sel;
+            return (
               <Box
                 key={t.folder}
-                onClick={() => void s.peekArchived(t.folder)}
+                onClick={() => pick(t.folder)}
+                role="button"
+                title={t.title}
+                aria-label={`${t.title} 열기`}
+                aria-current={on || undefined}
                 style={{
+                  flex: "0 0 20px",
+                  width: 20,
+                  height: 20,
                   display: "flex",
                   alignItems: "center",
-                  gap: 7,
-                  padding: "6px 7px",
-                  borderRadius: 5,
+                  justifyContent: "center",
+                  borderRadius: 4,
                   cursor: "pointer",
-                  marginBottom: 1,
                 }}
-                hover={{ background: "#ece8e0" }}
+                hover={{ background: "#e6e2da" }}
               >
-                <div
+                <span
                   style={{
                     width: 7,
                     height: 7,
                     borderRadius: "50%",
-                    flex: "0 0 7px",
-                    border: "1px solid #c5c0b6",
-                    background: "#e6e2da",
+                    background: dot,
+                    boxShadow: on ? `0 0 0 2px #f5f3ef, 0 0 0 3.5px ${dot}` : "none",
+                    transition: "box-shadow var(--m-base)",
                   }}
                 />
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <div
-                    style={{
-                      fontSize: 12.5,
-                      lineHeight: "16px",
-                      color: "#7d7871",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {t.title}
-                  </div>
-                  <div
-                    style={{
-                      fontFamily: "'Roboto Mono',monospace",
-                      fontSize: 11.5,
-                      color: "#6a665e",
-                      marginTop: 1,
-                    }}
-                  >
-                    완료 {(t.completedAt ?? "").slice(2)}
-                  </div>
-                </div>
-                <Box
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void s.restoreTask(t.folder);
-                  }}
-                  style={{
-                    flex: "0 0 auto",
-                    fontSize: 11,
-                    color: "#5a44b4",
-                    background: "#f2eefc",
-                    border: "1px solid #e4dcf8",
-                    borderRadius: 3,
-                    padding: "2px 6px",
-                  }}
-                  hover={{ background: "#ece5fb" }}
-                >
-                  재개
-                </Box>
               </Box>
-            ))}
-            <Box
-              // 카테고리 거르기도 푼다 — 약속한 n건이 그대로 보여야 한다.
-              onClick={() =>
-                s.set({ screen: "archive", archQuery: query.trim(), archOpen: "", archCat: null })
-              }
-              style={{ fontSize: 11.5, color: "#3a6fd8", cursor: "pointer", padding: "5px 7px" }}
-              hover={{ textDecoration: "underline" }}
-            >
-              {sideArch.length > 4
-                ? `보관함에서 ${sideArch.length}건 모두 보기 →`
-                : "보관함에서 열기 →"}
-            </Box>
-          </div>
-        )}
-      </div>
-
-      <div
-        style={{
-          flex: "0 0 auto",
-          borderTop: "1px solid #e6e2da",
-          padding: "8px 9px",
-          display: "flex",
-          flexDirection: "column",
-          gap: 6,
-        }}
-      >
-        <TodayDock />
-        <Box
-          onClick={() => openNew()}
-          style={{
-            height: 28,
-            borderRadius: 5,
-            background: "#3a6fd8",
-            color: "#fff",
-            fontSize: 12.5,
-            fontWeight: 600,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 5,
-            cursor: "pointer",
-          }}
-          hover={{ background: "#2f5cbb" }}
-        >
-          <span style={{ fontSize: 14, lineHeight: 1 }}>+</span> 새 업무 추가
-        </Box>
-        <Box
-          onClick={() => s.setScreen("archive")}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 7,
-            height: 25,
-            padding: "0 8px",
-            borderRadius: 4,
-            cursor: "pointer",
-            background: "#ebe7df",
-          }}
-          hover={{ background: "#e2ded4" }}
-        >
-          <div
-            style={{
-              width: 9,
-              height: 7,
-              borderRadius: "1px 2px 2px 2px",
-              background: "#cfcabf",
-              flex: "0 0 9px",
-            }}
-          />
-          <span style={{ fontSize: 11.5, color: "#6a665e", flex: 1, minWidth: 0 }}>보관함</span>
-          <span
-            style={{
-              fontFamily: "'Roboto Mono',monospace",
-              fontSize: 11,
-              color: "#6a665e",
-              flex: "0 0 auto",
-            }}
-          >
-            {archived.length}개
-          </span>
-        </Box>
-        <WikiDock />
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4 }}>
-          {NAV.map(([k, label]) => {
-            const on = s.screen === k;
-            return (
-              <div
-                key={k}
-                onClick={() => s.setScreen(k)}
-                style={{
-                  height: 24,
-                  borderRadius: 4,
-                  fontSize: 11.5,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  cursor: "pointer",
-                  border: `1px solid ${on ? "#d9d4ca" : "#e6e2da"}`,
-                  background: on ? "#fff" : "transparent",
-                  color: on ? "#23211e" : "#6a665e",
-                  fontWeight: on ? 600 : 400,
-                }}
-              >
-                {label}
-              </div>
             );
           })}
         </div>
