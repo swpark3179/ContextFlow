@@ -45,6 +45,7 @@ function task(folder: string, title: string, over: Record<string, unknown> = {})
     relFolder: `${folder.replace("/v/", "")}/`,
     indexPath: `${folder}/index.md`,
     tagline: "",
+    highlight: false,
     ...over,
   };
 }

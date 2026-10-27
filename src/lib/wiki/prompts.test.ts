@@ -54,6 +54,7 @@ function bundle(over: Partial<WikiSourceBundle> = {}): WikiSourceBundle {
       relFolder: "Tasks/[2026-09] 배포 정리/",
       indexPath: "",
       tagline: "",
+      highlight: false,
     },
     sig: "s",
     sourcePath: "sources/task-1.md",

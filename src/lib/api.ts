@@ -31,6 +31,11 @@ export interface TaskMeta {
   runs: number;
   /** 사용자가 끌어 정한 자리. `null` = 아직 손대지 않았고, 그때는 최근 수정순이다. */
   order: number | null;
+  /**
+   * 업무 리스트의 강조. 진행 중일 때만 뜻이 있다 — 보류 중에는 값이 남아도 칠하지 않고, 완료 · 보관하면
+   * 백엔드가 지운다(`vault::set_highlight`).
+   */
+  highlight: boolean;
   folder: string;
   relFolder: string;
   indexPath: string;
@@ -173,6 +178,9 @@ export const renameTask = (root: string, folder: string, title: string) =>
   invoke<TaskMeta>("rename_task", { root, folder, title });
 export const setTaskStatus = (root: string, folder: string, status: string) =>
   invoke<TaskMeta>("set_task_status", { root, folder, status });
+/** 켜기는 진행 중인 업무에만 받는다. `updated` 는 바뀌지 않는다 — 표시는 작업이 아니다. */
+export const setTaskHighlight = (root: string, folder: string, on: boolean) =>
+  invoke<TaskMeta>("set_task_highlight", { root, folder, on });
 export const appendTaskRun = (root: string, folder: string, text: string) =>
   invoke<TaskMeta>("append_task_run", { root, folder, text });
 /** `folders` 는 원하는 **최종 순서 전체**다. 값 계산과 최소 쓰기는 Rust 가 한다. */

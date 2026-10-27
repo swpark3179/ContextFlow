@@ -933,6 +933,7 @@ mod tests {
             archived_at: None,
             runs: 0,
             order: None,
+            highlight: false,
             folder: String::new(),
             rel_folder: String::new(),
             index_path: String::new(),

@@ -350,6 +350,13 @@ export interface CatCtx {
   path: string;
 }
 
+/** 업무 리스트의 업무 행 우클릭 메뉴(`TaskMenu`) — 연 자리와 그 업무의 폴더. */
+export interface TaskCtx {
+  x: number;
+  y: number;
+  folder: string;
+}
+
 /**
  * 업무 편입 대화상자 — `source` 업무의 폴더 전체를 `target` 업무 안으로 옮긴다.
  *
@@ -680,6 +687,7 @@ interface State {
   merge: MergeState | null;
   tabCtx: TabCtx | null;
   catCtx: CatCtx | null;
+  taskCtx: TaskCtx | null;
   absorb: AbsorbState | null;
   split: SplitState | null;
   ren: RenameState | null;
@@ -720,16 +728,22 @@ interface Actions {
    * 완료(→보관)를 되돌린다 — 보관을 풀고 완료 전 상태로 돌린 뒤 그 업무를 다시 연다. 완료 토스트의
    * [되돌리기] 가 부른다. `folder` 는 보관된 자리('move' 면 Archive 아래)다.
    */
-  undoComplete: (folder: string, status: string) => Promise<void>;
+  undoComplete: (folder: string, status: string, highlight?: boolean) => Promise<void>;
   /** `close` 를 생략하면 지금 열려 있는 업무일 때만 창을 닫는다. */
   /** 보관한 뒤의 업무(경로가 바뀌었을 수 있다). 실패하면 `null`. */
   /**
-   * `undoTo` 가 있으면(완료에서 왔다) 토스트에 [되돌리기] 가 붙는다. `onKept` 는 그 토스트가 되돌리기
-   * 없이 닫힌 뒤에 돈다 — 위키 반영처럼 되돌릴 수 있는 동안 미뤄 둘 일을 거기서 한다.
+   * `undoTo` 가 있으면(완료에서 왔다) 토스트에 [되돌리기] 가 붙는다. `undoHighlight` 는 완료 직전에 강조돼
+   * 있었는지다 — 완료가 지운 강조를 되돌리기가 다시 켠다. `onKept` 는 그 토스트가 되돌리기 없이 닫힌 뒤에
+   * 돈다 — 위키 반영처럼 되돌릴 수 있는 동안 미뤄 둘 일을 거기서 한다.
    */
   archiveNow: (
     folder: string,
-    opts?: { close?: boolean; undoTo?: string; onKept?: (archived: TaskMeta) => void },
+    opts?: {
+      close?: boolean;
+      undoTo?: string;
+      undoHighlight?: boolean;
+      onKept?: (archived: TaskMeta) => void;
+    },
   ) => Promise<TaskMeta | null>;
   restoreTask: (folder: string) => Promise<void>;
   /** [업무 삭제] 대화상자를 연다. 지울 수 있는 것은 살아 있는 업무뿐이다. */
@@ -791,6 +805,10 @@ interface Actions {
    */
   reorderTask: (folder: string, at: number, scope?: string[]) => Promise<void>;
   clearTaskOrder: () => Promise<void>;
+  /**
+   * 업무 리스트의 강조를 켜고 끈다(업무 행 우클릭). 켜기는 진행 중인 업무에만 — 아니면 아무것도 하지 않는다.
+   */
+  setHighlight: (folder: string, on: boolean) => Promise<void>;
 
   setScreen: (s: Screen) => void;
   setUi: (patch: Partial<TaskUi>) => void;
@@ -1381,6 +1399,7 @@ export const useStore = create<State & Actions>((set, get) => ({
   merge: null,
   tabCtx: null,
   catCtx: null,
+  taskCtx: null,
   absorb: null,
   split: null,
   ren: null,
@@ -1644,8 +1663,9 @@ export const useStore = create<State & Actions>((set, get) => ({
     const { settings, activeFolder } = get();
     if (!activeFolder) return;
     const completing = normalizeStatus(status) === "completed";
-    // [되돌리기] 가 돌아갈 상태 — 완료 직전의 것이다.
-    const before = get().tasks.find((t) => t.folder === activeFolder)?.status ?? "in-progress";
+    // [되돌리기] 가 돌아갈 상태 — 완료 직전의 것이다. 강조는 완료가 지우므로(`vault::set_status`) 함께 든다.
+    const was = get().tasks.find((t) => t.folder === activeFolder);
+    const before = was?.status ?? "in-progress";
     // 완료는 저장 · 파일 세기 · 보관까지 몇 번의 왕복이다. 메뉴는 곧바로 닫고 배지가 그동안을 보인다
     // (`completing`) — 예전에는 메뉴가 멈춘 채 열려 있었다.
     if (completing) set({ statusMenuOpen: false, completing: activeFolder });
@@ -1689,6 +1709,7 @@ export const useStore = create<State & Actions>((set, get) => ({
         await get().archiveNow(activeFolder, {
           close: true,
           undoTo: before,
+          undoHighlight: !!was?.highlight,
           onKept: (archived) => {
             // 그사이 보관함에서 재개했으면 넣지 않는다.
             const now = get().tasks.find((t) => t.id === archived.id);
@@ -1709,14 +1730,19 @@ export const useStore = create<State & Actions>((set, get) => ({
     }
   },
 
-  undoComplete: async (folder, status) => {
+  undoComplete: async (folder, status, highlight) => {
     const { settings } = get();
     try {
       // 보관을 먼저 푼다('move' 면 폴더가 Tasks/ 로 돌아온다) — 재개(`restoreTask`)와 달리 Run Log 에
       // 줄을 남기지 않는다. 한 일이 아니라 누른 것을 되돌린 것이다. 그다음 완료 전 상태로 돌린다
       // (`completed_at` 도 지운다).
       const back = await api.setTaskArchived(settings.vault, folder, false, settings.archMode, false);
-      const updated = await api.setTaskStatus(settings.vault, back.folder, status);
+      let updated = await api.setTaskStatus(settings.vault, back.folder, status);
+      // 완료가 지운 강조도 되살린다(진행 중으로 돌아갈 때만 켤 수 있다). 되돌리기 자체는 이미 끝났으니
+      // 이 한 줄이 실패해도 물리지 않는다 — 강조가 빠진 채 보이고, 우클릭으로 다시 켜면 된다.
+      if (highlight && normalizeStatus(status) === "in-progress") {
+        updated = await api.setTaskHighlight(settings.vault, updated.folder, true).catch(() => updated);
+      }
       await get().relocateToday(folder, updated.folder, updated.title);
       // 행이 보관함 도크에서 목록으로 날아 돌아온다(`Sidebar`).
       set((s) => ({
@@ -1776,7 +1802,12 @@ export const useStore = create<State & Actions>((set, get) => ({
       const undoTo = opts?.undoTo;
       const onKept = opts?.onKept;
       const extra = {
-        ...(undoTo && { action: { label: "되돌리기", run: () => void get().undoComplete(updated.folder, undoTo) } }),
+        ...(undoTo && {
+          action: {
+            label: "되돌리기",
+            run: () => void get().undoComplete(updated.folder, undoTo, opts?.undoHighlight),
+          },
+        }),
         ...(onKept && { onClose: () => onKept(updated) }),
       };
       // 'move' 는 디스크에서 폴더를 실제로 옮긴다 — 어디로 갔는지는 화면에 나오지 않는다.
@@ -2076,7 +2107,8 @@ export const useStore = create<State & Actions>((set, get) => ({
   },
 
   // 화면을 직접 고르면 보관함은 언제나 목록에서 다시 시작한다.
-  setScreen: (s) => set({ screen: s, ctx: null, catCtx: null, statusMenuOpen: false, archOpen: "" }),
+  setScreen: (s) =>
+    set({ screen: s, ctx: null, catCtx: null, taskCtx: null, statusMenuOpen: false, archOpen: "" }),
 
   setUi: (patch) => {
     const ui = { ...get().ui, ...patch };
@@ -2789,6 +2821,33 @@ export const useStore = create<State & Actions>((set, get) => ({
       get().toast("정렬을 초기화했습니다", "다시 최근 수정순으로 정렬합니다", TOAST.ok);
     } catch (e) {
       get().fail(e, "정렬을 초기화하지 못했습니다");
+    }
+  },
+
+  /**
+   * 강조는 쓰기를 기다리지 않고 먼저 칠한다 — 형광펜이 그어지는 움직임이 누른 순간에 시작해야 무엇이
+   * 바뀌었는지 보인다. 실패하면 그 행이 아직 칠한 그대로(같은 객체)일 때만 되돌린다 — 그사이 다시 읽은
+   * 목록은 디스크의 값이라 덮지 않는다. 바뀐 것이 제자리에 보이므로 성공은 알리지 않는다.
+   */
+  setHighlight: async (folder, on) => {
+    const { settings, tasks, activeFolder } = get();
+    const cur = tasks.find((t) => t.folder === folder);
+    if (!cur || cur.highlight === on) return;
+    // 메뉴가 이미 거르지만 백엔드와 같은 규칙을 여기서도 지킨다 — 칠했다가 거절로 되감기지 않게.
+    if (on && normalizeStatus(cur.status) !== "in-progress") return;
+    const painted = { ...cur, highlight: on };
+    set({ tasks: tasks.map((t) => (t === cur ? painted : t)) });
+    try {
+      // 강조도 frontmatter 한 줄이다 — 고치던 index.md 를 먼저 내려쓰고 쓴 뒤에 맞춘다(`writeCategory` 와 같다).
+      if (folder === activeFolder) await get().saveAll();
+      await writingMeta(async () => {
+        const updated = await api.setTaskHighlight(settings.vault, folder, on);
+        set((s) => ({ tasks: s.tasks.map((t) => (t.folder === folder ? updated : t)) }));
+        await get().resyncIndexDocs([folder]);
+      });
+    } catch (e) {
+      set((s) => ({ tasks: s.tasks.map((t) => (t === painted ? cur : t)) }));
+      get().fail(e, on ? "강조하지 못했습니다" : "강조를 풀지 못했습니다");
     }
   },
 

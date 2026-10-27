@@ -417,6 +417,41 @@ svg {
 .cf-pulse-ring {
   animation: cfPulseRing 900ms ease-out 2;
 }
+/*
+ * 강조 — 업무 제목 아래 형광펜 획(`MARK`). 켜면 왼쪽에서 오른쪽으로 그어지고(screen · `--e-out`), 끄면
+ * 왼쪽으로 되감긴다(base · `--e-in`). 처음 그릴 때부터 켜져 있으면 움직이지 않는다 — 전환은 값이 바뀔
+ * 때만 돈다. 제목 칸을 글자 폭으로 줄여(`fit-content`) 획이 글자만큼만, 말줄임이면 보이는 데까지만 간다.
+ */
+.cf-mark {
+  position: relative;
+  z-index: 0;
+  width: fit-content;
+  max-width: 100%;
+}
+.cf-mark::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  left: 0;
+  right: 0;
+  top: 9px;
+  bottom: 1px;
+  border-radius: 2px;
+  background: rgba(255, 205, 64, 0.55);
+  transform: scaleX(0);
+  transform-origin: 0 50%;
+  opacity: 0;
+  transition:
+    transform var(--m-base) var(--e-in),
+    opacity var(--m-base) var(--e-in);
+}
+.cf-mark.on::before {
+  transform: none;
+  opacity: 1;
+  transition:
+    transform var(--m-screen) var(--e-out),
+    opacity var(--m-quick) linear;
+}
 /* 키보드로 닿은 행 · 칸 — 마우스로 누를 때는 테두리를 그리지 않는다. */
 .cf-focus:focus {
   outline: none;
@@ -463,6 +498,11 @@ svg {
     transition-property: opacity !important;
     transition-duration: 120ms !important;
   }
+  .cf-mark::before,
+  .cf-mark.on::before {
+    transform: none;
+    transition: opacity 120ms linear;
+  }
   [style*="pIn"],
   [style*="tIn"],
   [style*="cfPanelIn"],
@@ -485,6 +525,11 @@ svg {
 :root[data-motion="reduce"] .cf-mv {
   transition-property: opacity !important;
   transition-duration: 120ms !important;
+}
+:root[data-motion="reduce"] .cf-mark::before,
+:root[data-motion="reduce"] .cf-mark.on::before {
+  transform: none;
+  transition: opacity 120ms linear;
 }
 :root[data-motion="reduce"] [style*="pIn"],
 :root[data-motion="reduce"] [style*="tIn"],

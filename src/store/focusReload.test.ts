@@ -49,6 +49,7 @@ function task(folder: string, title: string, category: string | null = "운영")
     relFolder: `${folder.replace("/v/", "")}/`,
     indexPath: `${folder}/index.md`,
     tagline: "",
+    highlight: false,
   };
 }
 

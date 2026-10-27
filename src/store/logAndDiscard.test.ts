@@ -42,6 +42,7 @@ function task() {
     relFolder: "Tasks/[2026-09] 통화로 끝낸 일/",
     indexPath: `${FOLDER}/index.md`,
     tagline: "",
+    highlight: false,
   };
 }
 
