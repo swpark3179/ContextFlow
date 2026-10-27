@@ -193,6 +193,8 @@ describe("openCategoryHub", () => {
         title: "카테고리 허브를 열지 못했습니다",
         sub: "그 카테고리의 업무가 없습니다",
         color: TOAST.danger,
+        ms: 6000,
+        interactive: true,
       },
     ]);
   });

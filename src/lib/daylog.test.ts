@@ -6,6 +6,7 @@ import {
   parseLegacyLog,
   relocateEntries,
   removeEntry,
+  restoreEntry,
   rollDay,
   upsertEntry,
   type DayEntry,
@@ -199,5 +200,30 @@ describe("composeDiscardBody", () => {
     expect(composeDiscardBody("메모", "## 개요\r\n윈도우에서 쓴 개요\r\n")).toBe(
       "메모\n\n---\n\n윈도우에서 쓴 개요",
     );
+  });
+});
+
+describe("restoreEntry — [되돌리기]", () => {
+  it("지우기 전의 자리에 되돌린다", () => {
+    const l = log(DAY, ["a", "b", "c"]);
+    const b = l.entries[1];
+    expect(titles(restoreEntry(removeEntry(l, b.id), b, 1))).toEqual(["a", "b", "c"]);
+  });
+  it("그사이 같은 줄이 다시 올라왔으면 그대로 둔다", () => {
+    const l = log(DAY, ["a", "b"]);
+    const a = l.entries[0];
+    const again = upsertEntry(removeEntry(l, a.id), DAY, { ...a, at: "10:00" });
+    expect(restoreEntry(again, a, 0)).toBe(again);
+  });
+  it("날이 바뀐 화면에는 끼우지 않는다", () => {
+    const l = log(YESTERDAY, ["a"]);
+    const a = l.entries[0];
+    const today = rollDay(removeEntry(l, a.id), DAY);
+    expect(restoreEntry(today, a, 0)).toBe(today);
+  });
+  it("자리는 목록 끝으로 잘린다", () => {
+    const l = log(DAY, ["a", "b"]);
+    const b = l.entries[1];
+    expect(titles(restoreEntry(removeEntry(l, b.id), b, 9))).toEqual(["a", "b"]);
   });
 });

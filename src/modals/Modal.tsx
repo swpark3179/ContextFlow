@@ -1,22 +1,33 @@
-import type { CSSProperties, ReactNode } from "react";
-import { Box } from "../lib/ui";
+import { useRef, type CSSProperties, type ReactNode } from "react";
+import { Box, useExitSnapshot } from "../lib/ui";
 
-/** Shared overlay + panel chrome for every dialog in the design. */
+/**
+ * Shared overlay + panel chrome for every dialog in the design.
+ *
+ * 열릴 때는 바탕이 먼저 어두워지고 판이 아래에서 올라온다(`cfPanelIn`, 220ms). 닫힐 때는 그 반대를
+ * 짧게 돈다(`useExitSnapshot`) — 대화상자는 스토어 값이 비는 순간 사라지므로 잔상이 대신 나간다.
+ * 다른 대화상자로 이어지는 닫힘이면 `exit={false}` 로 잔상을 남기지 않는다.
+ */
 export function Modal({
   width,
   zIndex = 78,
   onClose,
   children,
   panelStyle,
+  exit = true,
 }: {
   width: number;
   zIndex?: number;
   onClose: () => void;
   children: ReactNode;
   panelStyle?: CSSProperties;
+  exit?: boolean;
 }) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  useExitSnapshot(ref, "modal", exit);
   return (
     <div
+      ref={ref}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -29,7 +40,7 @@ export function Modal({
         alignItems: "center",
         justifyContent: "center",
         zIndex,
-        animation: "fIn .12s ease-out",
+        animation: "cfFadeIn 140ms linear",
       }}
     >
       <div
@@ -43,7 +54,7 @@ export function Modal({
           display: "flex",
           flexDirection: "column",
           overflow: "hidden",
-          animation: "pIn .14s ease-out",
+          animation: "cfPanelIn 220ms cubic-bezier(.2,.8,.2,1)",
           ...panelStyle,
         }}
       >

@@ -531,7 +531,7 @@ describe("토스트 동작(action)", () => {
 
   const titles = () => useStore.getState().toasts.map((t) => t.title);
 
-  it("동작이 있으면 6초, 없으면 지금처럼 2.8초 보인다", () => {
+  it("동작이 없으면 2.8초 뒤 닫히고, 동작이 있으면 카운트다운(6초)이 닫을 때까지 남는다", () => {
     const st = useStore.getState();
     st.toast("알림");
     st.toast("바꿨습니다", "", TOAST.ok, { action: { label: "되돌리기", run: () => {} } });
@@ -540,17 +540,38 @@ describe("토스트 동작(action)", () => {
     expect(titles()).toEqual(["알림", "바꿨습니다"]);
     vi.advanceTimersByTime(1);
     expect(titles()).toEqual(["바꿨습니다"]);
-    vi.advanceTimersByTime(6000 - 2800 - 1);
+    // 동작이 있는 토스트는 스토어가 닫지 않는다 — 마우스를 올리면 멈추는 `Toasts` 의 카운트다운이 닫는다.
+    vi.advanceTimersByTime(60_000);
     expect(titles()).toEqual(["바꿨습니다"]);
-    vi.advanceTimersByTime(1);
+    const t = useStore.getState().toasts[0];
+    expect([t.ms, t.interactive]).toEqual([6000, true]);
+    useStore.getState().dropToast(t.id);
     expect(titles()).toEqual([]);
   });
 
-  it("동작이 없는 토스트에는 action 칸이 없다 — 모양이 지금과 같다", () => {
+  it("실패 토스트도 눌리고 카운트다운으로 닫힌다 — 사유를 끝까지 읽을 수 있게", () => {
+    useStore.getState().toast("저장하지 못했습니다", "긴 사유", TOAST.danger);
+    vi.advanceTimersByTime(10_000);
+    expect(useStore.getState().toasts.map((t) => [t.title, t.interactive])).toEqual([["저장하지 못했습니다", true]]);
+  });
+
+  it("동작이 없는 토스트에는 action 칸이 없다", () => {
     useStore.getState().toast("알림", "자세히", TOAST.muted);
     expect(useStore.getState().toasts).toEqual([
-      { id: expect.any(Number), title: "알림", sub: "자세히", color: TOAST.muted },
+      { id: expect.any(Number), title: "알림", sub: "자세히", color: TOAST.muted, ms: 2800, interactive: false },
     ]);
+  });
+
+  it("되돌리기 없이 닫히면 onClose 가 한 번 돈다 — 누르고 닫히면 돌지 않는다", () => {
+    const st = useStore.getState();
+    const closed: string[] = [];
+    st.toast("하나", "", TOAST.ok, { action: { label: "되돌리기", run: () => {} }, onClose: () => closed.push("하나") });
+    st.toast("둘", "", TOAST.ok, { action: { label: "되돌리기", run: () => {} }, onClose: () => closed.push("둘") });
+    const [a, b] = useStore.getState().toasts;
+    useStore.getState().dropToast(a.id);
+    useStore.getState().dropToast(a.id);
+    b.action!.run();
+    expect(closed).toEqual(["하나"]);
   });
 
   it("누르면 토스트를 먼저 닫고, 두 번 눌러도 동작은 한 번만 돈다", () => {

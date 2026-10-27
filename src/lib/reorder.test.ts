@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { reorderedList } from "./reorder";
+import { applyOrder, reorderedList } from "./reorder";
 
 const ALL = ["a", "b", "c", "d"];
 
@@ -76,5 +76,21 @@ describe("reorderedList — 카테고리 묶음 안에서", () => {
   it("다음 이웃과의 사이에 다른 묶음이 끼어 있으면 제자리라도 그 앞으로 당긴다", () => {
     // 그래서 사이드바가 묶음 안 제자리 놓기를 먼저 거른다 — 아무것도 쓰지 않게.
     expect(reorderedList(ALL2, GROUP, "a2", 1)).toEqual(["a1", "b1", "b2", "a2", "a3"]);
+  });
+});
+
+describe("applyOrder — 쓰기 전에 먼저 보이는 순서", () => {
+  const T = (f: string) => ({ folder: f });
+  it("살아 있는 업무를 새 순서로 세운다", () => {
+    const out = applyOrder([T("a"), T("b"), T("c")], ["c", "a", "b"]);
+    expect(out.map((t) => t.folder)).toEqual(["c", "a", "b"]);
+  });
+  it("순서에 없는 업무는 제 순서를 지키며 뒤로 간다", () => {
+    const out = applyOrder([T("x"), T("a"), T("y"), T("b")], ["b", "a"]);
+    expect(out.map((t) => t.folder)).toEqual(["b", "a", "x", "y"]);
+  });
+  it("같은 객체를 그대로 돌려준다 — 행이 다시 그려지지 않는다", () => {
+    const a = T("a");
+    expect(applyOrder([a], ["a"])[0]).toBe(a);
   });
 });

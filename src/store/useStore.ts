@@ -2,7 +2,7 @@ import { create } from "zustand";
 import * as api from "../lib/api";
 import type { TaskMeta, TemplateMeta, Recommendation } from "../lib/api";
 import type { FileEntry } from "../lib/tree";
-import { AI_SIGNAL_KINDS, normalizeStatus, TOAST, type AiSignalKind } from "../lib/design";
+import { AI_SIGNAL_KINDS, normalizeStatus, TOAST, TOAST_MS, UNDO_MS, type AiSignalKind } from "../lib/design";
 import { basename, daysSince, hhmm, joinPath, nowStamp, today } from "../lib/format";
 import { setImageWidth, splitFrontmatter, toggleTaskLine } from "../lib/markdown";
 import { replaceTableLines } from "../lib/mdTable";
@@ -29,12 +29,13 @@ import {
   readLegacyLog,
   relocateEntries,
   removeEntry,
+  restoreEntry,
   rollDay,
   upsertEntry,
   type DayLog,
 } from "../lib/daylog";
 import { BSTORM_EXT, seedBstorm } from "../lib/bstorm";
-import { reorderedList } from "../lib/reorder";
+import { applyOrder, reorderedList } from "../lib/reorder";
 import { keepTabs, tabKey } from "../lib/tabs";
 import { sanitizeFolderName } from "../lib/vaultPaths";
 import { templatePrefill } from "../lib/templates";
@@ -69,6 +70,16 @@ export interface Doc {
   text: string;
   /** Last text written to disk — `text !== saved` means dirty. */
   saved: string;
+}
+
+/** 문서 하나의 저장 상태(`State.docSave`). 미저장은 버퍼에서 읽는다(`text !== saved`). */
+export interface DocSave {
+  state: "saving" | "saved" | "failed";
+  /** 마지막으로 저장한 시각 `HH:MM`. 실패해도 앞 저장의 시각은 남는다. */
+  at: string;
+  error?: string;
+  /** 저장이 끝날 때마다 오른다 — 탭의 체크가 그때 한 번 튄다. */
+  n: number;
 }
 
 /** Everything restored when the user comes back to a task. */
@@ -223,6 +234,12 @@ export interface Toast {
    * 두 번 눌러도 한 번만 돈다(`toast`).
    */
   action?: ToastAction;
+  /**
+   * 떠 있는 시간(ms). 단추가 있거나 실패를 알리는 토스트는 눌리고, 마우스를 올린 동안 카운트다운이
+   * 멈추며, 닫는 것은 `Toasts` 의 카운트다운이 끝날 때다 — 스토어의 타이머가 아니다.
+   */
+  ms: number;
+  interactive: boolean;
 }
 
 export interface CtxTarget {
@@ -580,6 +597,20 @@ interface State {
   noteMin: boolean;
   todayMin: boolean;
   statusMenuOpen: boolean;
+  /**
+   * 고른 업무 — `selectTask` 가 앞 업무의 저장 · 스냅샷을 기다리는 동안에도 업무 리스트의 선택
+   * 표시가 곧바로 옮겨 가게 한다(낙관적 반영). 다 열면 비운다.
+   */
+  pendingFolder: string;
+  /** 방금 되살린 작업 맥락 — 머리의 "맥락 복원" 칩이 한 번 보인다. `n` 은 다시 열 때마다 오른다. */
+  restored: { folder: string; tabs: number; memo: boolean; n: number } | null;
+  /** 완료를 눌러 보관하는 중인 업무 — 상태 배지가 "보관하는 중" 이 되고 메뉴는 곧바로 닫힌다. */
+  completing: string;
+  /**
+   * 업무 리스트에서 막 빠지는(보관) · 다시 들어오는(되돌리기) 행. 행이 사라지거나 생기는 순간
+   * 보관함 도크와의 사이를 날아간다(`Sidebar`). 날아간 뒤 비운다.
+   */
+  fly: { folder: string; dir: "out" | "in" } | null;
 
   /**
    * **오늘** 손댄 업무들. 저장소는 Vault 밖 SQLite 이고(`src-tauri/src/daylog.rs`), 이것은
@@ -599,6 +630,11 @@ interface State {
   uiCache: Record<string, TaskUi>;
   snapAt: string;
   caret: { ln: number; col: number };
+  /**
+   * 열린 업무의 문서별 저장 상태. 탭의 점 · 상태 막대가 미저장 → 저장 중 → 저장됨(또는 실패)을
+   * 보인다. 버퍼(`Doc`)가 아니라 여기 두는 까닭은 스냅샷에 실리지 않아야 해서다. 업무를 바꾸면 비운다.
+   */
+  docSave: Record<string, DocSave>;
 
   toasts: Toast[];
   ctx: CtxTarget | null;
@@ -651,7 +687,16 @@ interface State {
 interface Actions {
   boot: () => Promise<void>;
   /** `action` 이 있으면 단추를 그리고 더 오래 보인다. */
-  toast: (title: string, sub?: string, color?: string, opts?: { action?: ToastAction }) => void;
+  /**
+   * `onClose` 는 토스트가 [되돌리기] 없이 닫힐 때 한 번 돈다 — 되돌릴 수 있는 동안 미뤄 둔 일(지운 줄의
+   * 실제 삭제 · 완료한 업무의 위키 반영)을 그때 한다.
+   */
+  toast: (
+    title: string,
+    sub?: string,
+    color?: string,
+    opts?: { action?: ToastAction; onClose?: () => void },
+  ) => void;
   dropToast: (id: number) => void;
   fail: (e: unknown, title?: string) => void;
 
@@ -666,9 +711,21 @@ interface Actions {
   selectTask: (folder: string, opts?: { keepScreen?: boolean }) => Promise<void>;
   renameTask: (folder: string, title: string) => Promise<void>;
   setStatus: (status: string) => Promise<void>;
+  /**
+   * 완료(→보관)를 되돌린다 — 보관을 풀고 완료 전 상태로 돌린 뒤 그 업무를 다시 연다. 완료 토스트의
+   * [되돌리기] 가 부른다. `folder` 는 보관된 자리('move' 면 Archive 아래)다.
+   */
+  undoComplete: (folder: string, status: string) => Promise<void>;
   /** `close` 를 생략하면 지금 열려 있는 업무일 때만 창을 닫는다. */
   /** 보관한 뒤의 업무(경로가 바뀌었을 수 있다). 실패하면 `null`. */
-  archiveNow: (folder: string, opts?: { close?: boolean }) => Promise<TaskMeta | null>;
+  /**
+   * `undoTo` 가 있으면(완료에서 왔다) 토스트에 [되돌리기] 가 붙는다. `onKept` 는 그 토스트가 되돌리기
+   * 없이 닫힌 뒤에 돈다 — 위키 반영처럼 되돌릴 수 있는 동안 미뤄 둘 일을 거기서 한다.
+   */
+  archiveNow: (
+    folder: string,
+    opts?: { close?: boolean; undoTo?: string; onKept?: (archived: TaskMeta) => void },
+  ) => Promise<TaskMeta | null>;
   restoreTask: (folder: string) => Promise<void>;
   /** [업무 삭제] 대화상자를 연다. 지울 수 있는 것은 살아 있는 업무뿐이다. */
   askDeleteTask: (folder: string) => Promise<void>;
@@ -812,8 +869,11 @@ interface Actions {
 
   /** 오늘의 한일에 이 업무를 올린다(같은 업무는 한 줄, 시각만 갱신). */
   noteToday: (folder?: string, title?: string) => void;
-  /** 기록 한 줄을 지운다. 도크의 ✕ 와 팝업이 함께 쓴다. */
-  dropEntry: (id: number) => void;
+  /**
+   * 기록 한 줄을 지운다. 도크의 ✕ 는 `undo` 로 부른다 — 6초 [되돌리기] 가 생기고 DB 에서는 그 뒤에
+   * 지운다. 앱이 스스로 지우는 줄(병합으로 접힌 업무)은 곧바로 지운다.
+   */
+  dropEntry: (id: number, opts?: { undo?: boolean }) => void;
   /** 오늘 목록에서 이 업무의 줄을 지운다. 병합으로 접힌 업무에 쓴다. */
   dropToday: (folder: string) => void;
   /** 업무 폴더 경로가 바뀐 것을 오늘의 한일에도 반영한다(과거 날짜까지). */
@@ -902,7 +962,39 @@ function categoryInput(text: string, tasks: TaskMeta[]): { value: string | null;
 }
 
 let toastSeq = 0;
-let saveTimer: number | undefined;
+/** 토스트가 되돌리기 없이 닫힐 때 할 일(`toast` 의 `onClose`). 키는 토스트 id. */
+const toastClosers = new Map<number, () => void>();
+/**
+ * 지웠지만 아직 DB 에서 지우지 않은 오늘의 한일 줄 — [되돌리기] 가 닫힐 때 지운다. 그사이 그 업무를
+ * 다시 손대 같은 줄이 돌아왔으면(`noteToday`) 여기서 빠지고 지우지 않는다.
+ */
+const pendingDrops = new Set<number>();
+/**
+ * 자동 저장 타이머 — **문서마다 하나**. 예전에는 전역 하나였고, A 를 고친 뒤 0.9초 안에 B 를 고치면
+ * A 의 저장이 취소된 채 남았다(업무를 바꾸거나 Ctrl+S 를 눌러야 내려갔다). 키 `ALL` 은 "남은 것을 모두
+ * 내려쓴다"(`resyncIndexDocs` 가 다시 거는 것)이다.
+ */
+const saveTimers = new Map<string, number>();
+const ALL = "\u0000all";
+function clearSaveTimers(path?: string): void {
+  if (path === undefined) {
+    saveTimers.forEach((t) => window.clearTimeout(t));
+    saveTimers.clear();
+    return;
+  }
+  window.clearTimeout(saveTimers.get(path));
+  saveTimers.delete(path);
+}
+function scheduleSave(path: string, run: () => void): void {
+  clearSaveTimers(path);
+  saveTimers.set(
+    path,
+    window.setTimeout(() => {
+      saveTimers.delete(path);
+      run();
+    }, 900),
+  );
+}
 let recTimer: number | undefined;
 
 /**
@@ -1231,6 +1323,10 @@ export const useStore = create<State & Actions>((set, get) => ({
   noteMin: false,
   todayMin: false,
   statusMenuOpen: false,
+  pendingFolder: "",
+  restored: null,
+  completing: "",
+  fly: null,
 
   dayLog: EMPTY_LOG,
   dayLogOpen: null,
@@ -1240,6 +1336,7 @@ export const useStore = create<State & Actions>((set, get) => ({
   uiCache: {},
   snapAt: hhmm(),
   caret: { ln: 1, col: 1 },
+  docSave: {},
 
   toasts: [],
   ctx: null,
@@ -1296,17 +1393,37 @@ export const useStore = create<State & Actions>((set, get) => ({
     const action: ToastAction | undefined = given && {
       label: given.label,
       run: () => {
-        get().dropToast(id);
         if (done) return;
         done = true;
+        get().dropToast(id);
         given.run();
       },
     };
-    set((s) => ({ toasts: [...s.toasts, { id, title, sub, color, ...(action && { action }) }] }));
-    // 단추가 있으면 읽고 누를 시간을 더 준다.
-    window.setTimeout(() => get().dropToast(id), action ? 6000 : 2800);
+    // 단추를 누르지 않고 닫혔다 — 미뤄 둔 일을 한다. 단추를 눌렀으면 `done` 이 먼저 섰다.
+    const onClose = opts.onClose;
+    if (onClose) {
+      toastClosers.set(id, () => {
+        if (done) return;
+        done = true;
+        onClose();
+      });
+    }
+    // 단추가 있으면 읽고 누를 시간을 더 준다. 실패도 그렇다 — 사유가 길어 2.8초 안에 다 읽을 수 없고,
+    // 예전에는 한 줄로 잘린 채 사라졌다. 이 둘은 눌리고(마우스를 올리면 멈추고 사유가 펼쳐진다) 닫는
+    // 것은 `Toasts` 의 카운트다운이다. 나머지는 눌리지 않는 알림이라 여기서 시간을 잰다.
+    const interactive = !!action || color === TOAST.danger;
+    const ms = interactive ? UNDO_MS : TOAST_MS;
+    set((s) => ({
+      toasts: [...s.toasts, { id, title, sub, color, ms, interactive, ...(action && { action }) }],
+    }));
+    if (!interactive) window.setTimeout(() => get().dropToast(id), ms);
   },
-  dropToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
+  dropToast: (id) => {
+    const close = toastClosers.get(id);
+    toastClosers.delete(id);
+    set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
+    close?.();
+  },
   fail: (e, title = "작업을 완료하지 못했습니다") => {
     get().toast(title, api.errMessage(e), TOAST.danger);
   },
@@ -1393,16 +1510,23 @@ export const useStore = create<State & Actions>((set, get) => ({
     // 남아 버리면, 목록에 다시 나타난 업무를 상세 화면에서 보고 있게 된다.
     if (folder === activeFolder) {
       if (!opts?.keepScreen) set({ screen: "workspace", archOpen: "" });
+      if (get().pendingFolder) set({ pendingFolder: "" });
       return;
     }
 
+    // 선택 표시는 누른 순간 옮긴다 — 앞 업무의 저장 · 스냅샷을 기다리는 동안 눌렀는지 안 눌렀는지
+    // 모르는 틈을 없앤다(`Sidebar` 가 `pendingFolder` 를 먼저 본다).
+    set({ pendingFolder: folder });
     if (activeFolder) {
       await get().saveAll();
       await get().persistSnapshot(activeFolder);
     }
+    // 기다리는 사이에 다른 업무를 눌렀다 — 그쪽 호출이 연다.
+    if (get().pendingFolder !== folder) return;
 
     // Restore from the in-memory cache first, then from disk.
     let ui = get().uiCache[folder];
+    const cached = !!ui;
     if (!ui) {
       ui = emptyUi();
       if (settings.restoreView) {
@@ -1426,9 +1550,19 @@ export const useStore = create<State & Actions>((set, get) => ({
       }
     }
 
+    // 되살린 맥락 — 탭 · 메모가 있었으면 머리에 "맥락 복원" 이 한 번 보인다. 새로 연 업무(되살릴 것이
+    // 없다)에는 띄우지 않는다.
+    const tabs = ui.openTabs.length;
+    const memo = !!ui.notepad.trim();
+    const restored = (cached || settings.restoreView) && (tabs > 0 || memo)
+      ? { folder, tabs, memo, n: (get().restored?.n ?? 0) + 1 }
+      : null;
     set({
       activeFolder: folder,
+      pendingFolder: get().pendingFolder === folder ? "" : get().pendingFolder,
       ui,
+      docSave: {},
+      restored,
       statusMenuOpen: false,
       ctx: null,
       mk: null,
@@ -1493,6 +1627,12 @@ export const useStore = create<State & Actions>((set, get) => ({
   setStatus: async (status) => {
     const { settings, activeFolder } = get();
     if (!activeFolder) return;
+    const completing = normalizeStatus(status) === "completed";
+    // [되돌리기] 가 돌아갈 상태 — 완료 직전의 것이다.
+    const before = get().tasks.find((t) => t.folder === activeFolder)?.status ?? "in-progress";
+    // 완료는 저장 · 파일 세기 · 보관까지 몇 번의 왕복이다. 메뉴는 곧바로 닫고 배지가 그동안을 보인다
+    // (`completing`) — 예전에는 메뉴가 멈춘 채 열려 있었다.
+    if (completing) set({ statusMenuOpen: false, completing: activeFolder });
     try {
       await get().saveAll();
 
@@ -1526,19 +1666,55 @@ export const useStore = create<State & Actions>((set, get) => ({
       if (normalizeStatus(status) !== "completed") await get().resyncIndexDocs([activeFolder]);
       await get().persistSnapshot(activeFolder);
       if (normalizeStatus(status) === "completed") {
-        const archived = await get().archiveNow(activeFolder, { close: true });
-        // 완료한 업무를 위키에 반영한다 — 뒤에서 돈다(창 닫기 · 목록 갱신을 기다리게 하지
-        // 않는다). [지금 보관함으로] 처럼 완료 없이 보관한 것은 여기를 지나지 않으므로 자동
-        // 반영하지 않고, 위키 화면의 "반영 대기" 에 뜬다.
-        if (archived && get().settings.wikiAuto && routeRun(useAi.getState(), "wiki.ingest")) {
-          useWiki.getState().enqueue(archived.id, archived.title);
-        }
+        // 완료한 업무를 위키에 반영한다 — 뒤에서 돈다(창 닫기 · 목록 갱신을 기다리게 하지 않는다).
+        // **[되돌리기] 가 닫힌 뒤에** 시작한다 — 되돌릴 업무를 반영해 두면 위키에 소스 페이지만 남는다.
+        // 그때도 보관된 채인지 다시 본다. [지금 보관함으로] 처럼 완료 없이 보관한 것은 여기를 지나지
+        // 않으므로 자동 반영하지 않고, 위키 화면의 "반영 대기" 에 뜬다.
+        await get().archiveNow(activeFolder, {
+          close: true,
+          undoTo: before,
+          onKept: (archived) => {
+            // 그사이 보관함에서 재개했으면 넣지 않는다.
+            const now = get().tasks.find((t) => t.id === archived.id);
+            if (now && !isArchived(now, get().settings.archDays)) return;
+            if (get().settings.wikiAuto && routeRun(useAi.getState(), "wiki.ingest")) {
+              useWiki.getState().enqueue(archived.id, archived.title);
+            }
+          },
+        });
         return;
       }
       // 바뀐 상태는 헤더의 상태 배지에 즉시 나타난다.
       await get().reloadTemplates();
     } catch (e) {
       get().fail(e, "상태를 바꾸지 못했습니다");
+    } finally {
+      if (completing && get().completing === activeFolder) set({ completing: "" });
+    }
+  },
+
+  undoComplete: async (folder, status) => {
+    const { settings } = get();
+    try {
+      // 보관을 먼저 푼다('move' 면 폴더가 Tasks/ 로 돌아온다) — 재개(`restoreTask`)와 달리 Run Log 에
+      // 줄을 남기지 않는다. 한 일이 아니라 누른 것을 되돌린 것이다. 그다음 완료 전 상태로 돌린다
+      // (`completed_at` 도 지운다).
+      const back = await api.setTaskArchived(settings.vault, folder, false, settings.archMode, false);
+      const updated = await api.setTaskStatus(settings.vault, back.folder, status);
+      await get().relocateToday(folder, updated.folder, updated.title);
+      // 행이 보관함 도크에서 목록으로 날아 돌아온다(`Sidebar`).
+      set((s) => ({
+        fly: { folder: updated.folder, dir: "in" },
+        tasks: s.tasks.map((t) => (t.folder === folder ? updated : t)),
+      }));
+      await get().resyncIndexDocs([updated.folder]);
+      await get().reloadVault("list");
+      await get().selectTask(updated.folder);
+      window.setTimeout(() => {
+        if (get().fly?.folder === updated.folder) set({ fly: null });
+      }, 900);
+    } catch (e) {
+      get().fail(e, "되돌리지 못했습니다");
     }
   },
 
@@ -1568,6 +1744,8 @@ export const useStore = create<State & Actions>((set, get) => ({
       // 'move' 는 폴더 경로를 바꾼다 — 오늘의 한일과 열어 둔 탭 캐시도 함께 옮긴다.
       await get().relocateToday(folder, updated.folder, updated.title);
       get().noteToday(updated.folder, updated.title);
+      // 행이 목록에서 빠지는 순간 보관함 도크로 날아간다(`Sidebar`) — 어디로 갔는지가 보인다.
+      if (close) set({ fly: { folder, dir: "out" } });
       set((s) => {
         const { [folder]: moved, ...rest } = s.uiCache;
         return {
@@ -1576,17 +1754,29 @@ export const useStore = create<State & Actions>((set, get) => ({
           statusMenuOpen: false,
         };
       });
+      // 완료에서 왔으면 6초 [되돌리기] — 완료는 목록에서 빼고 창까지 닫는 큰 동작인데, 잘못 누른 것을
+      // 되돌리는 길이 보관함 → 재개(Run Log 에 줄이 남는다)뿐이었다.
+      const undoTo = opts?.undoTo;
+      const onKept = opts?.onKept;
+      const extra = {
+        ...(undoTo && { action: { label: "되돌리기", run: () => void get().undoComplete(updated.folder, undoTo) } }),
+        ...(onKept && { onClose: () => onKept(updated) }),
+      };
       // 'move' 는 디스크에서 폴더를 실제로 옮긴다 — 어디로 갔는지는 화면에 나오지 않는다.
       if (settings.archMode === "move") {
-        get().toast("Archive 폴더로 이동", target?.title ?? "", TOAST.muted);
+        get().toast("Archive 폴더로 이동", target?.title ?? "", TOAST.muted, extra);
       } else if (close) {
         // 창이 닫히는 것은 보이지만, 그 업무가 어디로 갔는지는 화면에 남지 않는다.
         get().toast(
           "보관함으로 옮겼습니다",
           `${target?.title ?? ""} · 보관함에서 다시 열 수 있습니다`,
           TOAST.muted,
+          extra,
         );
-      }
+      } else onKept?.(updated);
+      window.setTimeout(() => {
+        if (get().fly?.folder === folder) set({ fly: null });
+      }, 900);
       if (close) get().closeTask();
       // 보관 표시도 index.md 에 쓰인다. 캐시에 남은 버퍼가 보관함에서 다시 열었을 때 그것을
       // 되돌리지 않게 맞춘다.
@@ -1984,8 +2174,7 @@ export const useStore = create<State & Actions>((set, get) => ({
     const prev = ui.docs[path] ?? { text: "", saved: "" };
     get().setUi({ docs: { ...ui.docs, [path]: { ...prev, text } } });
     // Debounced write-through; Ctrl+S and task switches flush immediately.
-    window.clearTimeout(saveTimer);
-    saveTimer = window.setTimeout(() => void get().saveDoc(path), 900);
+    scheduleSave(path, () => void get().saveDoc(path));
   },
 
   /**
@@ -2069,6 +2258,13 @@ export const useStore = create<State & Actions>((set, get) => ({
       const { activeFolder, ui } = get();
       const doc = ui.docs[path];
       if (!activeFolder || !doc || doc.text === doc.saved) return;
+      const mark = (patch: Partial<DocSave>) => {
+        // 쓰는 사이에 다른 업무로 넘어갔으면 그 업무의 표시를 건드리지 않는다.
+        if (get().activeFolder !== activeFolder) return;
+        const was = get().docSave[path] ?? { state: "saved" as const, at: "", n: 0 };
+        set({ docSave: { ...get().docSave, [path]: { ...was, error: undefined, ...patch } } });
+      };
+      mark({ state: "saving" });
       try {
         await api.writeTextFile(joinPath(activeFolder, path), doc.text);
         const cur = get().ui;
@@ -2076,6 +2272,7 @@ export const useStore = create<State & Actions>((set, get) => ({
         get().setUi({ docs: { ...cur.docs, [path]: { text: now.text, saved: doc.text } } });
         pass();
         set({ snapAt: hhmm() });
+        mark({ state: "saved", at: hhmm(), n: (get().docSave[path]?.n ?? 0) + 1 });
         // 파일이 실제로 쓰였다 — 오늘의 한일에서 가장 흔한 입구다.
         get().noteToday(activeFolder);
         // index.md carries the frontmatter, so its metadata may have changed.
@@ -2087,7 +2284,10 @@ export const useStore = create<State & Actions>((set, get) => ({
           if (gen === metaGen && !metaWrite) set({ tasks });
         }
       } catch (e) {
-        get().fail(e, "저장하지 못했습니다");
+        mark({ state: "failed", error: api.errMessage(e) });
+        // 열린 탭이면 그 탭과 상태 막대가 실패를 계속 보인다([다시 시도]) — 토스트는 탭이 없는
+        // 버퍼(닫은 탭 · 캔버스 밖)일 때만 띄운다.
+        if (!get().ui.openTabs.some((t) => t.path === path)) get().fail(e, "저장하지 못했습니다");
       }
     } finally {
       pass();
@@ -2097,7 +2297,7 @@ export const useStore = create<State & Actions>((set, get) => ({
   },
 
   saveAll: async () => {
-    window.clearTimeout(saveTimer);
+    clearSaveTimers();
     const paths = Object.keys(get().ui.docs);
     for (const p of paths) await get().saveDoc(p);
   },
@@ -2125,7 +2325,7 @@ export const useStore = create<State & Actions>((set, get) => ({
         if (folder === get().activeFolder) {
           if (!get().ui.docs["index.md"]) continue;
           // 걸려 있던 자동 저장은 맞춘 뒤로 미룬다 — 읽는 사이에 터지면 낡은 버퍼를 쓴다.
-          window.clearTimeout(saveTimer);
+          clearSaveTimers();
           try {
             const disk = await api.readTextFile(joinPath(folder, "index.md"));
             // 읽는 사이에 친 글자도 살린다 — 버퍼는 읽은 **뒤의** 것을 쓴다.
@@ -2135,8 +2335,7 @@ export const useStore = create<State & Actions>((set, get) => ({
           } finally {
             // 다시 건다. 어느 문서의 저장이었는지는 모르니, 고치던 것이 남았으면 전부 내려쓴다.
             if (Object.values(get().ui.docs).some((d) => d.text !== d.saved)) {
-              window.clearTimeout(saveTimer);
-              saveTimer = window.setTimeout(() => void get().saveAll(), 900);
+              scheduleSave(ALL, () => void get().saveAll());
             }
           }
           continue;
@@ -2214,7 +2413,7 @@ export const useStore = create<State & Actions>((set, get) => ({
           // 고치던 글은 버리지 않는다 — 저장하면 옛 자리에 다시 생긴다는 것을 알린다. 걸려 있던 자동
           // 저장은 끄고, 아래 3) 의 index.md 맞추기도 건너뛴다(그 끝이 자동 저장을 다시 건다) — 사용자가
           // 손대지 않았는데 지운 폴더가 저절로 되살아나지 않게.
-          window.clearTimeout(saveTimer);
+          clearSaveTimers();
           orphaned = true;
           get().toast(
             "업무 폴더를 찾을 수 없습니다",
@@ -2222,7 +2421,7 @@ export const useStore = create<State & Actions>((set, get) => ({
             TOAST.warn,
           );
         } else {
-          window.clearTimeout(saveTimer);
+          clearSaveTimers();
           set((s) => {
             const { [folder]: _gone, ...rest } = s.uiCache;
             return { uiCache: rest };
@@ -2527,6 +2726,9 @@ export const useStore = create<State & Actions>((set, get) => ({
     const liveSet = new Set(live);
     const next = reorderedList(live, (scope ?? live).filter((f) => liveSet.has(f)), folder, at);
     if (!next) return;
+    // 손을 뗀 순간 새 순서를 먼저 보인다 — 쓰기가 끝나면 돌아온 목록으로 바꾸고, 실패하면 되돌린다.
+    const shown = applyOrder(tasks, next);
+    set({ tasks: shown });
     try {
       // 쓰는 중인 index.md 저장을 먼저 끝낸다. 게이트(`writingMeta`)는 그 뒤에 시작하는 저장만 붙들고,
       // 저장은 블로킹 풀에서 돌아 순서 쓰기와 엇갈리면 친 글자나 순서 중 하나를 잃는다(`writeCategory` 와 같다).
@@ -2541,6 +2743,8 @@ export const useStore = create<State & Actions>((set, get) => ({
         );
       });
     } catch (e) {
+      // 그사이 다른 일이 목록을 바꾸지 않았으면 보이던 순서로 되돌린다.
+      if (get().tasks === shown) set({ tasks });
       get().fail(e, "순서를 바꾸지 못했습니다");
     }
   },
@@ -3051,16 +3255,42 @@ export const useStore = create<State & Actions>((set, get) => ({
     const day = today();
     void api
       .noteDayEntry(get().settings.vault, day, hhmm(), target, name, null)
-      .then((row) => set({ dayLog: upsertEntry(get().dayLog, day, row) }))
+      .then((row) => {
+        // 지운 줄을 되돌리기 시간 안에 다시 손댔다 — 그 줄은 돌아왔으니 DB 에서 지우지 않는다.
+        pendingDrops.delete(row.id);
+        set({ dayLog: upsertEntry(get().dayLog, day, row) });
+      })
       .catch(() => {
         // 기록을 못 남긴 것으로 앱이 멈추지는 않는다. 토스트도 띄우지 않는다 —
         // 파일을 저장할 때마다 경고가 뜨는 앱이 되면 그것이 더 큰 고장이다.
       });
   },
 
-  dropEntry: (id) => {
-    set({ dayLog: removeEntry(get().dayLog, id) });
-    void api.removeDayEntry(id).catch((e) => get().fail(e, "기록을 지우지 못했습니다"));
+  dropEntry: (id, opts) => {
+    const log = get().dayLog;
+    const at = log.entries.findIndex((e) => e.id === id);
+    const entry = log.entries[at];
+    set({ dayLog: removeEntry(log, id) });
+    const remove = () => void api.removeDayEntry(id).catch((e) => get().fail(e, "기록을 지우지 못했습니다"));
+    if (!opts?.undo || !entry) {
+      remove();
+      return;
+    }
+    // 확인을 묻지 않는 대신 6초 동안 되돌릴 수 있다. DB 에서는 그 뒤에 지운다 — 되돌리기가 DB 왕복 없이
+    // 화면만 되돌리면 되고, 그사이 앱이 꺼져도 잃는 것이 없다(줄이 남을 뿐이다).
+    pendingDrops.add(id);
+    get().toast("기록 한 줄을 지웠습니다", `${entry.title} · ${entry.at}`, TOAST.muted, {
+      action: {
+        label: "되돌리기",
+        run: () => {
+          pendingDrops.delete(id);
+          set({ dayLog: restoreEntry(get().dayLog, entry, at) });
+        },
+      },
+      onClose: () => {
+        if (pendingDrops.delete(id)) remove();
+      },
+    });
   },
 
   /**

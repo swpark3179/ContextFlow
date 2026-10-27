@@ -295,6 +295,14 @@ export function extStyle(ext: string): { fg: string; bg: string } {
 }
 
 /** Toast accents used across the design's `toast(...)` calls. */
+/**
+ * [되돌리기] 를 누를 수 있는 시간 — 토스트의 카운트다운 · 미뤄 둔 삭제 · 미뤄 둔 위키 반영이 같은
+ * 값을 쓴다. 마우스를 올린 동안은 카운트다운이 멈추므로 실제로는 그보다 길 수 있다.
+ */
+export const UNDO_MS = 6000;
+/** 단추 없는 토스트가 떠 있는 시간. */
+export const TOAST_MS = 2800;
+
 export const TOAST = {
   info: "#6a9ff0",
   ok: "#5fbf8d",
