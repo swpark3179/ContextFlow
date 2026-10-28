@@ -27,6 +27,17 @@ export const TEXT = {
   warn: "#8f5d17",
 } as const;
 
+/**
+ * 강조 — 업무 리스트에서 진행 중인 업무를 "지금 먼저" 로 칠하는 형광펜. 파랑(조작) · 초록(완료) · 주황(보류 ·
+ * 미저장) · 보라(AI) 어느 뜻과도 겹치지 않게 노랑이다. 제목 아래 깔리는 획 자체는 `global.css` 의 `.cf-mark`
+ * 가 그린다 — 반투명이라 고른 행의 흰 알약 위에서도, 사이드바 바탕 위에서도 같은 색으로 읽힌다. 여기 값은
+ * 메뉴 배지처럼 면으로 쓰는 자리용이다(`ink` 는 `soft` 위에서 5.5:1).
+ */
+export const MARK = {
+  soft: "#fff1bf",
+  ink: "#7a5c00",
+} as const;
+
 /** AI 신호 점의 모양 — 설정(`settings.aiSignal`)에서 고르고 `AiSignal`(`lib/ui.tsx`)이 그린다. */
 export type AiSignalKind = "pulse" | "dots" | "orbit";
 

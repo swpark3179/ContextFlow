@@ -7,6 +7,7 @@ import Toasts from "./components/Toasts";
 import ContextMenu from "./components/ContextMenu";
 import TabMenu from "./components/TabMenu";
 import CategoryMenu from "./components/CategoryMenu";
+import TaskMenu from "./components/TaskMenu";
 import Workspace from "./screens/Workspace";
 import Templates from "./screens/Templates";
 import Archive from "./screens/Archive";
@@ -171,6 +172,7 @@ export default function App() {
         else if (st.ctx) st.set({ ctx: null });
         else if (st.tabCtx) st.set({ tabCtx: null });
         else if (st.catCtx) st.set({ catCtx: null });
+        else if (st.taskCtx) st.set({ taskCtx: null });
         else if (st.mk) st.set({ mk: null });
         else if (st.fileRen) st.set({ fileRen: null });
         else if (st.del) st.set({ del: null });
@@ -357,6 +359,7 @@ export default function App() {
       <ContextMenu />
       <TabMenu />
       <CategoryMenu />
+      <TaskMenu />
       <DeleteModal />
       <TaskDeleteModal />
       <ImportModal />

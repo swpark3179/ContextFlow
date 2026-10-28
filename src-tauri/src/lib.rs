@@ -170,6 +170,12 @@ fn set_task_status(root: String, folder: String, status: String) -> Result<vault
     vault::set_status(&p(&root), &p(&folder), &status)
 }
 
+/// 업무 리스트의 강조. 켜기는 진행 중인 업무에만 받는다(`vault::set_highlight`).
+#[tauri::command]
+fn set_task_highlight(root: String, folder: String, on: bool) -> Result<vault::TaskMeta> {
+    vault::set_highlight(&p(&root), &p(&folder), on)
+}
+
 #[tauri::command]
 fn append_task_run(root: String, folder: String, text: String) -> Result<vault::TaskMeta> {
     vault::append_run(&p(&root), &p(&folder), &text)
@@ -793,6 +799,7 @@ pub fn run() {
             create_task,
             rename_task,
             set_task_status,
+            set_task_highlight,
             append_task_run,
             reorder_tasks,
             clear_task_order,

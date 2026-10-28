@@ -53,6 +53,7 @@ function task() {
     relFolder: "Tasks/[2026-09] 배포 정리/",
     indexPath: "",
     tagline: "",
+    highlight: false,
   };
 }
 

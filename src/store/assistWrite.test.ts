@@ -35,6 +35,7 @@ function task(folder = FOLDER) {
     relFolder: `Tasks/${folder.split("/").pop()}/`,
     indexPath: `${folder}/index.md`,
     tagline: "",
+    highlight: false,
   };
 }
 

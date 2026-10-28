@@ -30,6 +30,7 @@ function task(over: Record<string, unknown> = {}) {
     relFolder: "Tasks/[2026-09] 배포 정리/",
     indexPath: `${FOLDER}/index.md`,
     tagline: "",
+    highlight: false,
     ...over,
   };
 }

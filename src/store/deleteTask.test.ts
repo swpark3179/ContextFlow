@@ -43,6 +43,7 @@ function task(folder: string, title: string, over: Partial<TaskMeta> = {}): Task
     relFolder: `Tasks/${folder.split("/").pop()}/`,
     indexPath: `${folder}/index.md`,
     tagline: "",
+    highlight: false,
     ...over,
   };
 }

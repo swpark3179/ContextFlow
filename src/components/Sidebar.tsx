@@ -723,6 +723,10 @@ interface TaskPress {
  *
  * 선택 표시(흰 바탕 · 왼쪽 띠)는 행이 아니라 목록의 알약 하나가 그린다(`Sidebar`) — 고른 행으로
  * 미끄러져 간다. 끄는 동안 이 행은 손을 따라 떠오르고(`lift`), 이웃 행은 자리를 비켜 준다(`shift`).
+ *
+ * 강조한 업무는 제목 아래 형광펜 획이 깔린다(`.cf-mark`) — 켜고 끌 때 그어지고 되감긴다. 진행 중일 때만
+ * 칠한다: 보류 중에 남은 `highlight` 는 획이 되감긴 채 쉬고, 다시 진행하면 그어진다. 우클릭은 업무 메뉴
+ * (`TaskMenu`)를 연다.
  */
 function TaskRow({
   task: t,
@@ -742,6 +746,7 @@ function TaskRow({
   sortable,
   startPress,
   onClick,
+  onMenu,
 }: {
   task: TaskMeta;
   /** 지금 열려 있는(또는 막 고른) 업무. */
@@ -773,8 +778,11 @@ function TaskRow({
   sortable: boolean;
   startPress: (e: React.PointerEvent, press: TaskPress) => void;
   onClick: () => void;
+  onMenu: (e: React.MouseEvent) => void;
 }) {
   const cfg = statusOf(t.status);
+  const live = normalizeStatus(t.status) === "in-progress";
+  const marked = live && t.highlight;
   const ref = useRef<HTMLDivElement | null>(null);
   // 보관 · 되돌리기로 목록을 떠나고 들어오는 순간 보관함 도크와의 사이를 난다(`fly`).
   useLayoutEffect(() => {
@@ -797,12 +805,19 @@ function TaskRow({
       role="option"
       aria-selected={on}
       tabIndex={focusable ? 0 : -1}
-      title={sortable ? `${t.title}\n1초 길게 눌러 옮기기 · Alt+↑↓` : t.title}
+      title={[
+        t.title,
+        sortable && "1초 길게 눌러 옮기기 · Alt+↑↓",
+        live && (marked ? "강조됨 · 우클릭으로 해제" : "우클릭으로 강조"),
+      ]
+        .filter(Boolean)
+        .join("\n")}
       className={flash ? "cf-mv cf-focus cf-flash" : "cf-mv cf-focus"}
       onPointerDown={(e) => {
         if (sortable) startPress(e, { folder: t.folder, group });
       }}
       onClick={onClick}
+      onContextMenu={onMenu}
       style={{
         position: "relative",
         zIndex: dragging ? 3 : undefined,
@@ -837,6 +852,7 @@ function TaskRow({
       </div>
       <div style={{ minWidth: 0, flex: 1 }}>
         <div
+          className={marked ? "cf-mark on" : "cf-mark"}
           style={{
             fontSize: 13,
             lineHeight: "17px",
@@ -1307,6 +1323,12 @@ export default function Sidebar() {
   const pick = (folder: string) => {
     if (justDropped()) return;
     void s.selectTask(folder);
+  };
+  // 업무 행 우클릭 — 카테고리 머리와 같은 까닭으로 끄는 중 · 놓은 직후는 무시하고, 웹뷰 기본 메뉴는 늘 막는다.
+  const openTaskMenu = (e: React.MouseEvent, folder: string) => {
+    e.preventDefault();
+    if (drag || justDropped()) return;
+    s.set({ taskCtx: { x: e.clientX, y: e.clientY, folder } });
   };
   // 사이드바 버튼 · 카테고리 머리 행의 ＋ 가 같은 빈 칸으로 연다(카테고리만 다르다).
   const openNew = (category?: string) =>
@@ -1944,6 +1966,7 @@ export default function Sidebar() {
                   sortable={sortable}
                   startPress={startPress}
                   onClick={() => pick(t.folder)}
+                  onMenu={(e) => openTaskMenu(e, t.folder)}
                 />
               );
             })}
@@ -2003,6 +2026,7 @@ export default function Sidebar() {
                 sortable={sortable}
                 startPress={startPress}
                 onClick={() => pick(t.folder)}
+                onMenu={(e) => openTaskMenu(e, t.folder)}
               />
             );
           })}

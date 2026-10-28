@@ -55,6 +55,7 @@ function task(n: number, over: Partial<TaskMeta> = {}): TaskMeta {
     relFolder: `Tasks/[2026-09] 업무 ${n}/`,
     indexPath: `${folder}/index.md`,
     tagline: "",
+    highlight: false,
     ...over,
   };
 }

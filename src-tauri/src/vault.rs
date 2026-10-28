@@ -42,6 +42,9 @@ pub struct TaskMeta {
     /// 사용자가 끌어 정한 자리. `None` = 아직 손대지 않았다는 뜻이고, 그때는 `updated`
     /// 내림차순이라는 예전 규칙이 그대로 적용된다(`scan` 참고).
     pub order: Option<i64>,
+    /// 업무 리스트의 강조(`highlight: true`). **진행 중일 때만 뜻이 있다** — 보류 중에는 키가 남아도
+    /// 칠하지 않고(다시 진행하면 그대로 보인다), 완료 · 보관하면 지운다(`set_status` · `set_archived`).
+    pub highlight: bool,
     /// Absolute path to the task folder.
     pub folder: String,
     /// Vault-relative folder path, e.g. `Tasks/[2026-08] 제목/`.
@@ -223,6 +226,7 @@ pub fn read_task(root: &Path, index_path: &Path) -> Result<TaskMeta> {
         archived_at: doc.get_str("archived_at"),
         runs: doc.get_u32("runs").unwrap_or_else(|| count_run_log(&doc.body).max(1)),
         order: doc.get_i64("order"),
+        highlight: doc.get_bool("highlight").unwrap_or(false),
         folder: folder.to_string_lossy().to_string(),
         rel_folder,
         index_path: index_path.to_string_lossy().to_string(),
@@ -699,6 +703,9 @@ pub fn set_status(root: &Path, folder: &Path, status: &str) -> Result<TaskMeta> 
         doc.set("status", status);
         if status == "completed" {
             doc.set("completed_at", today());
+            // 강조는 "지금 먼저 할 일" 이다 — 끝낸 일의 노트에 남길 값이 아니다. 완료를 [되돌리기] 하면
+            // 부르는 쪽이 다시 켠다(`undoComplete`).
+            doc.remove("highlight");
         } else {
             // Reopening clears the completion date and un-archives.
             doc.remove("completed_at");
@@ -706,6 +713,32 @@ pub fn set_status(root: &Path, folder: &Path, status: &str) -> Result<TaskMeta> 
             doc.remove("archived_at");
         }
     })
+}
+
+/// 업무 리스트의 강조를 켜고 끈다. 켜면 `highlight: true`, 끄면 키를 지운다 — `false` 를 적어 두면
+/// 한 번이라도 켰던 노트마다 뜻 없는 줄이 남는다.
+///
+/// **켜기는 진행 중인 업무에만 받는다.** 끝낸 일 · 멈춘 일을 "지금 먼저" 로 칠할 수는 없다. 끄기는
+/// 상태와 상관없이 받는다 — Obsidian 에서 손으로 남긴 키를 지우는 길이기도 하다.
+///
+/// `order` · 카테고리와 같이 `updated` 를 올리지 않는다. 표시를 바꾼 것은 업무를 작업한 것이 아니다.
+pub fn set_highlight(root: &Path, folder: &Path, on: bool) -> Result<TaskMeta> {
+    if on {
+        let cur = read_task(root, &folder.join("index.md"))?;
+        // 옛 vault 의 `reopened` 는 진행 중으로 접는다(`normalizeStatus` 와 같다).
+        let live = matches!(cur.status.as_str(), "in-progress" | "reopened");
+        if !live || cur.archived == Some(true) {
+            return Err(AppError::new("invalid", "진행 중인 업무만 강조할 수 있습니다."));
+        }
+    }
+    edit_index_inner(root, folder, false, |doc| {
+        if on {
+            doc.set("highlight", "true");
+        } else {
+            doc.remove("highlight");
+        }
+    })
+    .map(|(meta, _)| meta)
 }
 
 /// Run Log 에 한 줄 적고 `runs` 를 맞춘다.
@@ -740,6 +773,9 @@ pub fn set_archived(
         doc.set("archived", if archived { "true" } else { "false" });
         if archived {
             doc.set("archived_at", today());
+            // 완료 없이 보관해도([지금 보관함으로] · 병합의 원본) 목록을 떠난다 — 재개했을 때 옛 강조가
+            // 되살아나지 않게 여기서도 지운다.
+            doc.remove("highlight");
         } else {
             doc.remove("archived_at");
             if reopen_note {
@@ -1007,8 +1043,9 @@ pub fn absorb_task(
     // 그것이 더 큰 사고다. 사유만 남기고 지나간다.
     if let Err(e) = edit_index_inner(root, &dest, true, |doc| {
         doc.set("parent_task", &target_meta.id);
-        // `order` 는 업무 리스트의 자리다 — 목록에 서지 않는 노트가 들고 있을 값이 아니다.
+        // `order` · `highlight` 는 업무 리스트의 자리 · 표시다 — 목록에 서지 않는 노트가 들고 있을 값이 아니다.
         doc.remove("order");
+        doc.remove("highlight");
         record_run(doc, &stamp, &format!("'{}' 에 편입", target_meta.title));
     }) {
         eprintln!("[vault] 편입된 노트를 갱신하지 못했습니다: {}", e);
@@ -1794,6 +1831,69 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn highlight_toggles_one_key_without_touching_updated() {
+        let v = TempVault::new("highlight");
+        let a = make(v.path(), "가");
+        assert!(!a.highlight);
+        let index = Path::new(&a.folder).join("index.md");
+        let before = fs::read_to_string(&index).unwrap();
+        assert!(!before.contains("highlight:"), "새 업무에는 키가 없다");
+
+        let on = set_highlight(v.path(), Path::new(&a.folder), true).unwrap();
+        assert!(on.highlight);
+        // 표시를 바꾼 것은 작업한 것이 아니다 — "마지막 작업 시각" 은 그대로다.
+        assert_eq!(on.updated, a.updated);
+        assert!(fs::read_to_string(&index).unwrap().contains("highlight: true"));
+        assert!(scan(v.path()).unwrap()[0].highlight, "다시 읽어도 켜져 있다");
+
+        // 끄면 `false` 를 남기지 않고 키를 지운다 — 노트가 켜기 전과 바이트 단위로 같다.
+        let off = set_highlight(v.path(), Path::new(&a.folder), false).unwrap();
+        assert!(!off.highlight);
+        assert_eq!(fs::read_to_string(&index).unwrap(), before);
+    }
+
+    #[test]
+    fn only_a_task_in_progress_can_be_highlighted() {
+        let v = TempVault::new("highlight-held");
+        let a = make(v.path(), "가");
+        set_status(v.path(), Path::new(&a.folder), "on-hold").unwrap();
+        let err = set_highlight(v.path(), Path::new(&a.folder), true).unwrap_err();
+        assert!(err.to_string().contains("진행 중인 업무만"), "{err}");
+        // 끄기는 상태와 상관없이 받는다.
+        assert!(!set_highlight(v.path(), Path::new(&a.folder), false).unwrap().highlight);
+
+        // 옛 vault 의 `reopened` 는 진행 중이다.
+        set_field(&a.folder, "status", "reopened");
+        assert!(set_highlight(v.path(), Path::new(&a.folder), true).unwrap().highlight);
+    }
+
+    #[test]
+    fn holding_keeps_the_highlight_but_completing_or_archiving_drops_it() {
+        let v = TempVault::new("highlight-life");
+        let a = make(v.path(), "가");
+        let b = make(v.path(), "나");
+        set_highlight(v.path(), Path::new(&a.folder), true).unwrap();
+        set_highlight(v.path(), Path::new(&b.folder), true).unwrap();
+
+        // 보류는 잠시 멈춘 것이다 — 키는 남고(화면이 칠하지 않을 뿐) 다시 진행하면 그대로다.
+        let held = set_status(v.path(), Path::new(&a.folder), "on-hold").unwrap();
+        assert!(held.highlight);
+        assert!(set_status(v.path(), Path::new(&a.folder), "in-progress").unwrap().highlight);
+
+        // 완료하면 지운다.
+        let done = set_status(v.path(), Path::new(&a.folder), "completed").unwrap();
+        assert!(!done.highlight);
+        let body = fs::read_to_string(Path::new(&a.folder).join("index.md")).unwrap();
+        assert!(!body.contains("highlight:"), "{body}");
+
+        // 완료 없이 보관해도 지운다 — 재개했을 때 옛 강조가 되살아나지 않는다.
+        let kept = set_archived(v.path(), Path::new(&b.folder), true, "tag", false).unwrap();
+        assert!(!kept.highlight);
+        let back = set_archived(v.path(), Path::new(&b.folder), false, "tag", true).unwrap();
+        assert!(!back.highlight);
+    }
+
+    #[test]
     fn counts_only_the_run_log_section() {
         let body = "## 실행 이력 (Run Log)\n- a · 1\n- b · 2\n\n## 다른 섹션\n- c · 3\n";
         assert_eq!(count_run_log(body), 2);
@@ -2549,6 +2649,7 @@ pub(crate) mod tests {
             &[child.folder.clone(), parent.folder.clone()],
         )
         .unwrap();
+        set_highlight(v.path(), Path::new(&child.folder), true).unwrap();
 
         let res =
             absorb_task(v.path(), Path::new(&child.folder), Path::new(&parent.folder), None)
@@ -2557,8 +2658,9 @@ pub(crate) mod tests {
         let note = Path::new(&res.task.folder).join(&res.rel).join("index.md");
         let doc = Doc::parse(&fs::read_to_string(&note).unwrap());
         assert_eq!(doc.get_str("parent_task").as_deref(), Some(parent.id.as_str()));
-        // 목록에 서지 않는 노트가 업무 리스트의 자리를 들고 있을 이유가 없다.
+        // 목록에 서지 않는 노트가 업무 리스트의 자리 · 강조를 들고 있을 이유가 없다.
         assert_eq!(doc.get_i64("order"), None);
+        assert_eq!(doc.get("highlight"), None);
         assert!(doc.body.contains("'정산 통합' 에 편입"), "{}", doc.body);
     }
 

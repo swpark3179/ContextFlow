@@ -42,6 +42,7 @@ function task(folder: string, title: string, category: string | null, archived =
     relFolder: `${folder.replace("/v/", "")}/`,
     indexPath: `${folder}/index.md`,
     tagline: "",
+    highlight: false,
   };
 }
 

@@ -40,6 +40,7 @@ function task(folder: string, title: string) {
     relFolder: `${folder.replace("/v/", "")}/`,
     indexPath: `${folder}/index.md`,
     tagline: "",
+    highlight: false,
   };
 }
 
